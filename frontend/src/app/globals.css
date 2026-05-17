@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+:root {
+  --background: #faf6f0;
+  --foreground: #2a150d;
+  --accent: #d18d0e;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-body-sans);
+  --font-mono: var(--font-body-mono);
+  --font-display-serif: var(--font-display-serif);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body-sans), sans-serif;
+}
+
+a {
+  text-decoration: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, white);
+  color: var(--foreground);
+}
+
+.login-paper {
+  background:
+    radial-gradient(circle at 50% 24%, rgba(241, 221, 186, 0.18), transparent 17rem),
+    radial-gradient(circle at 12% 38%, rgba(235, 212, 173, 0.18), transparent 16rem),
+    radial-gradient(circle at 88% 36%, rgba(235, 212, 173, 0.18), transparent 16rem),
+    linear-gradient(180deg, #faf7f2 0%, #fbf8f3 50%, #f8f3ec 100%);
+}

@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: dll347-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dll347_db
+      POSTGRES_USER: plughub
+      POSTGRES_PASSWORD: Cablet0w
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

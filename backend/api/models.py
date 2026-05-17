@@ -1,0 +1,117 @@
+from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
+from django.contrib.auth.hashers import check_password, identify_hasher, make_password
+from django.contrib.auth.models import PermissionsMixin
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.utils import timezone
+
+
+class AccountManager(BaseUserManager):
+    def create_user(
+        self,
+        email: str,
+        password: str | None = None,
+        **extra_fields,
+    ):
+        if not email:
+            raise ValueError("An email address is required.")
+
+        email = self.normalize_email(email).lower()
+        extra_fields.setdefault("is_active", True)
+        extra_fields.setdefault("is_staff", False)
+        extra_fields.setdefault("is_superuser", False)
+        extra_fields.setdefault(Account.ROLE_FIELD, Account.Role.MEMBER)
+
+        if (
+            extra_fields.get(Account.ROLE_FIELD) == Account.Role.DEVELOPER
+            and not extra_fields.get("is_superuser", False)
+        ):
+            raise ValueError("The developer role is reserved for full-access superusers.")
+
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email: str, password: str, **extra_fields):
+        extra_fields.setdefault("is_active", True)
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        extra_fields.setdefault(Account.ROLE_FIELD, Account.Role.DEVELOPER)
+
+        if extra_fields["is_staff"] is not True:
+            raise ValueError("Superuser must have is_staff=True.")
+
+        if extra_fields["is_superuser"] is not True:
+            raise ValueError("Superuser must have is_superuser=True.")
+
+        return self.create_user(email=email, password=password, **extra_fields)
+
+
+class Account(AbstractBaseUser, PermissionsMixin):
+    class Role(models.TextChoices):
+        MEMBER = "member", "Member"
+        SECRETARY = "secretary", "Secretary"
+        ADMINISTRATOR = "administrator", "Administrator"
+        DEVELOPER = "developer", "Developer"
+
+    ROLE_FIELD = "role"
+
+    email = models.EmailField(unique=True)
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.MEMBER)
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = AccountManager()
+
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS: list[str] = []
+
+    class Meta:
+        db_table = "accounts"
+        ordering = ["id"]
+
+    def __str__(self) -> str:
+        return self.email
+
+    def clean(self) -> None:
+        super().clean()
+
+        if self.role == self.Role.DEVELOPER and not self.is_superuser:
+            raise ValidationError(
+                {"role": "The developer role is reserved for full-access superusers."}
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class PreidentifiedEmail(models.Model):
+    email = models.EmailField(unique=True)
+    default_password = models.CharField(max_length=255)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "preidentified_emails"
+        ordering = ["id"]
+
+    def __str__(self) -> str:
+        return self.email
+
+    def set_default_password(self, raw_password: str) -> None:
+        self.default_password = make_password(raw_password)
+
+    def check_default_password(self, raw_password: str) -> bool:
+        return check_password(raw_password, self.default_password)
+
+    def save(self, *args, **kwargs):
+        try:
+            identify_hasher(self.default_password)
+        except Exception:
+            self.default_password = make_password(self.default_password)
+
+        return super().save(*args, **kwargs)

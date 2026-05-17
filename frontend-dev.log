@@ -1,0 +1,24 @@
+
+> frontend@0.1.0 dev
+> next dev --webpack
+
+▲ Next.js 16.2.6 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.56.1:3000
+- Environments: .env.local
+✓ Ready in 1880ms
+> [PWA] PWA support is disabled
+> [PWA] PWA support is disabled
+
+○ Compiling /manifest.webmanifest ...
+ HEAD / 200 in 44ms (next.js: 7ms, application-code: 36ms)
+ HEAD /manifest.webmanifest 200 in 9ms (next.js: 3ms, application-code: 6ms)
+ HEAD /manifest.webmanifest 200 in 1614ms (next.js: 1449ms, application-code: 166ms)
+ HEAD / 200 in 1833ms (next.js: 1424ms, application-code: 409ms)
+ GET / 200 in 95ms (next.js: 17ms, application-code: 78ms)
+ GET /dashboard 200 in 3.2s (next.js: 3.1s, application-code: 116ms)
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+ GET / 200 in 62ms (next.js: 24ms, application-code: 38ms)
+ GET /dashboard 200 in 60ms (next.js: 6ms, application-code: 53ms)
+ GET /dashboard 200 in 255ms (next.js: 177ms, application-code: 78ms)
+ GET /dashboard 200 in 169ms (next.js: 105ms, application-code: 65ms)
