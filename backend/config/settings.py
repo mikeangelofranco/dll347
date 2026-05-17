@@ -44,6 +44,7 @@ DEFAULT_FROM_EMAIL = os.getenv(
     "Datu Lapu-Lapu Masonic Lodge No. 347 <no-reply@dll347.org>",
 )
 PASSWORD_RESET_LINK_EXPIRY_MINUTES = int(os.getenv("PASSWORD_RESET_LINK_EXPIRY_MINUTES", "60"))
+STATIC_ROOT = os.getenv("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles"))
 
 INSTALLED_APPS = [
     "corsheaders",

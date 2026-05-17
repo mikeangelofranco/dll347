@@ -12,6 +12,13 @@ import {
 } from "@/lib/api";
 import { ThemedLoader } from "@/components/themed-loader";
 
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
+
+const INSTALL_PROMPT_DISMISSED_KEY = "dll347_install_prompt_dismissed_v1";
+
 function MailIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
@@ -141,6 +148,21 @@ function Divider() {
       <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-current" />
       <span className="h-px w-18 bg-current/90 sm:w-24" />
     </div>
+  );
+}
+
+function SparkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+      <path
+        d="M12 2.75 13.9 8.1 19.25 10 13.9 11.9 12 17.25 10.1 11.9 4.75 10 10.1 8.1 12 2.75Z"
+        fill="currentColor"
+      />
+      <path
+        d="M18.4 15.4 19 17.2l1.8.6-1.8.6-.6 1.8-.6-1.8-1.8-.6 1.8-.6.6-1.8Z"
+        fill="currentColor"
+      />
+    </svg>
   );
 }
 
@@ -288,6 +310,71 @@ function FieldShell({
   );
 }
 
+function InstallPromptCard({
+  open,
+  isIos,
+  isCompact,
+  isLoading,
+  onInstall,
+  onDismiss,
+}: {
+  open: boolean;
+  isIos: boolean;
+  isCompact: boolean;
+  isLoading: boolean;
+  onInstall: () => void;
+  onDismiss: () => void;
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="absolute inset-x-4 top-4 z-30 sm:inset-x-auto sm:right-6 sm:top-6 sm:w-[21rem]">
+      <div className="rounded-[1.25rem] border border-[#f3dfb6] bg-[linear-gradient(180deg,rgba(255,251,244,0.97)_0%,rgba(252,246,237,0.97)_100%)] p-3 shadow-[0_18px_36px_rgba(122,88,24,0.16)] backdrop-blur-[12px]">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_30%,#ffefb9_0%,#dfa21a_55%,#b67d0e_100%)] text-white shadow-[0_10px_18px_rgba(176,128,16,0.24)]">
+            <SparkIcon />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p className={`font-semibold leading-none text-[#24130d] ${isCompact ? "text-[0.88rem]" : "text-[0.95rem]"}`}>
+              Install DLL347
+            </p>
+            <p
+              className={`mt-1 text-[#665b55] ${
+                isCompact ? "text-[0.74rem] leading-4.5" : "text-[0.82rem] leading-5"
+              }`}
+            >
+              {isIos
+                ? "Add DLL347 to your home screen for a cleaner app experience. On iPhone or iPad, use Share then Add to Home Screen."
+                : "Install DLL347 for faster access and a cleaner full-app experience on your phone."}
+            </p>
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onInstall}
+                disabled={isLoading}
+                className="inline-flex h-9 items-center justify-center rounded-full bg-[linear-gradient(180deg,#cb0000_0%,#b00000_100%)] px-4 text-[0.78rem] font-semibold text-white shadow-[0_10px_20px_rgba(176,0,0,0.16)] disabled:opacity-75"
+              >
+                {isIos ? "Show Steps" : isLoading ? "Opening..." : "Install App"}
+              </button>
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="inline-flex h-9 items-center justify-center rounded-full px-3 text-[0.78rem] font-semibold text-[#7a6e67]"
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function LoginScreen() {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "setup-password" | "forgot-password">("login");
@@ -311,6 +398,18 @@ export function LoginScreen() {
     "regular",
   );
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(
+    null,
+  );
+  const [isInstallPromptOpen, setIsInstallPromptOpen] = useState(false);
+  const [isInstallPromptLoading, setIsInstallPromptLoading] = useState(false);
+  const isIosInstallHint =
+    typeof window !== "undefined" &&
+    /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase()) &&
+    !(
+      window.matchMedia("(display-mode: standalone)").matches ||
+      Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone)
+    );
 
   useEffect(() => {
     function updateViewportMode() {
@@ -332,6 +431,56 @@ export function LoginScreen() {
     return () => {
       window.removeEventListener("resize", updateViewportMode);
       window.visualViewport?.removeEventListener("resize", updateViewportMode);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
+
+    if (isStandalone) {
+      return;
+    }
+
+    if (window.localStorage.getItem(INSTALL_PROMPT_DISMISSED_KEY) === "1") {
+      return;
+    }
+
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
+    function openPromptAfterDelay() {
+      window.setTimeout(() => {
+        setIsInstallPromptOpen(true);
+      }, 900);
+    }
+
+    function handleBeforeInstallPrompt(event: Event) {
+      event.preventDefault();
+      setInstallPromptEvent(event as BeforeInstallPromptEvent);
+      openPromptAfterDelay();
+    }
+
+    function handleAppInstalled() {
+      setIsInstallPromptOpen(false);
+      setInstallPromptEvent(null);
+      window.localStorage.setItem(INSTALL_PROMPT_DISMISSED_KEY, "1");
+    }
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    if (isIosDevice) {
+      openPromptAfterDelay();
+    }
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
     };
   }, []);
 
@@ -405,6 +554,37 @@ export function LoginScreen() {
     }
   }
 
+  async function handleInstallPromptAction() {
+    if (isIosInstallHint) {
+      return;
+    }
+
+    if (!installPromptEvent) {
+      return;
+    }
+
+    setIsInstallPromptLoading(true);
+
+    try {
+      await installPromptEvent.prompt();
+      const result = await installPromptEvent.userChoice;
+      if (result.outcome === "accepted") {
+        setIsInstallPromptOpen(false);
+        window.localStorage.setItem(INSTALL_PROMPT_DISMISSED_KEY, "1");
+      }
+    } finally {
+      setInstallPromptEvent(null);
+      setIsInstallPromptLoading(false);
+    }
+  }
+
+  function dismissInstallPrompt() {
+    setIsInstallPromptOpen(false);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(INSTALL_PROMPT_DISMISSED_KEY, "1");
+    }
+  }
+
   return (
     <main className="login-paper relative isolate h-[100svh] overflow-hidden px-4 pb-3 pt-4 text-[#2b160d] sm:px-6 sm:pb-5 sm:pt-6">
       <StatusModal
@@ -418,6 +598,16 @@ export function LoginScreen() {
           <ThemedLoader size="md" />
         </div>
       ) : null}
+      <InstallPromptCard
+        open={mode === "login" && isInstallPromptOpen}
+        isIos={isIosInstallHint}
+        isCompact={isCompactHeight}
+        isLoading={isInstallPromptLoading}
+        onInstall={() => {
+          void handleInstallPromptAction();
+        }}
+        onDismiss={dismissInstallPrompt}
+      />
       <BackgroundSymbols />
 
       <div

@@ -25,7 +25,7 @@ Passwords and secrets are not stored in this file. Use the credentials you alrea
 - `https://dll347.org/api/...` -> Nginx reverse proxy to Django
 
 ### Private / Local Only
-- Django Gunicorn: `127.0.0.1:8000`
+- Django Gunicorn: `127.0.0.1:8001`
 - Next.js app server: `127.0.0.1:3000`
 - PostgreSQL: `127.0.0.1:5432`
 
@@ -47,7 +47,7 @@ Important:
 - Framework: Django
 - Project Module: `config`
 - Production API origin: `https://dll347.org/api/`
-- Internal bind: `127.0.0.1:8000`
+- Internal bind: `127.0.0.1:8001`
 - Service Name: `dll347-backend.service`
 
 ### Database
@@ -180,6 +180,18 @@ Recommended destination on Windows:
 C:\Users\Dell Latitude 5350\OneDrive\Desktop\build\
 ```
 
+Use the checked-in build script:
+
+### Frontend
+```powershell
+python scripts/make_deploy_zip.py --target frontend --output "C:\Users\Dell Latitude 5350\OneDrive\Desktop\build\dll347_frontend_build.zip"
+```
+
+### Backend
+```powershell
+python scripts/make_deploy_zip.py --target backend --output "C:\Users\Dell Latitude 5350\OneDrive\Desktop\build\dll347_backend_build.zip"
+```
+
 ## Upload
 
 ### Frontend
@@ -273,53 +285,29 @@ npm run build
 ## systemd Services
 
 ### Backend service
-Create:
+Checked-in template:
 
-```bash
-sudo nano /etc/systemd/system/dll347-backend.service
+```text
+deploy/dll347-backend.service
 ```
 
-```ini
-[Unit]
-Description=DLL347 Django Backend
-After=network.target
+Install with:
 
-[Service]
-User=ubuntu
-Group=ubuntu
-WorkingDirectory=/srv/dll347/backend
-EnvironmentFile=/srv/dll347/backend/.env
-ExecStart=/srv/dll347/backend/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
+```bash
+sudo cp deploy/dll347-backend.service /etc/systemd/system/dll347-backend.service
 ```
 
 ### Frontend service
-Create:
+Checked-in template:
 
-```bash
-sudo nano /etc/systemd/system/dll347-frontend.service
+```text
+deploy/dll347-frontend.service
 ```
 
-```ini
-[Unit]
-Description=DLL347 Next.js Frontend
-After=network.target
+Install with:
 
-[Service]
-User=ubuntu
-Group=ubuntu
-WorkingDirectory=/srv/dll347/frontend
-Environment=NODE_ENV=production
-ExecStart=/usr/bin/npm run start -- --hostname 127.0.0.1 --port 3000
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
+```bash
+sudo cp deploy/dll347-frontend.service /etc/systemd/system/dll347-frontend.service
 ```
 
 Enable and start:
@@ -334,76 +322,16 @@ sudo systemctl restart dll347-frontend.service
 
 ## Nginx Config
 
-Create:
+Checked-in template:
 
-```bash
-sudo nano /etc/nginx/sites-available/dll347
+```text
+deploy/nginx-dll347.conf
 ```
 
-Use:
+Install with:
 
-```nginx
-server {
-    listen 80;
-    server_name dll347.org www.dll347.org;
-    return 301 https://dll347.org$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name www.dll347.org;
-    return 301 https://dll347.org$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name dll347.org;
-
-    ssl_certificate /etc/letsencrypt/live/dll347.org/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/dll347.org/privkey.pem;
-
-    client_max_body_size 20M;
-
-    location /_next/static/ {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-    }
-
-    location /sw.js {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-    }
-
-    location /manifest.webmanifest {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000/api/;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    location /static/ {
-        alias /srv/dll347/backend/staticfiles/;
-    }
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_cache_bypass $http_upgrade;
-    }
-}
+```bash
+sudo cp deploy/nginx-dll347.conf /etc/nginx/sites-available/dll347
 ```
 
 Enable:
@@ -461,7 +389,7 @@ curl https://dll347.org/api/health/
 
 ### Backend locally on server
 ```bash
-curl http://127.0.0.1:8000/api/health/
+curl http://127.0.0.1:8001/api/health/
 ```
 
 ### Manifest
@@ -528,5 +456,5 @@ The main production rule is:
 
 Use:
 - browser/public: `https://dll347.org`
-- server-internal backend: `127.0.0.1:8000`
+- server-internal backend: `127.0.0.1:8001`
 - server-internal frontend: `127.0.0.1:3000`

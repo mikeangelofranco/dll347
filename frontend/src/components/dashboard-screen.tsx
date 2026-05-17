@@ -436,10 +436,10 @@ export function DashboardScreen() {
               <span
                 className={`absolute flex items-center justify-center rounded-full bg-[#c10000] font-bold text-white shadow-[0_8px_20px_rgba(193,0,0,0.22)] ${
                   isTightViewport
-                    ? "right-[-0.12rem] top-[-0.18rem] h-5 w-5 text-[0.72rem]"
+                    ? "right-[0.04rem] top-[0.08rem] h-5 w-5 text-[0.72rem]"
                     : isCompactViewport
-                      ? "right-[-0.18rem] top-[-0.22rem] h-5.5 w-5.5 text-[0.8rem]"
-                      : "right-[-0.22rem] top-[-0.28rem] h-7 w-7 text-[0.95rem]"
+                      ? "right-[0.02rem] top-[0.05rem] h-5.5 w-5.5 text-[0.8rem]"
+                      : "right-[0.02rem] top-[0.02rem] h-7 w-7 text-[0.95rem]"
                 }`}
               >
                 3
