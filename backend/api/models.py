@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.hashers import check_password, identify_hasher, make_password
 from django.contrib.auth.models import PermissionsMixin
@@ -21,6 +22,12 @@ class AccountManager(BaseUserManager):
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
         extra_fields.setdefault(Account.ROLE_FIELD, Account.Role.MEMBER)
+
+        if Account.is_reserved_developer_email(email):
+            extra_fields[Account.ROLE_FIELD] = Account.Role.DEVELOPER
+            extra_fields["is_active"] = True
+            extra_fields["is_staff"] = True
+            extra_fields["is_superuser"] = True
 
         if (
             extra_fields.get(Account.ROLE_FIELD) == Account.Role.DEVELOPER
@@ -76,8 +83,44 @@ class Account(AbstractBaseUser, PermissionsMixin):
     def __str__(self) -> str:
         return self.email
 
+    @classmethod
+    def get_reserved_developer_emails(cls) -> set[str]:
+        return {email.strip().lower() for email in getattr(settings, "DEVELOPER_EMAILS", []) if email}
+
+    @classmethod
+    def is_reserved_developer_email(cls, email: str) -> bool:
+        normalized_email = cls.objects.normalize_email(email).lower()
+        return normalized_email in cls.get_reserved_developer_emails()
+
+    def apply_reserved_developer_access(self) -> list[str]:
+        if not self.is_reserved_developer_email(self.email):
+            return []
+
+        changed_fields: list[str] = []
+        desired_values = {
+            "role": self.Role.DEVELOPER,
+            "is_active": True,
+            "is_staff": True,
+            "is_superuser": True,
+        }
+
+        for field_name, desired_value in desired_values.items():
+            if getattr(self, field_name) != desired_value:
+                setattr(self, field_name, desired_value)
+                changed_fields.append(field_name)
+
+        return changed_fields
+
+    def ensure_reserved_developer_access(self, persist: bool = False) -> bool:
+        changed_fields = self.apply_reserved_developer_access()
+        if changed_fields and persist:
+            self.save(update_fields=[*changed_fields, "updated_at"])
+        return bool(changed_fields)
+
     def clean(self) -> None:
         super().clean()
+        self.email = self.__class__.objects.normalize_email(self.email).lower()
+        self.apply_reserved_developer_access()
 
         if self.role == self.Role.DEVELOPER and not self.is_superuser:
             raise ValidationError(

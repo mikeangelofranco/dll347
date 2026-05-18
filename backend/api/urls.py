@@ -6,6 +6,7 @@ from .views import (
     forgot_password_view,
     healthcheck,
     login_view,
+    preidentified_emails_view,
     reset_password_view,
     logout_view,
     setup_password_view,
@@ -24,4 +25,5 @@ urlpatterns = [
     path("auth/setup-password/", setup_password_view, name="setup-password"),
     path("auth/logout/", logout_view, name="logout"),
     path("auth/me/", current_account_view, name="current-account"),
+    path("preidentified-emails/", preidentified_emails_view, name="preidentified-emails"),
 ]

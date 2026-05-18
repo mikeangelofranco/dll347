@@ -53,6 +53,19 @@ export type LogoutResponse = {
   message: string;
 };
 
+export type PreidentifiedEmailRecord = {
+  id: number;
+  email: string;
+  default_password: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SavePreidentifiedEmailResponse = {
+  message: string;
+  record: PreidentifiedEmailRecord;
+};
+
 export type ApiErrorResponse = {
   code?: string;
   message?: string;
@@ -248,4 +261,19 @@ export async function getCurrentAccount(): Promise<CurrentAccountResponse> {
 export async function logoutCurrentSession(): Promise<LogoutResponse> {
   await prepareSessionCsrf();
   return apiPost<LogoutResponse>("/auth/logout/");
+}
+
+export async function getPreidentifiedEmails(): Promise<PreidentifiedEmailRecord[]> {
+  return apiGet<PreidentifiedEmailRecord[]>("/preidentified-emails/");
+}
+
+export async function savePreidentifiedEmail(
+  email: string,
+  password: string,
+): Promise<SavePreidentifiedEmailResponse> {
+  await prepareSessionCsrf();
+  return apiPost<SavePreidentifiedEmailResponse>("/preidentified-emails/", {
+    email,
+    password,
+  });
 }

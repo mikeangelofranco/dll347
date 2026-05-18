@@ -8,11 +8,14 @@ from rest_framework.response import Response
 
 from .auth_tokens import build_password_reset_token, build_password_reset_url
 from .email_service import EmailDeliveryError, send_password_reset_email
-from .models import Account
+from .models import Account, PreidentifiedEmail
+from .permissions import IsDeveloper
 from .serializers import (
     AccountSerializer,
     LoginSerializer,
     PasswordSetupSerializer,
+    PreidentifiedEmailSerializer,
+    PreidentifiedEmailUpsertSerializer,
     ResetTokenValidationSerializer,
     ResetPasswordSerializer,
 )
@@ -85,6 +88,7 @@ def login_view(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
+    account.ensure_reserved_developer_access(persist=True)
     login(request, account)
 
     return Response(
@@ -224,4 +228,25 @@ def logout_view(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def current_account_view(request):
+    request.user.ensure_reserved_developer_access(persist=True)
     return Response(AccountSerializer(request.user).data, status=status.HTTP_200_OK)
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated, IsDeveloper])
+def preidentified_emails_view(request):
+    if request.method == "GET":
+        records = PreidentifiedEmail.objects.all().order_by("email")
+        return Response(PreidentifiedEmailSerializer(records, many=True).data, status=status.HTTP_200_OK)
+
+    serializer = PreidentifiedEmailUpsertSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    record, created = serializer.save()
+
+    return Response(
+        {
+            "message": "Preidentified email saved successfully.",
+            "record": PreidentifiedEmailSerializer(record).data,
+        },
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )

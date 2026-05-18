@@ -45,6 +45,13 @@ DEFAULT_FROM_EMAIL = os.getenv(
 )
 PASSWORD_RESET_LINK_EXPIRY_MINUTES = int(os.getenv("PASSWORD_RESET_LINK_EXPIRY_MINUTES", "60"))
 STATIC_ROOT = os.getenv("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles"))
+DEVELOPER_EMAILS = [
+    item.lower()
+    for item in get_list_env(
+        "DJANGO_DEVELOPER_EMAILS",
+        "mikeangelofranco@outlook.com,mikeangelofranco@outllook.com",
+    )
+]
 
 INSTALLED_APPS = [
     "corsheaders",

@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from unittest.mock import patch
 
@@ -64,6 +64,18 @@ class AccountModelTests(TestCase):
 
         self.assertNotEqual(record.default_password, "dll347")
         self.assertTrue(record.check_default_password("dll347"))
+
+    @override_settings(DEVELOPER_EMAILS=["mikeangelofranco@outlook.com"])
+    def test_reserved_developer_email_is_promoted_on_create(self):
+        user = get_user_model().objects.create_user(
+            email="MikeAngeloFranco@Outlook.com",
+            password="StrongPass123!",
+        )
+
+        self.assertEqual(user.role, "developer")
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)
+        self.assertTrue(user.is_active)
 
 
 class AuthApiTests(TestCase):
@@ -288,3 +300,114 @@ class AuthApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         follow_up = self.client.get(reverse("api:current-account"))
         self.assertEqual(follow_up.status_code, 403)
+
+    @override_settings(DEVELOPER_EMAILS=["mikeangelofranco@outlook.com"])
+    def test_login_promotes_reserved_developer_account(self):
+        reserved_user = get_user_model().objects.create_user(
+            email="mikeangelofranco@outlook.com",
+            password="StrongPass123!",
+        )
+        get_user_model().objects.filter(pk=reserved_user.pk).update(
+            role="member",
+            is_staff=False,
+            is_superuser=False,
+        )
+
+        response = self.client.post(
+            reverse("api:login"),
+            {"email": reserved_user.email, "password": "StrongPass123!"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["account"]["role"], "developer")
+        reserved_user.refresh_from_db()
+        self.assertTrue(reserved_user.is_staff)
+        self.assertTrue(reserved_user.is_superuser)
+
+    @override_settings(DEVELOPER_EMAILS=["mikeangelofranco@outlook.com"])
+    def test_current_account_promotes_reserved_developer_account(self):
+        reserved_user = get_user_model().objects.create_user(
+            email="mikeangelofranco@outlook.com",
+            password="StrongPass123!",
+        )
+        get_user_model().objects.filter(pk=reserved_user.pk).update(
+            role="member",
+            is_staff=False,
+            is_superuser=False,
+        )
+        self.client.force_login(reserved_user)
+
+        response = self.client.get(reverse("api:current-account"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["role"], "developer")
+        reserved_user.refresh_from_db()
+        self.assertTrue(reserved_user.is_staff)
+        self.assertTrue(reserved_user.is_superuser)
+
+
+class PreidentifiedEmailAdminApiTests(TestCase):
+    def setUp(self):
+        self.developer = get_user_model().objects.create_superuser(
+            email="developer@dll347.org",
+            password="StrongPass123!",
+        )
+        self.member = get_user_model().objects.create_user(
+            email="member2@dll347.org",
+            password="StrongPass123!",
+            role="member",
+            is_staff=False,
+        )
+
+    def test_preidentified_emails_requires_authentication(self):
+        response = self.client.get(reverse("api:preidentified-emails"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_preidentified_emails_requires_developer_role(self):
+        self.client.force_login(self.member)
+
+        response = self.client.get(reverse("api:preidentified-emails"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_developer_can_list_preidentified_emails(self):
+        PreidentifiedEmail.objects.create(email="zeta@dll347.org", default_password="dll347")
+        PreidentifiedEmail.objects.create(email="alpha@dll347.org", default_password="dll347")
+        self.client.force_login(self.developer)
+
+        response = self.client.get(reverse("api:preidentified-emails"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual([item["email"] for item in payload], ["alpha@dll347.org", "zeta@dll347.org"])
+        self.assertTrue(all(item["default_password"] == "dll347" for item in payload))
+
+    def test_developer_can_save_preidentified_email(self):
+        self.client.force_login(self.developer)
+
+        response = self.client.post(
+            reverse("api:preidentified-emails"),
+            {"email": "pending@dll347.org", "password": "dll347"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        record = PreidentifiedEmail.objects.get(email="pending@dll347.org")
+        self.assertTrue(record.check_default_password("dll347"))
+        self.assertEqual(response.json()["record"]["default_password"], "dll347")
+
+    def test_developer_save_updates_existing_preidentified_email(self):
+        PreidentifiedEmail.objects.create(email="pending@dll347.org", default_password="OldPass123!")
+        self.client.force_login(self.developer)
+
+        response = self.client.post(
+            reverse("api:preidentified-emails"),
+            {"email": "pending@dll347.org", "password": "dll347"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        record = PreidentifiedEmail.objects.get(email="pending@dll347.org")
+        self.assertTrue(record.check_default_password("dll347"))

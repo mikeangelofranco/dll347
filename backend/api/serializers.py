@@ -129,3 +129,39 @@ class ResetTokenValidationSerializer(serializers.Serializer):
 
         attrs["account"] = account
         return attrs
+
+
+class PreidentifiedEmailSerializer(serializers.ModelSerializer):
+    default_password = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PreidentifiedEmail
+        fields = ("id", "email", "default_password", "created_at", "updated_at")
+
+    def get_default_password(self, obj: PreidentifiedEmail) -> str:
+        return "dll347"
+
+
+class PreidentifiedEmailUpsertSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(
+        trim_whitespace=False,
+        required=False,
+        allow_blank=True,
+        default="dll347",
+    )
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+    def validate_password(self, value: str) -> str:
+        return value or "dll347"
+
+    def save(self, **kwargs) -> tuple[PreidentifiedEmail, bool]:
+        email = self.validated_data["email"]
+        password = self.validated_data["password"]
+
+        instance, created = PreidentifiedEmail.objects.get_or_create(email=email)
+        instance.set_default_password(password)
+        instance.save()
+        return instance, created
