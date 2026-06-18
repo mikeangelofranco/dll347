@@ -4,7 +4,15 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Account, LodgeActivity, MemberDatabaseRecord, MemberPositionHeld, PreidentifiedEmail
+from .models import (
+    Account,
+    LodgeActivity,
+    LodgeDocument,
+    MemberDatabaseRecord,
+    MemberPositionHeld,
+    PreidentifiedEmail,
+    TreasurerReportSummary,
+)
 
 
 def json_cell_value(item):
@@ -179,6 +187,56 @@ class LodgeActivitySerializer(serializers.ModelSerializer):
             "ends_at",
             "status",
         )
+
+
+class TreasurerReportSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TreasurerReportSummary
+        fields = (
+            "report_month",
+            "report_year",
+            "previous_report_date",
+            "cash_balance_last_report",
+            "cash_received_month",
+            "cash_to_date",
+            "cash_disbursements",
+            "remaining_cash",
+            "general_fund",
+            "specific_purpose_funds",
+            "other_sources",
+            "grand_lodge_account",
+            "other_account",
+            "raw_values",
+        )
+
+
+class LodgeDocumentSerializer(serializers.ModelSerializer):
+    category_label = serializers.CharField(source="get_category_display", read_only=True)
+    file_url = serializers.SerializerMethodField()
+    treasurer_summary = TreasurerReportSummarySerializer(read_only=True)
+
+    class Meta:
+        model = LodgeDocument
+        fields = (
+            "id",
+            "category",
+            "category_label",
+            "original_filename",
+            "content_type",
+            "size_bytes",
+            "notes",
+            "file_url",
+            "extraction_status",
+            "extraction_errors",
+            "treasurer_summary",
+            "created_at",
+            "updated_at",
+        )
+
+    def get_file_url(self, obj: LodgeDocument) -> str:
+        request = self.context.get("request")
+        url = obj.file.url
+        return request.build_absolute_uri(url) if request is not None else url
 
 
 class AccountSerializer(serializers.ModelSerializer):

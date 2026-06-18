@@ -15,11 +15,13 @@ type MemberDashboardScreenProps = {
   initialTab?: MemberDashboardTab;
   onDashboardClose?: () => void;
   onProfileClose?: () => void;
+  onDocumentsOpen?: () => void;
 };
 
 type MemberDashboardTab = "dashboard" | "more";
 type MemberDashboardView = "home" | "profile" | "members";
 type MemberSheetName = "appendant" | "positions" | "activity";
+type SecretaryNavItemId = "dashboard" | "profile" | "documents" | "more";
 
 type CropState = {
   zoom: number;
@@ -103,6 +105,10 @@ function HomeIcon() {
   return <Icon className="h-5.5 w-5.5"><path d="m4 10.5 8-6.5 8 6.5v9a1.5 1.5 0 0 1-1.5 1.5h-4.2v-6.3H9.7V21H5.5A1.5 1.5 0 0 1 4 19.5v-9Z" fill="currentColor" /></Icon>;
 }
 
+function FolderIcon() {
+  return <Icon className="h-5.5 w-5.5"><path d="M3.5 7.4A2.4 2.4 0 0 1 5.9 5h4.2l2 2.2h6A2.4 2.4 0 0 1 20.5 9.6v7A2.4 2.4 0 0 1 18.1 19H5.9a2.4 2.4 0 0 1-2.4-2.4V7.4Z" fill="currentColor" /></Icon>;
+}
+
 function DotsIcon() {
   return <Icon className="h-5.5 w-5.5"><circle cx="5" cy="12" r="1.7" fill="currentColor" /><circle cx="12" cy="12" r="1.7" fill="currentColor" /><circle cx="19" cy="12" r="1.7" fill="currentColor" /></Icon>;
 }
@@ -157,6 +163,13 @@ const memberListFilters: { key: MemberGroupKey; label: string; heading: string; 
 const navItems = [
   { id: "dashboard" as const, label: "Dashboard", icon: <HomeIcon /> },
   { id: "more" as const, label: "More", icon: <DotsIcon /> },
+];
+
+const secretaryNavItems: { id: SecretaryNavItemId; label: string; icon: ReactNode }[] = [
+  { id: "dashboard", label: "Dashboard", icon: <HomeIcon /> },
+  { id: "profile", label: "My Profile", icon: <PersonIcon /> },
+  { id: "documents", label: "Documents", icon: <FolderIcon /> },
+  { id: "more", label: "More", icon: <DotsIcon /> },
 ];
 
 const appendantBodyDetails: Record<string, { name: string; subtitle: string; logoPath: string }> = {
@@ -498,6 +511,7 @@ export function MemberDashboardScreen({
   initialTab = "dashboard",
   onDashboardClose,
   onProfileClose,
+  onDocumentsOpen,
 }: MemberDashboardScreenProps) {
   const isProfileOnly = initialView === "profile";
   const usesSecretaryNav = onDashboardClose !== undefined || onProfileClose !== undefined;
@@ -1014,11 +1028,31 @@ export function MemberDashboardScreen({
           </div>
 
           <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
-            <div className="grid grid-cols-2 gap-1">
-              {navItems.map((item) => {
-                const isActive = activeTab === item.id;
+            <div className={`grid gap-1 ${usesSecretaryNav ? "grid-cols-4" : "grid-cols-2"}`}>
+              {(usesSecretaryNav ? secretaryNavItems : navItems).map((item) => {
+                const isActive = usesSecretaryNav ? item.id === activeTab : activeTab === item.id;
                 return (
-                  <button key={item.label} type="button" onClick={() => closeMembersList(item.id)} className={`flex flex-col items-center gap-1 ${isActive ? "text-[#d00000]" : "text-[#716a66]"}`}>
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      if (usesSecretaryNav) {
+                        if (item.id === "dashboard") {
+                          closeMembersList("dashboard");
+                        } else if (item.id === "profile") {
+                          setActiveView("home");
+                          void openFullProfile();
+                        } else if (item.id === "documents") {
+                          onDocumentsOpen?.();
+                        } else {
+                          closeMembersList("more");
+                        }
+                        return;
+                      }
+                      closeMembersList(item.id === "more" ? "more" : "dashboard");
+                    }}
+                    className={`flex flex-col items-center gap-1 ${isActive ? "text-[#d00000]" : "text-[#716a66]"}`}
+                  >
                     {item.icon}<span className="text-[0.55rem] font-medium sm:text-[0.62rem]">{item.label}</span><span className={`h-[0.12rem] w-8 rounded-full ${isActive ? "bg-[#d00000]" : "bg-transparent"}`} />
                   </button>
                 );
@@ -1162,15 +1196,8 @@ export function MemberDashboardScreen({
           </div>
 
           <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
-            <div className={`grid gap-1 ${usesSecretaryNav ? "grid-cols-3" : "grid-cols-2"}`}>
-              {(usesSecretaryNav
-                ? [
-                    { id: "dashboard" as const, label: "Dashboard", icon: <HomeIcon /> },
-                    { id: "profile" as const, label: "My Profile", icon: <PersonIcon /> },
-                    { id: "more" as const, label: "More", icon: <DotsIcon /> },
-                  ]
-                : navItems
-              ).map((item) => {
+            <div className={`grid gap-1 ${usesSecretaryNav ? "grid-cols-4" : "grid-cols-2"}`}>
+              {(usesSecretaryNav ? secretaryNavItems : navItems).map((item) => {
                 const isActive = usesSecretaryNav ? item.id === "profile" : activeTab === item.id;
                 return (
                   <button
@@ -1182,6 +1209,8 @@ export function MemberDashboardScreen({
                           (onDashboardClose ?? onProfileClose)?.();
                         } else if (item.id === "profile") {
                           void openFullProfile();
+                        } else if (item.id === "documents") {
+                          onDocumentsOpen?.();
                         } else {
                           setActiveView("home");
                           setActiveTab("more");
@@ -1417,15 +1446,8 @@ export function MemberDashboardScreen({
         </div>
 
         <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
-          <div className={`grid gap-1 ${usesSecretaryNav ? "grid-cols-3" : "grid-cols-2"}`}>
-            {(usesSecretaryNav
-              ? [
-                  { id: "dashboard" as const, label: "Dashboard", icon: <HomeIcon /> },
-                  { id: "profile" as const, label: "My Profile", icon: <PersonIcon /> },
-                  { id: "more" as const, label: "More", icon: <DotsIcon /> },
-                ]
-              : navItems
-            ).map((item) => {
+          <div className={`grid gap-1 ${usesSecretaryNav ? "grid-cols-4" : "grid-cols-2"}`}>
+            {(usesSecretaryNav ? secretaryNavItems : navItems).map((item) => {
               const isActive = usesSecretaryNav ? item.id === activeTab || (item.id === "profile" && activeView === "profile") : activeTab === item.id;
               return (
                 <button
@@ -1437,6 +1459,8 @@ export function MemberDashboardScreen({
                         (onDashboardClose ?? onProfileClose)?.();
                       } else if (item.id === "profile") {
                         void openFullProfile();
+                      } else if (item.id === "documents") {
+                        onDocumentsOpen?.();
                       } else {
                         setActiveView("home");
                         setActiveTab("more");

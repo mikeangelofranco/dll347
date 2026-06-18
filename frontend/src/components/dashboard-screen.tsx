@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { ThemedLoader } from "@/components/themed-loader";
+import { DocumentsScreen } from "@/components/documents-screen";
 import { MemberDashboardScreen } from "@/components/member-dashboard-screen";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
 import { timeBasedGreeting } from "@/lib/greeting";
@@ -27,7 +28,7 @@ import {
   MemberFullProfile,
 } from "@/lib/api";
 
-type SecretaryDashboardView = "home" | "members" | "profile" | "more";
+type SecretaryDashboardView = "home" | "members" | "profile" | "documents" | "more";
 type SecretarySheetName = "activity";
 const calendarAddedStoragePrefix = "dll347-calendar-added-activity-";
 
@@ -202,6 +203,22 @@ function MoneyCircleIcon() {
   );
 }
 
+function TrendArrowIcon({ direction }: { direction: "up" | "down" | "flat" }) {
+  if (direction === "flat") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
+        <path d="M5 12h14" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={`h-4 w-4 ${direction === "down" ? "rotate-90" : ""}`}>
+      <path d="M6 18 18 6M10 6h8v8" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />
+    </svg>
+  );
+}
+
 function CheckStatusIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6">
@@ -244,6 +261,17 @@ function ProfileIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5.5 w-5.5">
       <circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
       <path d="M5.5 19a6.5 6.5 0 0 1 13 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+    </svg>
+  );
+}
+
+function FolderIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5.5 w-5.5">
+      <path
+        d="M3.5 7.4A2.4 2.4 0 0 1 5.9 5h4.2l2 2.2h6A2.4 2.4 0 0 1 20.5 9.6v7A2.4 2.4 0 0 1 18.1 19H5.9a2.4 2.4 0 0 1-2.4-2.4V7.4Z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
@@ -314,7 +342,20 @@ const emptyDashboardSummary: SecretaryDashboardSummaryResponse = {
   },
   finances: {
     percent: 0,
-    status: "Coming soon",
+    status: "No Treasurer report yet",
+    has_data: false,
+    report_month: null,
+    report_year: null,
+    report_period_label: null,
+    source_date: null,
+    cash_accountability: null,
+    cash_to_date: null,
+    cash_outflow: null,
+    remaining_cash: null,
+    cash_to_date_trend: null,
+    cash_outflow_trend: null,
+    net_trend: null,
+    net_direction: "flat",
   },
   attendance: {
     average_count: 0,
@@ -407,6 +448,41 @@ function buildHealthRows(summary: SecretaryDashboardSummaryResponse) {
       icon: <CalendarIcon />,
     },
   ];
+}
+
+function formatPesoAmount(value: string | null): string {
+  const amount = Number(value ?? 0);
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function trendDisplay(value: number | null): string {
+  if (value === null) {
+    return "0.0%";
+  }
+  return `${Math.abs(value).toFixed(1)}%`;
+}
+
+function trendDirection(value: number | null): "up" | "down" | "flat" {
+  if (value === null || value === 0) {
+    return "flat";
+  }
+  return value > 0 ? "up" : "down";
+}
+
+function formatSourceDate(value: string | null): string {
+  if (!value) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
 }
 
 const secretaryMemberGroups: { key: MemberGroupKey; label: string; color: string; icon: ReactNode }[] = [
@@ -564,9 +640,10 @@ function memberGroupIcon(group: MemberGroupKey) {
   return details?.icon ?? <MembersOutlineIcon />;
 }
 
-const navItems = [
+const baseNavItems = [
   { id: "dashboard" as const, label: "Dashboard", icon: <HomeIcon /> },
   { id: "profile" as const, label: "My Profile", icon: <ProfileIcon /> },
+  { id: "documents" as const, label: "Documents", icon: <FolderIcon /> },
   { id: "more" as const, label: "More", icon: <DotsIcon /> },
 ];
 
@@ -602,6 +679,9 @@ export function DashboardScreen() {
   const [closingSheet, setClosingSheet] = useState<SecretarySheetName | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [isTightViewport, setIsTightViewport] = useState(false);
+  const navItems = account?.role === "secretary"
+    ? baseNavItems
+    : baseNavItems.filter((item) => item.id !== "documents");
 
   useEffect(() => {
     function updateViewportMode() {
@@ -837,6 +917,7 @@ export function DashboardScreen() {
         initialView="profile"
         onDashboardClose={() => setActiveView("home")}
         onProfileClose={() => setActiveView("home")}
+        onDocumentsOpen={() => setActiveView("documents")}
       />
     );
   }
@@ -849,6 +930,16 @@ export function DashboardScreen() {
         initialTab="more"
         onDashboardClose={() => setActiveView("home")}
         onProfileClose={() => setActiveView("home")}
+        onDocumentsOpen={() => setActiveView("documents")}
+      />
+    );
+  }
+
+  if (activeView === "documents" && account?.role === "secretary") {
+    return (
+      <DocumentsScreen
+        onLogout={handleLogout}
+        onNavigate={(view) => setActiveView(view)}
       />
     );
   }
@@ -953,22 +1044,24 @@ export function DashboardScreen() {
           </div>
 
           <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
-            <div className="grid grid-cols-3 gap-1">
+            <div className={`${navItems.length === 4 ? "grid-cols-4" : "grid-cols-3"} grid gap-1`}>
               {navItems.map((item) => {
                 const isActive = item.id === "dashboard";
                 return (
                   <button
                     key={item.label}
                     type="button"
-                    onClick={() => {
-                      if (item.id === "dashboard") {
-                        closeMembersList();
-                      } else if (item.id === "profile") {
-                        setActiveView("profile");
-                      } else {
-                        setActiveView("more");
-                      }
-                    }}
+                  onClick={() => {
+                    if (item.id === "dashboard") {
+                      closeMembersList();
+                    } else if (item.id === "profile") {
+                      setActiveView("profile");
+                    } else if (item.id === "documents") {
+                      setActiveView("documents");
+                    } else {
+                      setActiveView("more");
+                    }
+                  }}
                     className={`flex flex-col items-center gap-1 ${isActive ? "text-[#d00000]" : "text-[#716a66]"}`}
                   >
                     {item.icon}
@@ -996,6 +1089,11 @@ export function DashboardScreen() {
   const overallPercent = dashboardSummary.overall_percent;
   const currentDuesYear = dashboardSummary.year;
   const greeting = timeBasedGreeting();
+  const finances = dashboardSummary.finances;
+  const cashToDateDirection = trendDirection(finances.cash_to_date_trend);
+  const cashOutflowDirection = trendDirection(finances.cash_outflow_trend);
+  const netDirection = finances.net_direction;
+  const netTrendColor = netDirection === "down" ? "text-[#cc1313]" : netDirection === "flat" ? "text-[#6f6763]" : "text-[#168234]";
   const duesStats = [
     {
       label: "Paid",
@@ -1297,21 +1395,63 @@ export function DashboardScreen() {
                   Financial Summary
                 </h2>
               </div>
+              <div className="text-right text-[0.58rem] leading-4 text-[#766d67]">
+                <div className="font-semibold text-[#18130f]">
+                  {finances.report_period_label ? `As of ${finances.report_period_label}` : "No report yet"}
+                </div>
+                {finances.source_date ? <div>Uploaded {formatSourceDate(finances.source_date)}</div> : null}
+              </div>
             </div>
 
-            <div className="mt-5 rounded-[1.15rem] bg-[#fdf9f3] px-4 py-5 text-center">
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#cf8c00] shadow-[0_8px_18px_rgba(149,110,46,0.08)]">
-                <WalletIcon />
+            <div className="mt-5 grid grid-cols-3 rounded-[1.15rem] bg-[#fdf9f3] px-2 py-5 text-center shadow-[inset_0_0_0_1px_rgba(246,238,226,0.55)]">
+              <div className="px-1.5">
+                <div className="text-[0.68rem] font-medium leading-tight text-[#18130f]">Cash to Date</div>
+                <div className="mt-4 text-[0.9rem] font-extrabold leading-tight text-[#168234] tracking-[-0.02em]">
+                  {formatPesoAmount(finances.cash_to_date)}
+                </div>
+                <div className="mt-5 text-[0.66rem] leading-5 text-[#6f6763]">
+                  <div>vs last month</div>
+                  <div className={`flex items-center justify-center gap-1 font-extrabold ${cashToDateDirection === "down" ? "text-[#cc1313]" : cashToDateDirection === "flat" ? "text-[#6f6763]" : "text-[#168234]"}`}>
+                    <TrendArrowIcon direction={cashToDateDirection} />
+                    <span>{trendDisplay(finances.cash_to_date_trend)}</span>
+                  </div>
+                </div>
               </div>
-              <div className="mt-3 text-[1rem] font-extrabold tracking-[-0.04em] text-[#18130f]">
-                Coming soon
+
+              <div className="border-x border-[#eadfd6] px-1.5">
+                <div className="text-[0.68rem] font-medium leading-tight text-[#18130f]">Cash Outflow</div>
+                <div className="mt-4 text-[0.9rem] font-extrabold leading-tight text-[#cc1313] tracking-[-0.02em]">
+                  {formatPesoAmount(finances.cash_outflow)}
+                </div>
+                <div className="mt-5 text-[0.66rem] leading-5 text-[#6f6763]">
+                  <div>vs last month</div>
+                  <div className={`flex items-center justify-center gap-1 font-extrabold ${cashOutflowDirection === "down" ? "text-[#168234]" : cashOutflowDirection === "flat" ? "text-[#6f6763]" : "text-[#cc1313]"}`}>
+                    <TrendArrowIcon direction={cashOutflowDirection} />
+                    <span>{trendDisplay(finances.cash_outflow_trend)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-1.5">
+                <div className="text-[0.68rem] font-medium leading-tight text-[#18130f]">Net Trend</div>
+                <div className={`mx-auto mt-4 flex w-fit items-center justify-center gap-1 rounded-full px-3 py-2 text-[0.84rem] font-extrabold ${netDirection === "down" ? "bg-[#fff0f0] text-[#cc1313]" : netDirection === "flat" ? "bg-white text-[#6f6763]" : "bg-[#e8f6eb] text-[#168234]"}`}>
+                  <TrendArrowIcon direction={netDirection} />
+                  <span>{trendDisplay(finances.net_trend)}</span>
+                </div>
+                <div className="mt-5 text-[0.66rem] leading-4 text-[#6f6763]">
+                  <div>vs last month</div>
+                  <div>Cash position is</div>
+                  <div className={`font-extrabold ${netTrendColor}`}>
+                    {netDirection === "flat" ? "flat" : netDirection}
+                  </div>
+                </div>
               </div>
             </div>
           </section>
         </div>
 
         <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
-          <div className="grid grid-cols-3 gap-1">
+          <div className={`${navItems.length === 4 ? "grid-cols-4" : "grid-cols-3"} grid gap-1`}>
             {navItems.map((item) => {
               const isActive = item.id === "dashboard";
               return (
@@ -1323,6 +1463,8 @@ export function DashboardScreen() {
                       setActiveView("home");
                     } else if (item.id === "profile") {
                       setActiveView("profile");
+                    } else if (item.id === "documents") {
+                      setActiveView("documents");
                     } else if (item.id === "more") {
                       setActiveView("more");
                     }

@@ -1,7 +1,10 @@
 from django.conf import settings
 from django.contrib.auth import login, logout
+from django.db import transaction
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
+from decimal import Decimal
+import re
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes, permission_classes
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -10,12 +13,14 @@ from rest_framework.response import Response
 
 from .auth_tokens import build_password_reset_token, build_password_reset_url
 from .email_service import EmailDeliveryError, send_password_reset_email
-from .models import Account, LodgeActivity, MemberDatabaseRecord, MemberPositionHeld, PreidentifiedEmail
+from .document_extraction import extract_treasurer_report
+from .models import Account, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, PreidentifiedEmail, TreasurerReportSummary
 from .permissions import IsDeveloper
 from .serializers import (
     AccountSerializer,
     LoginSerializer,
     LodgeActivitySerializer,
+    LodgeDocumentSerializer,
     MemberListItemSerializer,
     MemberDashboardProfileSerializer,
     MemberFullProfileSerializer,
@@ -34,6 +39,176 @@ PROFILE_PHOTO_ALLOWED_CONTENT_TYPES = {
     "image/webp": "webp",
 }
 PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024
+DOCUMENT_ALLOWED_CONTENT_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+}
+DOCUMENT_MAX_BYTES = 20 * 1024 * 1024
+DOCUMENT_MONTH_NAMES = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+
+
+def clean_database_text(value: str) -> str:
+    return value.replace("\x00", "")
+
+
+def report_period_from_filename(filename: str) -> tuple[int | None, int | None]:
+    normalized = filename.lower().replace("_", " ").replace("-", " ")
+    year_match = re.search(r"\b(19\d{2}|20\d{2})\b", normalized)
+    month = None
+    for token, value in DOCUMENT_MONTH_NAMES.items():
+        if re.search(rf"\b{re.escape(token)}\b", normalized):
+            month = value
+            break
+    return month, int(year_match.group(1)) if year_match else None
+
+
+def money_payload(value: Decimal | None) -> str | None:
+    return f"{value:.2f}" if value is not None else None
+
+
+def percent_change(current: Decimal | None, previous: Decimal | None) -> float | None:
+    if current is None or previous in (None, Decimal("0")):
+        return None
+    return float(((current - previous) / abs(previous)) * Decimal("100"))
+
+
+def rounded_trend(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(value, 1)
+
+
+def report_period_label(month: int | None, year: int | None) -> str | None:
+    if not month or not year:
+        return None
+    month_names = [
+        "",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ]
+    if month < 1 or month > 12:
+        return str(year)
+    return f"{month_names[month]} {year}"
+
+
+def financial_summary_payload() -> dict:
+    summaries = sorted(
+        TreasurerReportSummary.objects.select_related("document")
+        .filter(
+            cash_to_date__isnull=False,
+            cash_disbursements__isnull=False,
+            remaining_cash__isnull=False,
+        ),
+        key=lambda summary: (
+            summary.report_year or 0,
+            summary.report_month or 0,
+            summary.document.created_at,
+            summary.id,
+        ),
+        reverse=True,
+    )
+    latest = summaries[0] if summaries else None
+    previous = summaries[1] if len(summaries) > 1 else None
+
+    if latest is None:
+        return {
+            "percent": 0,
+            "status": "No Treasurer report yet",
+            "has_data": False,
+            "report_month": None,
+            "report_year": None,
+            "report_period_label": None,
+            "source_date": None,
+            "cash_accountability": None,
+            "cash_to_date": None,
+            "cash_outflow": None,
+            "remaining_cash": None,
+            "cash_to_date_trend": None,
+            "cash_outflow_trend": None,
+            "net_trend": None,
+            "net_direction": "flat",
+        }
+
+    cash_position_trend = rounded_trend(percent_change(latest.remaining_cash, previous.remaining_cash if previous else None))
+    cash_outflow_trend = rounded_trend(percent_change(latest.cash_disbursements, previous.cash_disbursements if previous else None))
+    net_trend = cash_position_trend
+    if net_trend is None or net_trend == 0:
+        net_direction = "flat"
+    else:
+        net_direction = "up" if net_trend > 0 else "down"
+
+    return {
+        "percent": max(0, min(100, round(float(latest.remaining_cash / latest.cash_to_date * 100)))) if latest.cash_to_date else 0,
+        "status": "Cash position is up" if net_direction == "up" else "Cash position is down" if net_direction == "down" else "Cash position is flat",
+        "has_data": True,
+        "report_month": latest.report_month,
+        "report_year": latest.report_year,
+        "report_period_label": report_period_label(latest.report_month, latest.report_year),
+        "source_date": latest.document.created_at.date().isoformat(),
+        "cash_accountability": money_payload(latest.cash_to_date),
+        "cash_to_date": money_payload(latest.remaining_cash),
+        "cash_outflow": money_payload(latest.cash_disbursements),
+        "remaining_cash": money_payload(latest.remaining_cash),
+        "cash_to_date_trend": cash_position_trend,
+        "cash_outflow_trend": cash_outflow_trend,
+        "net_trend": net_trend,
+        "net_direction": net_direction,
+    }
+
+
+def user_can_manage_documents(user) -> bool:
+    return user.is_authenticated and user.role in {
+        Account.Role.SECRETARY,
+        Account.Role.ADMINISTRATOR,
+        Account.Role.DEVELOPER,
+    }
+
+
+def filename_matches_category(filename: str, category: str) -> bool:
+    normalized = filename.lower().replace("_", " ").replace("-", " ")
+    if category == LodgeDocument.Category.TREASURERS_REPORT:
+        return "treasurer" in normalized and "report" in normalized
+    if category == LodgeDocument.Category.STATED_MEETING_MINUTES:
+        return "minutes" in normalized and "stated" in normalized
+    if category == LodgeDocument.Category.SPECIAL_MEETING_MINUTES:
+        return "minutes" in normalized and "special" in normalized
+    return False
 
 
 def classify_member_group(section: str) -> str:
@@ -544,8 +719,7 @@ def secretary_dashboard_summary_view(request):
                 "percent": growth_percent,
             },
             "finances": {
-                "percent": 0,
-                "status": "Coming soon",
+                **financial_summary_payload(),
             },
             "attendance": {
                 "average_count": average_attendance,
@@ -561,6 +735,154 @@ def secretary_dashboard_summary_view(request):
             },
         },
         status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def lodge_documents_view(request):
+    if not user_can_manage_documents(request.user):
+        return Response(
+            {
+                "code": "DOCUMENTS_ACCESS_DENIED",
+                "message": "Only the Lodge Secretary can manage documents.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    if request.method == "GET":
+        documents = LodgeDocument.objects.select_related("treasurer_summary", "uploaded_by")
+        category = request.query_params.get("category", "").strip()
+        if category:
+            documents = documents.filter(category=category)
+        return Response(
+            {"documents": LodgeDocumentSerializer(documents, many=True, context={"request": request}).data},
+            status=status.HTTP_200_OK,
+        )
+
+    category = request.data.get("category", "")
+    valid_categories = {choice.value for choice in LodgeDocument.Category}
+    if category not in valid_categories:
+        return Response(
+            {
+                "code": "INVALID_DOCUMENT_CATEGORY",
+                "message": "Please select a valid document category before uploading.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    uploads = request.FILES.getlist("files")
+    if not uploads:
+        return Response(
+            {
+                "code": "DOCUMENTS_REQUIRED",
+                "message": "Please choose at least one file to upload.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    notes = str(request.data.get("notes", "")).strip()[:200]
+    results = []
+    batch_filename_counts: dict[str, int] = {}
+    for upload in uploads:
+        normalized_name = upload.name.strip().casefold()
+        batch_filename_counts[normalized_name] = batch_filename_counts.get(normalized_name, 0) + 1
+    existing_filenames = set(
+        LodgeDocument.objects.filter(category=category).values_list("original_filename", flat=True)
+    )
+    existing_normalized_filenames = {
+        filename.strip().casefold() for filename in existing_filenames
+    }
+
+    with transaction.atomic():
+        for upload in uploads:
+            errors = []
+            content_type = upload.content_type.lower()
+            normalized_filename = upload.name.strip().casefold()
+
+            if content_type not in DOCUMENT_ALLOWED_CONTENT_TYPES:
+                errors.append("Allowed file types are PDF, JPG, and PNG.")
+            if upload.size > DOCUMENT_MAX_BYTES:
+                errors.append("Max file size is 20MB per file.")
+            if not filename_matches_category(upload.name, category):
+                errors.append("Filename does not appear to match the selected category.")
+            if batch_filename_counts.get(normalized_filename, 0) > 1:
+                errors.append("This filename appears more than once in the selected files.")
+            if normalized_filename in existing_normalized_filenames:
+                errors.append("A document with this filename has already been uploaded.")
+
+            if errors:
+                results.append(
+                    {
+                        "filename": upload.name,
+                        "status": "rejected",
+                        "errors": errors,
+                    }
+                )
+                continue
+
+            document = LodgeDocument.objects.create(
+                category=category,
+                file=upload,
+                original_filename=upload.name,
+                content_type=content_type,
+                size_bytes=upload.size,
+                notes=notes,
+                uploaded_by=request.user,
+                extraction_status=(
+                    LodgeDocument.ExtractionStatus.PENDING_REVIEW
+                    if category == LodgeDocument.Category.TREASURERS_REPORT
+                    else LodgeDocument.ExtractionStatus.NOT_APPLICABLE
+                ),
+            )
+            existing_normalized_filenames.add(normalized_filename)
+
+            if category == LodgeDocument.Category.TREASURERS_REPORT:
+                extraction = extract_treasurer_report(document.file, content_type)
+                document.extracted_text = clean_database_text(extraction.text)
+                document.extraction_errors = [
+                    clean_database_text(error) for error in extraction.errors
+                ]
+                document.extraction_status = (
+                    LodgeDocument.ExtractionStatus.EXTRACTED
+                    if extraction.is_complete
+                    else LodgeDocument.ExtractionStatus.PENDING_REVIEW
+                )
+                document.save(update_fields=["extracted_text", "extraction_errors", "extraction_status", "updated_at"])
+
+                if extraction.values:
+                    filename_month, filename_year = report_period_from_filename(document.original_filename)
+                    summary_values = {
+                        **extraction.values,
+                        "raw_values": extraction.raw_values,
+                    }
+                    if summary_values.get("report_month") is None and filename_month is not None:
+                        summary_values["report_month"] = filename_month
+                    if summary_values.get("report_year") is None and filename_year is not None:
+                        summary_values["report_year"] = filename_year
+                    TreasurerReportSummary.objects.update_or_create(
+                        document=document,
+                        defaults=summary_values,
+                    )
+
+            results.append(
+                {
+                    "filename": upload.name,
+                    "status": "uploaded",
+                    "document": LodgeDocumentSerializer(document, context={"request": request}).data,
+                    "errors": document.extraction_errors,
+                }
+            )
+
+    accepted_count = sum(1 for item in results if item["status"] == "uploaded")
+    response_status = status.HTTP_201_CREATED if accepted_count else status.HTTP_400_BAD_REQUEST
+    return Response(
+        {
+            "message": f"Uploaded {accepted_count} file{'s' if accepted_count != 1 else ''}.",
+            "results": results,
+        },
+        status=response_status,
     )
 
 

@@ -12,6 +12,12 @@ def member_profile_photo_upload_path(instance, filename: str) -> str:
     return f"member-profile-photos/member-{instance.pk}.{extension}"
 
 
+def lodge_document_upload_path(instance, filename: str) -> str:
+    category = getattr(instance, "category", "document") or "document"
+    safe_category = category.replace("_", "-")
+    return f"lodge-documents/{safe_category}/{timezone.now():%Y/%m}/{filename}"
+
+
 class AccountManager(BaseUserManager):
     def create_user(
         self,
@@ -375,3 +381,82 @@ class BallotingCoinRecord(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class LodgeDocument(models.Model):
+    class Category(models.TextChoices):
+        TREASURERS_REPORT = "treasurers_report", "Treasurers Report"
+        STATED_MEETING_MINUTES = "minutes_stated_meeting", "Minutes of the Stated Meeting"
+        SPECIAL_MEETING_MINUTES = "minutes_special_meeting", "Minutes of the Special Meeting"
+
+    class ExtractionStatus(models.TextChoices):
+        NOT_APPLICABLE = "not_applicable", "Not Applicable"
+        PENDING_REVIEW = "pending_review", "Pending Review"
+        EXTRACTED = "extracted", "Extracted"
+        FAILED = "failed", "Failed"
+
+    category = models.CharField(max_length=40, choices=Category.choices)
+    file = models.FileField(upload_to=lodge_document_upload_path)
+    original_filename = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=100)
+    size_bytes = models.PositiveIntegerField()
+    notes = models.TextField(blank=True)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploaded_lodge_documents",
+    )
+    extraction_status = models.CharField(
+        max_length=30,
+        choices=ExtractionStatus.choices,
+        default=ExtractionStatus.NOT_APPLICABLE,
+    )
+    extraction_errors = models.JSONField(default=list)
+    extracted_text = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dll347_lodge_documents"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["category", "created_at"], name="lodge_doc_category_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.original_filename
+
+
+class TreasurerReportSummary(models.Model):
+    document = models.OneToOneField(
+        LodgeDocument,
+        on_delete=models.CASCADE,
+        related_name="treasurer_summary",
+    )
+    report_month = models.PositiveSmallIntegerField(null=True, blank=True)
+    report_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    previous_report_date = models.DateField(null=True, blank=True)
+    cash_balance_last_report = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    cash_received_month = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    cash_to_date = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    cash_disbursements = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    remaining_cash = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    general_fund = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    specific_purpose_funds = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    other_sources = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    grand_lodge_account = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    other_account = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    raw_values = models.JSONField(default=dict)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dll347_treasurer_report_summaries"
+        ordering = ["-report_year", "-report_month", "-id"]
+
+    def __str__(self) -> str:
+        if self.report_month and self.report_year:
+            return f"Treasurer Report {self.report_month}/{self.report_year}"
+        return f"Treasurer Report #{self.pk}"

@@ -179,6 +179,19 @@ export type SecretaryDashboardSummaryResponse = {
   finances: {
     percent: number;
     status: string;
+    has_data: boolean;
+    report_month: number | null;
+    report_year: number | null;
+    report_period_label: string | null;
+    source_date: string | null;
+    cash_accountability: string | null;
+    cash_to_date: string | null;
+    cash_outflow: string | null;
+    remaining_cash: string | null;
+    cash_to_date_trend: number | null;
+    cash_outflow_trend: number | null;
+    net_trend: number | null;
+    net_direction: "up" | "down" | "flat";
   };
   attendance: {
     average_count: number;
@@ -192,6 +205,60 @@ export type SecretaryDashboardSummaryResponse = {
     total_count: number;
     percent: number;
   };
+};
+
+export type LodgeDocumentCategory =
+  | "treasurers_report"
+  | "minutes_stated_meeting"
+  | "minutes_special_meeting";
+
+export type TreasurerReportSummary = {
+  report_month: number | null;
+  report_year: number | null;
+  previous_report_date: string | null;
+  cash_balance_last_report: string | null;
+  cash_received_month: string | null;
+  cash_to_date: string | null;
+  cash_disbursements: string | null;
+  remaining_cash: string | null;
+  general_fund: string | null;
+  specific_purpose_funds: string | null;
+  other_sources: string | null;
+  grand_lodge_account: string | null;
+  other_account: string | null;
+  raw_values: Record<string, string>;
+};
+
+export type LodgeDocument = {
+  id: number;
+  category: LodgeDocumentCategory;
+  category_label: string;
+  original_filename: string;
+  content_type: string;
+  size_bytes: number;
+  notes: string;
+  file_url: string;
+  extraction_status: "not_applicable" | "pending_review" | "extracted" | "failed";
+  extraction_errors: string[];
+  treasurer_summary: TreasurerReportSummary | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LodgeDocumentsResponse = {
+  documents: LodgeDocument[];
+};
+
+export type LodgeDocumentUploadResult = {
+  filename: string;
+  status: "uploaded" | "rejected";
+  document?: LodgeDocument;
+  errors: string[];
+};
+
+export type LodgeDocumentUploadResponse = {
+  message: string;
+  results: LodgeDocumentUploadResult[];
 };
 
 export type ApiErrorResponse = {
@@ -234,8 +301,17 @@ function extractApiErrorMessage(payload: ApiErrorResponse | Record<string, unkno
 }
 
 function getApiBaseUrl(): string {
-  const apiBaseUrl =
+  let apiBaseUrl =
     process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api";
+
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname === "127.0.0.1" || hostname === "localhost") {
+      apiBaseUrl = "http://127.0.0.1:8000/api";
+    } else if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname)) {
+      apiBaseUrl = `http://${hostname}:8000/api`;
+    }
+  }
 
   return apiBaseUrl.replace(/\/+$/, "");
 }
@@ -478,4 +554,26 @@ export async function getUpcomingLodgeActivities(
 
 export async function getSecretaryDashboardSummary(): Promise<SecretaryDashboardSummaryResponse> {
   return apiGet<SecretaryDashboardSummaryResponse>("/secretary/dashboard-summary/");
+}
+
+export async function getLodgeDocuments(category?: LodgeDocumentCategory): Promise<LodgeDocumentsResponse> {
+  const params = new URLSearchParams();
+  if (category) {
+    params.set("category", category);
+  }
+  const query = params.toString();
+  return apiGet<LodgeDocumentsResponse>(`/documents/${query ? `?${query}` : ""}`);
+}
+
+export async function uploadLodgeDocuments(
+  category: LodgeDocumentCategory,
+  files: File[],
+  notes: string,
+): Promise<LodgeDocumentUploadResponse> {
+  await prepareSessionCsrf();
+  const body = new FormData();
+  body.append("category", category);
+  body.append("notes", notes);
+  files.forEach((file) => body.append("files", file));
+  return apiPostForm<LodgeDocumentUploadResponse>("/documents/", body);
 }

@@ -804,7 +804,9 @@ class AuthApiTests(TestCase):
         payload = response.json()
         self.assertEqual(payload["membership"], {"active_count": 1, "total_count": 5, "percent": 20})
         self.assertEqual(payload["growth"], {"progressing_count": 2, "total_count": 2, "percent": 100})
-        self.assertEqual(payload["finances"], {"percent": 0, "status": "Coming soon"})
+        self.assertEqual(payload["finances"]["percent"], 0)
+        self.assertEqual(payload["finances"]["status"], "No Treasurer report yet")
+        self.assertFalse(payload["finances"]["has_data"])
         self.assertEqual(
             payload["attendance"],
             {"average_count": 2, "total_count": 3, "meeting_count": 2, "percent": 67},
