@@ -64,3 +64,16 @@ Frontend app:
 ```text
 http://127.0.0.1:3000
 ```
+
+## Import the members workbook
+
+The three supported worksheets are synchronized into separate database tables. A repeated
+import replaces the current table contents so the database remains aligned with the workbook.
+
+```bash
+backend/.venv/bin/python backend/manage.py import_members_workbook "/path/to/DLL 347 Members.xlsx"
+```
+
+The original cell coordinates, formulas, styles, number formats, merged ranges, column widths,
+hidden-column state, row formatting, and frozen panes are retained as import metadata. The
+workbook itself is not copied into the repository because it contains member information.

@@ -8,20 +8,38 @@ export type ApiHealthResponse = {
   service: string;
 };
 
+export type AccountRole = "member" | "secretary" | "three_lights" | "administrator" | "developer";
+
 export type LoginResponse = {
   code: "LOGIN_SUCCESS";
   message: string;
   account: {
     id: number;
     email: string;
-    role: string;
+    role: AccountRole;
     is_active: boolean;
     is_staff: boolean;
     is_admin: boolean;
+    member_profile: MemberDashboardProfile | null;
     last_login: string | null;
     created_at: string;
     updated_at: string;
   };
+};
+
+export type MemberDashboardProfile = {
+  id: number;
+  name: string;
+  email: string;
+  section: string;
+  member_number: string;
+  glp_id_number: string;
+  lodge_standing: string;
+  status: string;
+  dues_status: string;
+  attendance_this_year: number;
+  member_since: string | null;
+  profile_photo_url: string | null;
 };
 
 export type PasswordUpdatedResponse = {
@@ -64,6 +82,116 @@ export type PreidentifiedEmailRecord = {
 export type SavePreidentifiedEmailResponse = {
   message: string;
   record: PreidentifiedEmailRecord;
+};
+
+export type MemberProfilePhotoUploadResponse = {
+  message: string;
+  member_profile: MemberDashboardProfile;
+};
+
+export type MemberSummaryGroup = {
+  key: "active" | "dual_plural" | "honorary" | "inactive_snpd_demit" | "dropped_working_tools";
+  label: string;
+  count: number;
+};
+
+export type MemberGroupKey = MemberSummaryGroup["key"];
+
+export type MemberSummaryResponse = {
+  groups: MemberSummaryGroup[];
+};
+
+export type MemberListItem = {
+  id: number;
+  name: string;
+  glp_id_number: string;
+  section: string;
+  status: string;
+  profile_photo_url: string | null;
+};
+
+export type MemberListResponse = {
+  group: MemberGroupKey;
+  count: number;
+  members: MemberListItem[];
+};
+
+export type MemberPositionHeld = {
+  id: number;
+  title: string;
+  date_range: string;
+  start_date: string | null;
+  end_date: string | null;
+  notes: string;
+  source: string;
+};
+
+export type MemberFullProfile = MemberDashboardProfile & {
+  date_of_birth: string | null;
+  initiation_date: string | null;
+  passing_date: string | null;
+  raising_date: string | null;
+  proficiency_date: string | null;
+  telephone: string;
+  address: string;
+  appendant_bodies: Record<string, unknown>;
+  positions_held: MemberPositionHeld[];
+  blood_type: string;
+  widow_or_sister: string;
+  years_of_membership: number | null;
+};
+
+export type MemberPositionsHeldResponse = {
+  positions: MemberPositionHeld[];
+};
+
+export type LodgeActivity = {
+  id: number;
+  title: string;
+  details: string;
+  place: string;
+  starts_at: string;
+  ends_at: string | null;
+  status: string;
+};
+
+export type NextLodgeActivityResponse = {
+  activity: LodgeActivity | null;
+};
+
+export type UpcomingLodgeActivitiesResponse = {
+  activities: LodgeActivity[];
+};
+
+export type SecretaryDashboardSummaryResponse = {
+  year: number;
+  overall_percent: number;
+  membership: {
+    active_count: number;
+    total_count: number;
+    percent: number;
+  };
+  growth: {
+    progressing_count: number;
+    total_count: number;
+    percent: number;
+  };
+  finances: {
+    percent: number;
+    status: string;
+  };
+  attendance: {
+    average_count: number;
+    total_count: number;
+    meeting_count: number;
+    percent: number;
+  };
+  dues_collection: {
+    paid_count: number;
+    unpaid_count: number;
+    total_count: number;
+    percent: number;
+  };
 };
 
 export type ApiErrorResponse = {
@@ -199,6 +327,25 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   });
 }
 
+export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+
+  if (typeof document !== "undefined") {
+    const csrfMatch = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+    if (csrfMatch) {
+      headers["X-CSRFToken"] = decodeURIComponent(csrfMatch[1]);
+    }
+  }
+
+  return apiFetch<T>(path, {
+    method: "POST",
+    headers,
+    body,
+  });
+}
+
 export async function prepareSessionCsrf(): Promise<void> {
   await apiGet<{ message: string }>("/auth/csrf/");
 }
@@ -276,4 +423,59 @@ export async function savePreidentifiedEmail(
     email,
     password,
   });
+}
+
+export async function uploadMemberProfilePhoto(
+  photo: Blob,
+): Promise<MemberProfilePhotoUploadResponse> {
+  await prepareSessionCsrf();
+  const body = new FormData();
+  body.append("photo", photo, "profile-photo.jpg");
+  return apiPostForm<MemberProfilePhotoUploadResponse>("/members/me/profile-photo/", body);
+}
+
+export async function getMemberSummary(): Promise<MemberSummaryResponse> {
+  return apiGet<MemberSummaryResponse>("/members/summary/");
+}
+
+export async function getMemberList(
+  group: MemberGroupKey,
+  search = "",
+): Promise<MemberListResponse> {
+  const params = new URLSearchParams({ group });
+  if (search.trim()) {
+    params.set("search", search.trim());
+  }
+  return apiGet<MemberListResponse>(`/members/list/?${params.toString()}`);
+}
+
+export async function getMyMemberProfile(): Promise<MemberFullProfile> {
+  return apiGet<MemberFullProfile>("/members/me/profile/");
+}
+
+export async function getMemberProfile(memberId: number): Promise<MemberFullProfile> {
+  return apiGet<MemberFullProfile>(`/members/${memberId}/profile/`);
+}
+
+export async function getMyPositionsHeld(): Promise<MemberPositionsHeldResponse> {
+  return apiGet<MemberPositionsHeldResponse>("/members/me/positions-held/");
+}
+
+export async function getNextLodgeActivity(): Promise<NextLodgeActivityResponse> {
+  return apiGet<NextLodgeActivityResponse>("/lodge-activities/next/");
+}
+
+export async function getUpcomingLodgeActivities(
+  limit = 2,
+  excludeId?: number,
+): Promise<UpcomingLodgeActivitiesResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (excludeId !== undefined) {
+    params.set("exclude_id", String(excludeId));
+  }
+  return apiGet<UpcomingLodgeActivitiesResponse>(`/lodge-activities/upcoming/?${params.toString()}`);
+}
+
+export async function getSecretaryDashboardSummary(): Promise<SecretaryDashboardSummaryResponse> {
+  return apiGet<SecretaryDashboardSummaryResponse>("/secretary/dashboard-summary/");
 }

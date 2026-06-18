@@ -35,7 +35,7 @@ a {
 
 button,
 input {
-  font: inherit;
+  font-family: inherit;
 }
 
 ::selection {
@@ -49,4 +49,90 @@ input {
     radial-gradient(circle at 12% 38%, rgba(235, 212, 173, 0.18), transparent 16rem),
     radial-gradient(circle at 88% 36%, rgba(235, 212, 173, 0.18), transparent 16rem),
     linear-gradient(180deg, #faf7f2 0%, #fbf8f3 50%, #f8f3ec 100%);
+}
+
+.member-dashboard-paper {
+  background:
+    radial-gradient(circle at 50% 8%, rgba(231, 198, 144, 0.16), transparent 18rem),
+    radial-gradient(circle at 8% 46%, rgba(225, 195, 153, 0.12), transparent 18rem),
+    radial-gradient(circle at 92% 50%, rgba(225, 195, 153, 0.12), transparent 18rem),
+    linear-gradient(180deg, #fbf8f3 0%, #faf6f0 50%, #f7f1e8 100%);
+}
+
+@keyframes member-sheet-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes member-sheet-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes member-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes member-sheet-down {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes member-page-in-from-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes member-page-out-to-right {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.member-sheet-backdrop-enter {
+  animation: member-sheet-backdrop-in 180ms ease-out both;
+}
+
+.member-sheet-backdrop-exit {
+  animation: member-sheet-backdrop-out 180ms ease-in both;
+}
+
+.member-sheet-panel-enter {
+  animation: member-sheet-up 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.member-sheet-panel-exit {
+  animation: member-sheet-down 200ms ease-in both;
+}
+
+.member-page-enter {
+  animation: member-page-in-from-right 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.member-page-exit {
+  animation: member-page-out-to-right 230ms ease-in both;
 }

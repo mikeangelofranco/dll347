@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Appendant body placeholder logo">
+  <defs>
+    <linearGradient id="outer" x1="90" x2="420" y1="70" y2="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f4d58f"/>
+      <stop offset="1" stop-color="#bd7a08"/>
+    </linearGradient>
+    <linearGradient id="inner" x1="140" x2="370" y1="120" y2="390" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fffdf8"/>
+      <stop offset="1" stop-color="#f3eadb"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="230" fill="url(#outer)"/>
+  <circle cx="256" cy="256" r="198" fill="#8f0f0f"/>
+  <circle cx="256" cy="256" r="166" fill="url(#inner)"/>
+  <path d="M256 115 364 185v142l-108 70-108-70V185l108-70Z" fill="none" stroke="#bd7a08" stroke-linejoin="round" stroke-width="18"/>
+  <path d="M196 246h120M196 292h120" stroke="#8f0f0f" stroke-linecap="round" stroke-width="20"/>
+  <circle cx="256" cy="256" r="42" fill="#bd7a08" opacity=".16"/>
+  <text x="256" y="276" fill="#8f0f0f" font-family="Georgia, serif" font-size="72" font-weight="700" text-anchor="middle">?</text>
+</svg>

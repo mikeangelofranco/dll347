@@ -7,6 +7,11 @@ from django.db import models
 from django.utils import timezone
 
 
+def member_profile_photo_upload_path(instance, filename: str) -> str:
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
+    return f"member-profile-photos/member-{instance.pk}.{extension}"
+
+
 class AccountManager(BaseUserManager):
     def create_user(
         self,
@@ -59,6 +64,7 @@ class Account(AbstractBaseUser, PermissionsMixin):
     class Role(models.TextChoices):
         MEMBER = "member", "Member"
         SECRETARY = "secretary", "Secretary"
+        THREE_LIGHTS = "three_lights", "3 Lights"
         ADMINISTRATOR = "administrator", "Administrator"
         DEVELOPER = "developer", "Developer"
 
@@ -158,3 +164,214 @@ class PreidentifiedEmail(models.Model):
             self.default_password = make_password(self.default_password)
 
         return super().save(*args, **kwargs)
+
+
+class MembersWorkbookImport(models.Model):
+    filename = models.CharField(max_length=255)
+    file_sha256 = models.CharField(max_length=64, unique=True)
+    sheet_summaries = models.JSONField(default=dict)
+    imported_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        db_table = "members_workbook_imports"
+        ordering = ["-imported_at", "-id"]
+
+    def __str__(self) -> str:
+        return self.filename
+
+
+class MembersWorkbookSheetSchema(models.Model):
+    workbook_import = models.ForeignKey(
+        MembersWorkbookImport,
+        on_delete=models.CASCADE,
+        related_name="sheet_schemas",
+    )
+    sheet_name = models.CharField(max_length=100)
+    table_key = models.CharField(max_length=50)
+    dimension = models.CharField(max_length=30, blank=True)
+    freeze_panes = models.JSONField(default=dict)
+    merged_ranges = models.JSONField(default=list)
+    columns = models.JSONField(default=list)
+    row_formats = models.JSONField(default=list)
+
+    class Meta:
+        db_table = "members_workbook_sheet_schemas"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("workbook_import", "sheet_name"),
+                name="unique_members_workbook_sheet_schema",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return self.sheet_name
+
+
+class MemberDatabaseRecord(models.Model):
+    workbook_import = models.ForeignKey(
+        MembersWorkbookImport,
+        on_delete=models.PROTECT,
+        related_name="member_records",
+    )
+    source_row = models.PositiveIntegerField(unique=True)
+    is_test_record = models.BooleanField(default=False)
+    section = models.CharField(max_length=150, blank=True)
+    member_number = models.CharField(max_length=50, blank=True)
+    name = models.CharField(max_length=255)
+    glp_id_number = models.CharField(max_length=100, blank=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    initiation_date = models.DateField(null=True, blank=True)
+    passing_date = models.DateField(null=True, blank=True)
+    raising_date = models.DateField(null=True, blank=True)
+    proficiency_date = models.DateField(null=True, blank=True)
+    suspension = models.CharField(max_length=100, blank=True)
+    restored = models.CharField(max_length=100, blank=True)
+    demit = models.CharField(max_length=100, blank=True)
+    lml = models.CharField(max_length=100, blank=True)
+    dual_plural_honorary_date = models.CharField(max_length=150, blank=True)
+    address = models.TextField(blank=True)
+    telephone = models.CharField(max_length=100, blank=True)
+    email = models.CharField(max_length=255, blank=True)
+    profile_photo = models.FileField(upload_to=member_profile_photo_upload_path, blank=True)
+    appendant_bodies = models.JSONField(default=dict)
+    blood_type = models.CharField(max_length=30, blank=True)
+    widow_or_sister = models.CharField(max_length=255, blank=True)
+    widow_or_sister_date_of_birth = models.DateField(null=True, blank=True)
+    meeting_attendance = models.JSONField(default=dict)
+    monthly_attendance = models.JSONField(default=dict)
+    annual_dues = models.JSONField(default=dict)
+    raw_cells = models.JSONField(default=dict)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dll347_member_database_records"
+        ordering = ["source_row"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class LodgeVisitorRecord(models.Model):
+    workbook_import = models.ForeignKey(
+        MembersWorkbookImport,
+        on_delete=models.PROTECT,
+        related_name="lodge_visitor_records",
+    )
+    source_row = models.PositiveIntegerField(unique=True)
+    meeting = models.CharField(max_length=255, blank=True)
+    meeting_date = models.DateField(null=True, blank=True)
+    name = models.CharField(max_length=255)
+    lodge = models.CharField(max_length=255, blank=True)
+    raw_cells = models.JSONField(default=dict)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dll347_lodge_visitor_records"
+        ordering = ["source_row"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class LodgeActivity(models.Model):
+    class Status(models.TextChoices):
+        SCHEDULED = "scheduled", "Scheduled"
+        CANCELLED = "cancelled", "Cancelled"
+        COMPLETED = "completed", "Completed"
+
+    title = models.CharField(max_length=255)
+    details = models.TextField(blank=True)
+    place = models.CharField(max_length=255)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.SCHEDULED,
+    )
+    is_published = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_lodge_activities",
+    )
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dll347_lodge_activities"
+        ordering = ["starts_at", "id"]
+        indexes = [
+            models.Index(fields=["starts_at"], name="lodge_activity_starts_idx"),
+            models.Index(fields=["status", "is_published"], name="lodge_activity_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.title
+
+
+class MemberPositionHeld(models.Model):
+    member_record = models.ForeignKey(
+        MemberDatabaseRecord,
+        on_delete=models.CASCADE,
+        related_name="positions_held",
+    )
+    title = models.CharField(max_length=255)
+    date_range = models.CharField(max_length=150)
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    source = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dll347_member_positions_held"
+        ordering = ["member_record_id", "-start_date", "-end_date", "title"]
+        indexes = [
+            models.Index(fields=["member_record", "title"], name="mem_pos_member_title_idx"),
+            models.Index(fields=["start_date", "end_date"], name="mem_pos_dates_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.title} ({self.date_range})"
+
+
+class BallotingCoinRecord(models.Model):
+    workbook_import = models.ForeignKey(
+        MembersWorkbookImport,
+        on_delete=models.PROTECT,
+        related_name="balloting_coin_records",
+    )
+    member_record = models.ForeignKey(
+        MemberDatabaseRecord,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="balloting_coin_records",
+    )
+    source_row = models.PositiveIntegerField(unique=True)
+    section = models.CharField(max_length=150, blank=True)
+    member_number = models.CharField(max_length=50, blank=True)
+    name = models.CharField(max_length=255)
+    member_match_status = models.CharField(max_length=30, default="unmatched")
+    member_match_notes = models.JSONField(default=dict)
+    proficiency_date = models.DateField(null=True, blank=True)
+    meeting_attendance = models.JSONField(default=dict)
+    six_meetings_rule = models.IntegerField(null=True, blank=True)
+    three_meetings_rule = models.IntegerField(null=True, blank=True)
+    wm_coin_75_percent = models.IntegerField(null=True, blank=True)
+    raw_cells = models.JSONField(default=dict)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dll347_balloting_coin_records"
+        ordering = ["source_row"]
+
+    def __str__(self) -> str:
+        return self.name

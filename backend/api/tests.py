@@ -1,12 +1,99 @@
+from datetime import date, timedelta
+import tempfile
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.utils import timezone
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from unittest.mock import patch
 
 from .auth_tokens import build_password_reset_token
-from .models import PreidentifiedEmail
+from .excel_members import (
+    ParsedCell,
+    ParsedSheet,
+    column_name,
+    column_number,
+    excel_date,
+    is_numbered_record,
+    member_name_match_key,
+    normalize_member_name,
+    sheet_columns,
+)
+from .models import LodgeActivity, MemberDatabaseRecord, MembersWorkbookImport, PreidentifiedEmail
+
+
+class ExcelMemberImportHelpersTests(SimpleTestCase):
+    def test_excel_column_names_round_trip(self):
+        for name in ("B", "Z", "AA", "GZ"):
+            self.assertEqual(column_name(column_number(name)), name)
+
+    def test_excel_date_uses_excel_1900_date_system(self):
+        self.assertEqual(excel_date(25429), date(1969, 8, 14))
+        self.assertIsNone(excel_date("N/A"))
+
+    def test_sheet_columns_preserve_merged_headers_and_cell_styles(self):
+        sheet = ParsedSheet(
+            name="Test",
+            dimension="A1:B2",
+            cells={
+                "A1": ParsedCell("Group", None, 7, "builtin:0"),
+                "A2": ParsedCell("First", None, 8, "builtin:0"),
+                "B2": ParsedCell("Second", None, 9, "builtin:0"),
+            },
+            merged_ranges=["A1:B1"],
+            columns=[
+                {
+                    "min": 1,
+                    "max": 2,
+                    "width": 12.0,
+                    "hidden": False,
+                    "outline_level": 0,
+                    "collapsed": False,
+                    "style_id": 0,
+                }
+            ],
+            row_formats=[],
+            freeze_panes={},
+        )
+
+        columns = sheet_columns(sheet, "A", "B", (1, 2))
+
+        self.assertEqual(columns[0]["header"], "Group / First")
+        self.assertEqual(columns[1]["header"], "Group / Second")
+        self.assertEqual(columns[0]["header_cells"]["1"]["style_id"], 7)
+
+    def test_numbered_record_excludes_legend_rows(self):
+        sheet = ParsedSheet(
+            name="Test",
+            dimension="B1:C2",
+            cells={
+                "B1": ParsedCell(1, None, 0, "builtin:0"),
+                "C1": ParsedCell("Actual Member", None, 0, "builtin:0"),
+                "B2": ParsedCell("*", None, 0, "builtin:0"),
+                "C2": ParsedCell("- WM / PM", None, 0, "builtin:0"),
+            },
+            merged_ranges=[],
+            columns=[],
+            row_formats=[],
+            freeze_panes={},
+        )
+
+        self.assertTrue(is_numbered_record(sheet, 1, "B", "C"))
+        self.assertFalse(is_numbered_record(sheet, 2, "B", "C"))
+
+    def test_member_name_match_key_handles_reordered_names(self):
+        self.assertEqual(
+            member_name_match_key("Martinez, Mike A. *"),
+            member_name_match_key("Bro. Mike A Martinez"),
+        )
+
+    def test_member_name_normalization_removes_noise_tokens(self):
+        self.assertEqual(
+            normalize_member_name("FCM Dano, Cyrus Gil Q. Jr. +"),
+            ("dano", "cyrus", "gil", "q"),
+        )
 
 
 class HealthcheckTests(SimpleTestCase):
@@ -32,6 +119,16 @@ class AccountModelTests(TestCase):
         self.assertEqual(user.role, "member")
         self.assertFalse(user.is_staff)
         self.assertTrue(user.is_active)
+
+    def test_three_lights_role_is_supported(self):
+        user = get_user_model().objects.create_user(
+            email="lights@dll347.org",
+            password="StrongPass123!",
+            role="three_lights",
+        )
+
+        self.assertEqual(user.role, "three_lights")
+        self.assertEqual(user.get_role_display(), "3 Lights")
 
     def test_developer_role_is_reserved_for_superusers(self):
         with self.assertRaisesMessage(
@@ -102,6 +199,22 @@ class AuthApiTests(TestCase):
         self.assertTrue(payload["account"]["is_staff"])
         self.assertFalse(payload["account"]["is_admin"])
         self.assertEqual(payload["code"], "LOGIN_SUCCESS")
+
+    def test_login_returns_three_lights_role(self):
+        three_lights = get_user_model().objects.create_user(
+            email="three-lights@dll347.org",
+            password=self.password,
+            role="three_lights",
+        )
+
+        response = self.client.post(
+            reverse("api:login"),
+            {"email": three_lights.email, "password": self.password},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["account"]["role"], "three_lights")
 
     def test_login_rejects_wrong_password_for_existing_account(self):
         response = self.client.post(
@@ -291,6 +404,485 @@ class AuthApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["email"], self.user.email)
+
+    def test_current_account_returns_member_profile_matched_by_email(self):
+        member_user = get_user_model().objects.create_user(
+            email="mapped@dll347.org",
+            password=self.password,
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="test.xlsx",
+            file_sha256="a" * 64,
+        )
+        current_year = timezone.localdate().year
+        previous_year = current_year - 1
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10001,
+            name="Mapped Member",
+            email="mapped@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            initiation_date=date(2019, 5, 12),
+            monthly_attendance={
+                f"{current_year} - WB Test / Jan": {"value": "a"},
+                f"{current_year} - WB Test / Feb": {"value": "a"},
+                f"{previous_year} - WB Test / Dec": {"value": "a"},
+            },
+            annual_dues={f"ANNUAL DUES / {current_year}": {"value": 45977}},
+        )
+        self.client.force_login(member_user)
+
+        response = self.client.get(reverse("api:current-account"))
+
+        self.assertEqual(response.status_code, 200)
+        profile = response.json()["member_profile"]
+        self.assertEqual(profile["name"], "Mapped Member")
+        self.assertEqual(profile["status"], "Active Member")
+        self.assertEqual(profile["dues_status"], f"Paid {current_year}")
+        self.assertEqual(profile["attendance_this_year"], 2)
+        self.assertIsNone(profile["profile_photo_url"])
+
+    def test_current_account_returns_member_profile_for_linked_secretary(self):
+        secretary_user = get_user_model().objects.create_user(
+            email="secretary-profile@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="secretary-profile.xlsx",
+            file_sha256="9" * 64,
+        )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10011,
+            name="Secretary Profile",
+            email="secretary-profile@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+        )
+        self.client.force_login(secretary_user)
+
+        response = self.client.get(reverse("api:current-account"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["member_profile"]["name"], "Secretary Profile")
+
+    def test_member_can_upload_profile_photo_for_linked_record(self):
+        member_user = get_user_model().objects.create_user(
+            email="photo@dll347.org",
+            password=self.password,
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="test.xlsx",
+            file_sha256="b" * 64,
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10002,
+            name="Photo Member",
+            email="photo@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+        )
+        self.client.force_login(member_user)
+
+        with tempfile.TemporaryDirectory() as media_root:
+            with override_settings(MEDIA_ROOT=media_root):
+                response = self.client.post(
+                    reverse("api:member-profile-photo"),
+                    {
+                        "photo": SimpleUploadedFile(
+                            "profile.jpg",
+                            b"fake-image-bytes",
+                            content_type="image/jpeg",
+                        )
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        member.refresh_from_db()
+        self.assertTrue(member.profile_photo.name.startswith("member-profile-photos/member-"))
+        self.assertIn("profile_photo_url", response.json()["member_profile"])
+
+    def test_secretary_can_upload_profile_photo_for_linked_record(self):
+        secretary_user = get_user_model().objects.create_user(
+            email="secretary-photo@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="secretary-photo.xlsx",
+            file_sha256="7" * 64,
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10021,
+            name="Secretary Photo",
+            email="secretary-photo@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+        )
+        self.client.force_login(secretary_user)
+
+        with tempfile.TemporaryDirectory() as media_root:
+            with override_settings(MEDIA_ROOT=media_root):
+                response = self.client.post(
+                    reverse("api:member-profile-photo"),
+                    {
+                        "photo": SimpleUploadedFile(
+                            "profile.jpg",
+                            b"fake-image-bytes",
+                            content_type="image/jpeg",
+                        )
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        member.refresh_from_db()
+        self.assertTrue(member.profile_photo.name.startswith("member-profile-photos/member-"))
+
+    def test_member_full_profile_returns_current_logged_in_member_details(self):
+        member_user = get_user_model().objects.create_user(
+            email="full-profile@dll347.org",
+            password=self.password,
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="full-profile.xlsx",
+            file_sha256="d" * 64,
+        )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10003,
+            name="Full Profile Member",
+            email="full-profile@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            member_number="42",
+            glp_id_number="GLP-42",
+            date_of_birth=date(1985, 3, 15),
+            initiation_date=date(2019, 5, 12),
+            passing_date=date(2019, 6, 15),
+            raising_date=date(2019, 7, 20),
+            telephone="+1 555 123 4567",
+            address="123 Masonic Way",
+            monthly_attendance={f"{timezone.localdate().year} - WB Test / Jan": {"value": "a"}},
+        )
+        self.client.force_login(member_user)
+
+        response = self.client.get(reverse("api:member-full-profile"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["name"], "Full Profile Member")
+        self.assertEqual(payload["member_number"], "42")
+        self.assertEqual(payload["glp_id_number"], "GLP-42")
+        self.assertEqual(payload["date_of_birth"], "1985-03-15")
+        self.assertEqual(payload["initiation_date"], "2019-05-12")
+        self.assertEqual(payload["passing_date"], "2019-06-15")
+        self.assertEqual(payload["raising_date"], "2019-07-20")
+        self.assertEqual(payload["telephone"], "+1 555 123 4567")
+        self.assertEqual(payload["address"], "123 Masonic Way")
+        self.assertEqual(payload["attendance_this_year"], 1)
+
+    def test_secretary_can_view_own_linked_member_profile(self):
+        secretary_user = get_user_model().objects.create_user(
+            email="secretary-full-profile@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="secretary-full-profile.xlsx",
+            file_sha256="8" * 64,
+        )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10012,
+            name="Secretary Full Profile",
+            email="secretary-full-profile@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            glp_id_number="GLP-S",
+        )
+        self.client.force_login(secretary_user)
+
+        response = self.client.get(reverse("api:member-full-profile"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["name"], "Secretary Full Profile")
+
+    def test_current_account_returns_unpaid_dues_status_when_current_year_dues_are_blank_or_na(self):
+        member_user = get_user_model().objects.create_user(
+            email="unpaid-dues@dll347.org",
+            password=self.password,
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="unpaid-dues.xlsx",
+            file_sha256="f" * 64,
+        )
+        current_year = timezone.localdate().year
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10004,
+            name="Unpaid Dues Member",
+            email="unpaid-dues@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            annual_dues={f"ANNUAL DUES / {current_year}": {"value": "N/A"}},
+        )
+        self.client.force_login(member_user)
+
+        response = self.client.get(reverse("api:current-account"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["member_profile"]["dues_status"], f"Unpaid {current_year}")
+
+    def test_member_profile_photo_requires_linked_record(self):
+        member_user = get_user_model().objects.create_user(
+            email="unlinked-photo@dll347.org",
+            password=self.password,
+        )
+        self.client.force_login(member_user)
+
+        response = self.client.post(
+            reverse("api:member-profile-photo"),
+            {
+                "photo": SimpleUploadedFile(
+                    "profile.jpg",
+                    b"fake-image-bytes",
+                    content_type="image/jpeg",
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["code"], "MEMBER_PROFILE_NOT_LINKED")
+
+    def test_member_summary_returns_counts_by_excel_section(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="summary.xlsx",
+            file_sha256="c" * 64,
+        )
+        sections = [
+            "MASTER MASONS - ACTIVE",
+            "TRESTLE BOARD - ACTIVE",
+            "MASTER MASONS (DUAL/PLURAL) - ACTIVE",
+            "MASTER MASONS (HONORARY)",
+            "MASTER MASONS - INACTIVE, SNPD, DEMIT",
+            "TRESTLE BOARD - NOT ACTIVE",
+            "DROPED THE WORKING TOOLS",
+        ]
+        for index, section in enumerate(sections, start=1):
+            MemberDatabaseRecord.objects.create(
+                workbook_import=workbook_import,
+                source_row=11000 + index,
+                name=f"Member {index}",
+                email=f"member{index}@dll347.org",
+                section=section,
+            )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12000,
+            name="Test Record",
+            email="testrecord@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            is_test_record=True,
+        )
+
+        response = self.client.get(reverse("api:member-summary"))
+
+        self.assertEqual(response.status_code, 200)
+        counts = {item["key"]: item["count"] for item in response.json()["groups"]}
+        self.assertEqual(counts["active"], 2)
+        self.assertEqual(counts["dual_plural"], 1)
+        self.assertEqual(counts["honorary"], 1)
+        self.assertEqual(counts["inactive_snpd_demit"], 1)
+        self.assertEqual(counts["dropped_working_tools"], 1)
+
+    def test_member_list_includes_test_records_and_excludes_trestle_board(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="member-list.xlsx",
+            file_sha256="1" * 64,
+        )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12501,
+            name="Searchable Test Member",
+            email="searchable-test@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            is_test_record=True,
+        )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12502,
+            name="Searchable Trestle Member",
+            email="searchable-trestle@dll347.org",
+            section="TRESTLE BOARD - ACTIVE",
+            is_test_record=True,
+        )
+
+        response = self.client.get(reverse("api:member-list"), {"group": "active", "search": "Searchable"})
+
+        self.assertEqual(response.status_code, 200)
+        members = response.json()["members"]
+        self.assertEqual([member["name"] for member in members], ["Searchable Test Member"])
+
+    def test_member_detail_profile_returns_selected_non_trestle_member(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="member-detail.xlsx",
+            file_sha256="6" * 64,
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12511,
+            name="Selected Detail Member",
+            email="selected-detail@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            glp_id_number="GLP-D",
+        )
+
+        response = self.client.get(reverse("api:member-detail-profile", args=[member.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["name"], "Selected Detail Member")
+        self.assertEqual(response.json()["glp_id_number"], "GLP-D")
+
+    def test_member_detail_profile_excludes_trestle_board_member(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="member-detail-trestle.xlsx",
+            file_sha256="5" * 64,
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12512,
+            name="Selected Trestle Member",
+            email="selected-trestle@dll347.org",
+            section="TRESTLE BOARD - ACTIVE",
+        )
+
+        response = self.client.get(reverse("api:member-detail-profile", args=[member.id]))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_secretary_dashboard_summary_uses_live_member_metrics(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="secretary-dashboard.xlsx",
+            file_sha256="e" * 64,
+        )
+        current_year = timezone.localdate().year
+        member_rows = [
+            (
+                "MASTER MASONS - ACTIVE",
+                {f"{current_year} - WB Test / Jan": {"value": "a"}, f"{current_year} - WB Test / Feb": {"value": "a"}},
+                {f"ANNUAL DUES / {current_year}": {"value": f"Jan {current_year}"}},
+            ),
+            (
+                "MASTER MASONS (DUAL/PLURAL) - ACTIVE",
+                {f"{current_year} - WB Test / Jan": {"value": "a"}},
+                {f"ANNUAL DUES / {current_year}": {"value": f"Feb {current_year}"}},
+            ),
+            ("MASTER MASONS (HONORARY)", {}, {}),
+            ("MASTER MASONS - INACTIVE, SNPD, DEMIT", {f"{current_year} - WB Test / Jan": {"value": "a"}}, {}),
+            ("DROPED THE WORKING TOOLS", {f"{current_year} - WB Test / Jan": {"value": "a"}}, {}),
+            ("TRESTLE BOARD - ACTIVE", {f"{current_year} - WB Test / Jan": {"value": "a"}}, {}),
+            ("TRESTLE BOARD - ACTIVE", {f"{current_year} - WB Test / Jan": {"value": "a"}}, {}),
+            ("TRESTLE BOARD - NOT ACTIVE", {}, {}),
+        ]
+        for index, (section, monthly_attendance, annual_dues) in enumerate(member_rows, start=1):
+            prefix = "EAM " if index in (6, 8) else "FCM " if index == 7 else ""
+            MemberDatabaseRecord.objects.create(
+                workbook_import=workbook_import,
+                source_row=13000 + index,
+                name=f"{prefix}Dashboard Member {index}",
+                email=f"dashboard{index}@dll347.org",
+                section=section,
+                annual_dues=annual_dues,
+                monthly_attendance=monthly_attendance,
+            )
+
+        response = self.client.get(reverse("api:secretary-dashboard-summary"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["membership"], {"active_count": 1, "total_count": 5, "percent": 20})
+        self.assertEqual(payload["growth"], {"progressing_count": 2, "total_count": 2, "percent": 100})
+        self.assertEqual(payload["finances"], {"percent": 0, "status": "Coming soon"})
+        self.assertEqual(
+            payload["attendance"],
+            {"average_count": 2, "total_count": 3, "meeting_count": 2, "percent": 67},
+        )
+        self.assertEqual(
+            payload["dues_collection"],
+            {"paid_count": 2, "unpaid_count": 1, "total_count": 3, "percent": 67},
+        )
+        self.assertEqual(payload["overall_percent"], 64)
+
+    def test_three_lights_can_load_secretary_dashboard_summary(self):
+        three_lights_user = get_user_model().objects.create_user(
+            email="three-lights-dashboard@dll347.org",
+            password=self.password,
+            role="three_lights",
+        )
+        self.client.force_login(three_lights_user)
+
+        response = self.client.get(reverse("api:secretary-dashboard-summary"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("overall_percent", response.json())
+
+    def test_next_lodge_activity_returns_nearest_upcoming_published_activity(self):
+        self.client.force_login(self.user)
+        later = LodgeActivity.objects.create(
+            title="Later Activity",
+            place="Lodge Hall",
+            starts_at=timezone.now() + timedelta(days=10),
+        )
+        nearest = LodgeActivity.objects.create(
+            title="Nearest Activity",
+            place="Temple",
+            starts_at=timezone.now() + timedelta(days=2),
+        )
+        LodgeActivity.objects.create(
+            title="Past Activity",
+            place="Lodge Hall",
+            starts_at=timezone.now() - timedelta(days=1),
+        )
+        LodgeActivity.objects.create(
+            title="Hidden Activity",
+            place="Lodge Hall",
+            starts_at=timezone.now() + timedelta(days=1),
+            is_published=False,
+        )
+        LodgeActivity.objects.create(
+            title="Cancelled Activity",
+            place="Lodge Hall",
+            starts_at=timezone.now() + timedelta(hours=6),
+            status=LodgeActivity.Status.CANCELLED,
+        )
+
+        response = self.client.get(reverse("api:next-lodge-activity"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["activity"]["id"], nearest.id)
+        self.assertNotEqual(response.json()["activity"]["id"], later.id)
+
+    def test_next_lodge_activity_returns_null_when_none_upcoming(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("api:next-lodge-activity"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["activity"])
+
+    def test_current_account_returns_null_profile_when_email_is_unmapped(self):
+        member_user = get_user_model().objects.create_user(
+            email="unmapped@dll347.org",
+            password=self.password,
+        )
+        self.client.force_login(member_user)
+
+        response = self.client.get(reverse("api:current-account"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["member_profile"])
 
     def test_logout_clears_session(self):
         self.client.force_login(self.user)

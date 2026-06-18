@@ -1,11 +1,189 @@
+from urllib.parse import urlencode
+
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Account, PreidentifiedEmail
+from .models import Account, LodgeActivity, MemberDatabaseRecord, MemberPositionHeld, PreidentifiedEmail
+
+
+def json_cell_value(item):
+    return item.get("value") if isinstance(item, dict) else item
+
+
+def has_paid_annual_dues_for_year(obj: MemberDatabaseRecord, year: int) -> bool:
+    value = json_cell_value(obj.annual_dues.get(f"ANNUAL DUES / {year}"))
+    if value in (None, ""):
+        return False
+    if isinstance(value, str) and value.strip().upper() == "N/A":
+        return False
+    return True
+
+
+class MemberPositionHeldSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MemberPositionHeld
+        fields = (
+            "id",
+            "title",
+            "date_range",
+            "start_date",
+            "end_date",
+            "notes",
+            "source",
+        )
+
+
+class MemberDashboardProfileSerializer(serializers.ModelSerializer):
+    lodge_standing = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    dues_status = serializers.SerializerMethodField()
+    attendance_this_year = serializers.SerializerMethodField()
+    member_since = serializers.SerializerMethodField()
+    profile_photo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MemberDatabaseRecord
+        fields = (
+            "id",
+            "name",
+            "email",
+            "section",
+            "member_number",
+            "glp_id_number",
+            "lodge_standing",
+            "status",
+            "dues_status",
+            "attendance_this_year",
+            "member_since",
+            "profile_photo_url",
+        )
+
+    def get_lodge_standing(self, obj: MemberDatabaseRecord) -> str:
+        if obj.section.startswith("TRESTLE BOARD"):
+            return "Trestle Board"
+        return "Master Mason"
+
+    def get_status(self, obj: MemberDatabaseRecord) -> str:
+        section = obj.section.upper()
+        if "DROPED" in section or "DROPPED" in section or "WORKING TOOLS" in section:
+            return "Dropped the Working Tools"
+        if "INACTIVE, SNPD, DEMIT" in section:
+            return "Inactive / SNPD / Demit"
+        if "DUAL" in section or "PLURAL" in section:
+            return "Dual / Plural"
+        if "HONORARY" in section:
+            return "Honorary"
+        if "NOT ACTIVE" in section:
+            return "Not Active"
+        return "Active Member"
+
+    def get_dues_status(self, obj: MemberDatabaseRecord) -> str:
+        current_year = timezone.localdate().year
+        if has_paid_annual_dues_for_year(obj, current_year):
+            return f"Paid {current_year}"
+        return f"Unpaid {current_year}"
+
+    def get_attendance_this_year(self, obj: MemberDatabaseRecord) -> int:
+        current_year = str(timezone.localdate().year)
+        return sum(
+            1
+            for key, item in obj.monthly_attendance.items()
+            if key.startswith(f"{current_year} -")
+            and (item.get("value") if isinstance(item, dict) else item) not in (None, "")
+        )
+
+    def get_member_since(self, obj: MemberDatabaseRecord):
+        return obj.initiation_date or obj.raising_date
+
+    def get_profile_photo_url(self, obj: MemberDatabaseRecord) -> str | None:
+        if not obj.profile_photo:
+            return None
+        request = self.context.get("request")
+        version = int(obj.updated_at.timestamp() * 1000)
+        url = f"{obj.profile_photo.url}?{urlencode({'v': version})}"
+        return request.build_absolute_uri(url) if request is not None else url
+
+
+class MemberListItemSerializer(serializers.ModelSerializer):
+    status = serializers.SerializerMethodField()
+    profile_photo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MemberDatabaseRecord
+        fields = (
+            "id",
+            "name",
+            "glp_id_number",
+            "section",
+            "status",
+            "profile_photo_url",
+        )
+
+    def get_status(self, obj: MemberDatabaseRecord) -> str:
+        return MemberDashboardProfileSerializer(context=self.context).get_status(obj)
+
+    def get_profile_photo_url(self, obj: MemberDatabaseRecord) -> str | None:
+        return MemberDashboardProfileSerializer(context=self.context).get_profile_photo_url(obj)
+
+
+class MemberFullProfileSerializer(MemberDashboardProfileSerializer):
+    date_of_birth = serializers.DateField()
+    initiation_date = serializers.DateField()
+    passing_date = serializers.DateField()
+    raising_date = serializers.DateField()
+    proficiency_date = serializers.DateField()
+    telephone = serializers.CharField()
+    address = serializers.CharField()
+    appendant_bodies = serializers.JSONField()
+    positions_held = MemberPositionHeldSerializer(many=True, read_only=True)
+    years_of_membership = serializers.SerializerMethodField()
+
+    class Meta(MemberDashboardProfileSerializer.Meta):
+        fields = MemberDashboardProfileSerializer.Meta.fields + (
+            "date_of_birth",
+            "initiation_date",
+            "passing_date",
+            "raising_date",
+            "proficiency_date",
+            "telephone",
+            "address",
+            "appendant_bodies",
+            "positions_held",
+            "blood_type",
+            "widow_or_sister",
+            "years_of_membership",
+        )
+
+    def get_years_of_membership(self, obj: MemberDatabaseRecord) -> int | None:
+        start_date = self.get_member_since(obj)
+        if start_date is None:
+            return None
+
+        today = timezone.localdate()
+        years = today.year - start_date.year
+        if (today.month, today.day) < (start_date.month, start_date.day):
+            years -= 1
+        return max(years, 0)
+
+
+class LodgeActivitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LodgeActivity
+        fields = (
+            "id",
+            "title",
+            "details",
+            "place",
+            "starts_at",
+            "ends_at",
+            "status",
+        )
 
 
 class AccountSerializer(serializers.ModelSerializer):
     is_admin = serializers.SerializerMethodField()
+    member_profile = serializers.SerializerMethodField()
 
     class Meta:
         model = Account
@@ -16,6 +194,7 @@ class AccountSerializer(serializers.ModelSerializer):
             "is_active",
             "is_staff",
             "is_admin",
+            "member_profile",
             "last_login",
             "created_at",
             "updated_at",
@@ -23,6 +202,12 @@ class AccountSerializer(serializers.ModelSerializer):
 
     def get_is_admin(self, obj: Account) -> bool:
         return obj.is_superuser
+
+    def get_member_profile(self, obj: Account):
+        member = MemberDatabaseRecord.objects.filter(email__iexact=obj.email.strip()).first()
+        if member is None:
+            return None
+        return MemberDashboardProfileSerializer(member, context=self.context).data
 
 
 class LoginSerializer(serializers.Serializer):

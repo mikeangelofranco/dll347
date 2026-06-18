@@ -45,6 +45,8 @@ DEFAULT_FROM_EMAIL = os.getenv(
 )
 PASSWORD_RESET_LINK_EXPIRY_MINUTES = int(os.getenv("PASSWORD_RESET_LINK_EXPIRY_MINUTES", "60"))
 STATIC_ROOT = os.getenv("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles"))
+MEDIA_URL = "/uploads/"
+MEDIA_ROOT = os.getenv("DJANGO_MEDIA_ROOT", str(BASE_DIR / "uploads"))
 DEVELOPER_EMAILS = [
     item.lower()
     for item in get_list_env(
@@ -161,7 +163,11 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.JSONRenderer",
         "rest_framework.renderers.BrowsableAPIRenderer",
     ],
-    "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
+    "DEFAULT_PARSER_CLASSES": [
+        "rest_framework.parsers.JSONParser",
+        "rest_framework.parsers.MultiPartParser",
+        "rest_framework.parsers.FormParser",
+    ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
     ],
