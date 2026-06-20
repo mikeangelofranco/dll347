@@ -1,9 +1,13 @@
 from django.conf import settings
 from django.contrib.auth import login, logout
-from django.db import transaction
+from django.db import close_old_connections, transaction
+from django.db.models import F, Q
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
+import logging
 import re
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes, permission_classes
@@ -14,17 +18,21 @@ from rest_framework.response import Response
 from .auth_tokens import build_password_reset_token, build_password_reset_url
 from .email_service import EmailDeliveryError, send_password_reset_email
 from .document_extraction import extract_treasurer_report
-from .models import Account, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, PreidentifiedEmail, TreasurerReportSummary
+from .excel_members import MembersWorkbookFormatError, update_existing_members_from_workbook
+from .models import Account, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
 from .permissions import IsDeveloper
 from .serializers import (
     AccountSerializer,
     LoginSerializer,
+    LodgeActivityCreateSerializer,
     LodgeActivitySerializer,
     LodgeDocumentSerializer,
     MemberListItemSerializer,
     MemberDashboardProfileSerializer,
+    MemberEditableProfileSerializer,
     MemberFullProfileSerializer,
     MemberPositionHeldSerializer,
+    MemberProfileUpdateSerializer,
     PasswordSetupSerializer,
     PreidentifiedEmailSerializer,
     PreidentifiedEmailUpsertSerializer,
@@ -43,8 +51,12 @@ DOCUMENT_ALLOWED_CONTENT_TYPES = {
     "application/pdf",
     "image/jpeg",
     "image/png",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/octet-stream",
 }
 DOCUMENT_MAX_BYTES = 20 * 1024 * 1024
+DOCUMENT_EXTRACTION_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="document-extraction")
+logger = logging.getLogger(__name__)
 DOCUMENT_MONTH_NAMES = {
     "jan": 1,
     "january": 1,
@@ -86,6 +98,14 @@ def report_period_from_filename(filename: str) -> tuple[int | None, int | None]:
             month = value
             break
     return month, int(year_match.group(1)) if year_match else None
+
+
+def summary_report_period(summary: TreasurerReportSummary) -> tuple[int | None, int | None]:
+    filename_month, filename_year = report_period_from_filename(summary.document.original_filename)
+    return (
+        filename_month if filename_month is not None else summary.report_month,
+        filename_year if filename_year is not None else summary.report_year,
+    )
 
 
 def money_payload(value: Decimal | None) -> str | None:
@@ -136,8 +156,8 @@ def financial_summary_payload() -> dict:
             remaining_cash__isnull=False,
         ),
         key=lambda summary: (
-            summary.report_year or 0,
-            summary.report_month or 0,
+            summary_report_period(summary)[1] or 0,
+            summary_report_period(summary)[0] or 0,
             summary.document.created_at,
             summary.id,
         ),
@@ -172,14 +192,15 @@ def financial_summary_payload() -> dict:
         net_direction = "flat"
     else:
         net_direction = "up" if net_trend > 0 else "down"
+    latest_month, latest_year = summary_report_period(latest)
 
     return {
         "percent": max(0, min(100, round(float(latest.remaining_cash / latest.cash_to_date * 100)))) if latest.cash_to_date else 0,
         "status": "Cash position is up" if net_direction == "up" else "Cash position is down" if net_direction == "down" else "Cash position is flat",
         "has_data": True,
-        "report_month": latest.report_month,
-        "report_year": latest.report_year,
-        "report_period_label": report_period_label(latest.report_month, latest.report_year),
+        "report_month": latest_month,
+        "report_year": latest_year,
+        "report_period_label": report_period_label(latest_month, latest_year),
         "source_date": latest.document.created_at.date().isoformat(),
         "cash_accountability": money_payload(latest.cash_to_date),
         "cash_to_date": money_payload(latest.remaining_cash),
@@ -193,15 +214,56 @@ def financial_summary_payload() -> dict:
 
 
 def user_can_manage_documents(user) -> bool:
-    return user.is_authenticated and user.role in {
-        Account.Role.SECRETARY,
-        Account.Role.ADMINISTRATOR,
-        Account.Role.DEVELOPER,
+    return user.is_authenticated and user.role == Account.Role.SECRETARY
+
+
+def user_can_manage_activities(user) -> bool:
+    return user.is_authenticated and user.can_manage_activities
+
+
+def user_can_edit_members(user) -> bool:
+    return user.is_authenticated and user.can_edit_members
+
+
+def request_window_label(request) -> str:
+    explicit_window = request.headers.get("X-DLL347-Window", "").strip()
+    if explicit_window:
+        return explicit_window[:255]
+
+    referer = request.headers.get("Referer", "").strip()
+    if referer:
+        return referer[:255]
+
+    return request.path[:255]
+
+
+def record_tool_access(request, tool: str) -> None:
+    user = request.user
+    if not user.is_authenticated:
+        return
+
+    defaults = {
+        "email": user.email,
+        "last_accessed_at": timezone.now(),
+        "last_known_window": request_window_label(request),
+        "user_agent": request.headers.get("User-Agent", "").strip()[:255],
     }
+    _log, created = ToolAccessLog.objects.get_or_create(
+        account=user,
+        tool=tool,
+        defaults={**defaults, "access_count": 1, "first_accessed_at": defaults["last_accessed_at"]},
+    )
+    if not created:
+        ToolAccessLog.objects.filter(account=user, tool=tool).update(
+            **defaults,
+            access_count=F("access_count") + 1,
+        )
 
 
 def filename_matches_category(filename: str, category: str) -> bool:
     normalized = filename.lower().replace("_", " ").replace("-", " ")
+    if category == LodgeDocument.Category.MEMBERS_DATA:
+        return filename.lower().endswith(".xlsx") and "member" in normalized
     if category == LodgeDocument.Category.TREASURERS_REPORT:
         return "treasurer" in normalized and "report" in normalized
     if category == LodgeDocument.Category.STATED_MEETING_MINUTES:
@@ -209,6 +271,106 @@ def filename_matches_category(filename: str, category: str) -> bool:
     if category == LodgeDocument.Category.SPECIAL_MEETING_MINUTES:
         return "minutes" in normalized and "special" in normalized
     return False
+
+
+def file_type_matches_category(filename: str, content_type: str, category: str) -> bool:
+    if category == LodgeDocument.Category.MEMBERS_DATA:
+        return filename.lower().endswith(".xlsx")
+    return content_type in {"application/pdf", "image/jpeg", "image/png"}
+
+
+def process_treasurer_report_document(document_id: int) -> None:
+    close_old_connections()
+    try:
+        document = LodgeDocument.objects.get(pk=document_id)
+        extraction = extract_treasurer_report(document.file, document.content_type)
+        document.extracted_text = clean_database_text(extraction.text)
+        document.extraction_errors = [
+            clean_database_text(error) for error in extraction.errors
+        ]
+        document.extraction_status = (
+            LodgeDocument.ExtractionStatus.EXTRACTED
+            if extraction.is_complete
+            else LodgeDocument.ExtractionStatus.PENDING_REVIEW
+        )
+        document.save(update_fields=["extracted_text", "extraction_errors", "extraction_status", "updated_at"])
+
+        if extraction.values:
+            filename_month, filename_year = report_period_from_filename(document.original_filename)
+            summary_values = {
+                **extraction.values,
+                "raw_values": extraction.raw_values,
+            }
+            if filename_month is not None:
+                summary_values["report_month"] = filename_month
+            if filename_year is not None:
+                summary_values["report_year"] = filename_year
+            TreasurerReportSummary.objects.update_or_create(
+                document=document,
+                defaults=summary_values,
+            )
+    except LodgeDocument.DoesNotExist:
+        return
+    except Exception as exc:
+        logger.exception("Unable to extract Treasurer Report document %s", document_id)
+        LodgeDocument.objects.filter(pk=document_id).update(
+            extraction_status=LodgeDocument.ExtractionStatus.FAILED,
+            extraction_errors=[clean_database_text(str(exc) or "Extraction failed.")],
+            updated_at=timezone.now(),
+        )
+    finally:
+        close_old_connections()
+
+
+def queue_treasurer_report_extraction(document_id: int) -> None:
+    DOCUMENT_EXTRACTION_EXECUTOR.submit(process_treasurer_report_document, document_id)
+
+
+def process_members_data_document(document_id: int) -> None:
+    close_old_connections()
+    try:
+        document = LodgeDocument.objects.get(pk=document_id)
+        result = update_existing_members_from_workbook(document.file.path)
+        messages = [
+            f"Updated {result.updated_count} existing member record{'s' if result.updated_count != 1 else ''}.",
+            f"Read {result.total_rows} member row{'s' if result.total_rows != 1 else ''} from the workbook.",
+        ]
+        if result.unmatched_count:
+            preview = ", ".join(result.unmatched_names)
+            messages.append(
+                f"Skipped {result.unmatched_count} uploaded row{'s' if result.unmatched_count != 1 else ''} that did not match an existing member"
+                + (f": {preview}." if preview else ".")
+            )
+        document.extracted_text = "\n".join(messages)
+        document.extraction_errors = []
+        document.extraction_status = LodgeDocument.ExtractionStatus.EXTRACTED
+        document.save(update_fields=["extracted_text", "extraction_errors", "extraction_status", "updated_at"])
+    except LodgeDocument.DoesNotExist:
+        return
+    except MembersWorkbookFormatError as exc:
+        LodgeDocument.objects.filter(pk=document_id).update(
+            extraction_status=LodgeDocument.ExtractionStatus.FAILED,
+            extraction_errors=exc.errors,
+            updated_at=timezone.now(),
+        )
+    except Exception as exc:
+        logger.exception("Unable to update members data document %s", document_id)
+        LodgeDocument.objects.filter(pk=document_id).update(
+            extraction_status=LodgeDocument.ExtractionStatus.FAILED,
+            extraction_errors=[clean_database_text(str(exc) or "Members data update failed.")],
+            updated_at=timezone.now(),
+        )
+    finally:
+        close_old_connections()
+
+
+def queue_members_data_update(document_id: int) -> None:
+    DOCUMENT_EXTRACTION_EXECUTOR.submit(process_members_data_document, document_id)
+
+
+def delete_document_file(document: LodgeDocument) -> None:
+    if document.file:
+        document.file.delete(save=False)
 
 
 def classify_member_group(section: str) -> str:
@@ -581,6 +743,52 @@ def member_detail_profile_view(request, member_id: int):
     )
 
 
+@api_view(["GET", "PATCH", "PUT"])
+@permission_classes([IsAuthenticated])
+def member_edit_profile_view(request, member_id: int):
+    if not user_can_edit_members(request.user):
+        return Response(
+            {
+                "code": "MEMBER_EDIT_FORBIDDEN",
+                "message": "You do not have permission to edit member records.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    record_tool_access(request, ToolAccessLog.Tool.EDIT_MEMBER)
+
+    member = MemberDatabaseRecord.objects.filter(pk=member_id).first()
+    if member is None:
+        return Response(
+            {
+                "code": "MEMBER_PROFILE_NOT_FOUND",
+                "message": "We could not find that member profile.",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if request.method == "GET":
+        return Response(
+            MemberEditableProfileSerializer(member, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+    serializer = MemberProfileUpdateSerializer(
+        member,
+        data=request.data,
+        partial=request.method == "PATCH",
+    )
+    serializer.is_valid(raise_exception=True)
+    updated_member = serializer.save()
+    return Response(
+        {
+            "message": "Member record updated successfully.",
+            "member": MemberEditableProfileSerializer(updated_member, context={"request": request}).data,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def member_positions_held_view(request):
@@ -751,6 +959,8 @@ def lodge_documents_view(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
+    record_tool_access(request, ToolAccessLog.Tool.DOCUMENTS)
+
     if request.method == "GET":
         documents = LodgeDocument.objects.select_related("treasurer_summary", "uploaded_by")
         category = request.query_params.get("category", "").strip()
@@ -784,6 +994,24 @@ def lodge_documents_view(request):
 
     notes = str(request.data.get("notes", "")).strip()[:200]
     results = []
+    if category == LodgeDocument.Category.MEMBERS_DATA and len(uploads) > 1:
+        return Response(
+            {
+                "message": "Members Data accepts one workbook at a time.",
+                "results": [
+                    {
+                        "filename": upload.name,
+                        "status": "rejected",
+                        "errors": [
+                            "Members Data accepts one workbook at a time because it replaces the current members workbook."
+                        ],
+                    }
+                    for upload in uploads
+                ],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     batch_filename_counts: dict[str, int] = {}
     for upload in uploads:
         normalized_name = upload.name.strip().casefold()
@@ -802,14 +1030,16 @@ def lodge_documents_view(request):
             normalized_filename = upload.name.strip().casefold()
 
             if content_type not in DOCUMENT_ALLOWED_CONTENT_TYPES:
-                errors.append("Allowed file types are PDF, JPG, and PNG.")
+                errors.append("Allowed file types are PDF, JPG, PNG, and XLSX.")
+            if not file_type_matches_category(upload.name, content_type, category):
+                errors.append("The selected category requires a .xlsx workbook." if category == LodgeDocument.Category.MEMBERS_DATA else "This category accepts PDF, JPG, or PNG files.")
             if upload.size > DOCUMENT_MAX_BYTES:
                 errors.append("Max file size is 20MB per file.")
             if not filename_matches_category(upload.name, category):
                 errors.append("Filename does not appear to match the selected category.")
             if batch_filename_counts.get(normalized_filename, 0) > 1:
                 errors.append("This filename appears more than once in the selected files.")
-            if normalized_filename in existing_normalized_filenames:
+            if category != LodgeDocument.Category.MEMBERS_DATA and normalized_filename in existing_normalized_filenames:
                 errors.append("A document with this filename has already been uploaded.")
 
             if errors:
@@ -822,6 +1052,16 @@ def lodge_documents_view(request):
                 )
                 continue
 
+            if category == LodgeDocument.Category.MEMBERS_DATA:
+                existing_members_documents = list(
+                    LodgeDocument.objects.filter(category=LodgeDocument.Category.MEMBERS_DATA)
+                )
+                for existing_document in existing_members_documents:
+                    delete_document_file(existing_document)
+                LodgeDocument.objects.filter(
+                    id__in=[document.id for document in existing_members_documents]
+                ).delete()
+
             document = LodgeDocument.objects.create(
                 category=category,
                 file=upload,
@@ -832,39 +1072,20 @@ def lodge_documents_view(request):
                 uploaded_by=request.user,
                 extraction_status=(
                     LodgeDocument.ExtractionStatus.PENDING_REVIEW
-                    if category == LodgeDocument.Category.TREASURERS_REPORT
+                    if category in {LodgeDocument.Category.TREASURERS_REPORT, LodgeDocument.Category.MEMBERS_DATA}
                     else LodgeDocument.ExtractionStatus.NOT_APPLICABLE
                 ),
             )
             existing_normalized_filenames.add(normalized_filename)
 
             if category == LodgeDocument.Category.TREASURERS_REPORT:
-                extraction = extract_treasurer_report(document.file, content_type)
-                document.extracted_text = clean_database_text(extraction.text)
-                document.extraction_errors = [
-                    clean_database_text(error) for error in extraction.errors
-                ]
-                document.extraction_status = (
-                    LodgeDocument.ExtractionStatus.EXTRACTED
-                    if extraction.is_complete
-                    else LodgeDocument.ExtractionStatus.PENDING_REVIEW
+                transaction.on_commit(
+                    lambda document_id=document.id: queue_treasurer_report_extraction(document_id)
                 )
-                document.save(update_fields=["extracted_text", "extraction_errors", "extraction_status", "updated_at"])
-
-                if extraction.values:
-                    filename_month, filename_year = report_period_from_filename(document.original_filename)
-                    summary_values = {
-                        **extraction.values,
-                        "raw_values": extraction.raw_values,
-                    }
-                    if summary_values.get("report_month") is None and filename_month is not None:
-                        summary_values["report_month"] = filename_month
-                    if summary_values.get("report_year") is None and filename_year is not None:
-                        summary_values["report_year"] = filename_year
-                    TreasurerReportSummary.objects.update_or_create(
-                        document=document,
-                        defaults=summary_values,
-                    )
+            elif category == LodgeDocument.Category.MEMBERS_DATA:
+                transaction.on_commit(
+                    lambda document_id=document.id: queue_members_data_update(document_id)
+                )
 
             results.append(
                 {
@@ -884,6 +1105,26 @@ def lodge_documents_view(request):
         },
         status=response_status,
     )
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def lodge_document_detail_view(request, document_id: int):
+    if not user_can_manage_documents(request.user):
+        return Response(
+            {
+                "code": "DOCUMENTS_ACCESS_DENIED",
+                "message": "Only the Lodge Secretary can manage documents.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    record_tool_access(request, ToolAccessLog.Tool.DOCUMENTS)
+
+    document = get_object_or_404(LodgeDocument, pk=document_id)
+    delete_document_file(document)
+    document.delete()
+    return Response({"message": "Document deleted successfully."}, status=status.HTTP_200_OK)
 
 
 @api_view(["GET"])
@@ -967,6 +1208,92 @@ def upcoming_lodge_activities_view(request):
     return Response(
         {"activities": LodgeActivitySerializer(activities, many=True).data},
         status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def managed_lodge_activities_view(request):
+    if not user_can_manage_activities(request.user):
+        return Response(
+            {
+                "code": "ACTIVITY_ACCESS_DENIED",
+                "message": "You do not have permission to manage lodge activities.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    record_tool_access(request, ToolAccessLog.Tool.ACTIVITY)
+
+    search = request.query_params.get("search", "").strip()
+    activities = LodgeActivity.objects.all()
+    if search:
+        activities = activities.filter(
+            Q(title__icontains=search)
+            | Q(place__icontains=search)
+            | Q(details__icontains=search)
+        )
+    activities = activities.order_by("-starts_at", "-id")[:100]
+    return Response(
+        {"activities": LodgeActivitySerializer(activities, many=True).data},
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def lodge_activity_detail_view(request, activity_id: int):
+    if not user_can_manage_activities(request.user):
+        return Response(
+            {
+                "code": "ACTIVITY_ACCESS_DENIED",
+                "message": "You do not have permission to manage lodge activities.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    record_tool_access(request, ToolAccessLog.Tool.ACTIVITY)
+
+    activity = LodgeActivity.objects.filter(pk=activity_id).first()
+    if activity is None:
+        return Response(
+            {
+                "code": "ACTIVITY_NOT_FOUND",
+                "message": "We could not find that lodge activity.",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    activity.delete()
+    return Response(
+        {"message": "Activity deleted successfully."},
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def create_lodge_activity_view(request):
+    if not user_can_manage_activities(request.user):
+        return Response(
+            {
+                "code": "ACTIVITY_ACCESS_DENIED",
+                "message": "You do not have permission to create lodge activities.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    record_tool_access(request, ToolAccessLog.Tool.ACTIVITY)
+
+    serializer = LodgeActivityCreateSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    activity = serializer.save(created_by=request.user)
+    return Response(
+        {
+            "message": "Activity saved successfully.",
+            "activity": LodgeActivitySerializer(activity).data,
+        },
+        status=status.HTTP_201_CREATED,
     )
 
 

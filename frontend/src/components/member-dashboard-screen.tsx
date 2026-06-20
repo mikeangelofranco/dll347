@@ -6,7 +6,7 @@ import { ChangeEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { ThemedLoader } from "@/components/themed-loader";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
 import { timeBasedGreeting } from "@/lib/greeting";
-import { getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, LodgeActivity, MemberDashboardProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberSummaryGroup, uploadMemberProfilePhoto } from "@/lib/api";
+import { createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, updateMemberProfile, uploadMemberProfilePhoto } from "@/lib/api";
 
 type MemberDashboardScreenProps = {
   profile: MemberDashboardProfile | null;
@@ -16,12 +16,16 @@ type MemberDashboardScreenProps = {
   onDashboardClose?: () => void;
   onProfileClose?: () => void;
   onDocumentsOpen?: () => void;
+  canManageActivities?: boolean;
+  canEditMembers?: boolean;
 };
 
 type MemberDashboardTab = "dashboard" | "more";
-type MemberDashboardView = "home" | "profile" | "members";
+type MemberDashboardView = "home" | "profile" | "members" | "activity" | "member-edit";
 type MemberSheetName = "appendant" | "positions" | "activity";
 type SecretaryNavItemId = "dashboard" | "profile" | "documents" | "more";
+type ActivityTimePickerTarget = "start" | "end";
+type ActivityScreenTab = "create" | "list";
 
 type CropState = {
   zoom: number;
@@ -34,6 +38,15 @@ type CropImageMeta = {
   height: number;
 };
 
+type ActivityTimePickerState = {
+  target: ActivityTimePickerTarget;
+  hour: string;
+  minute: string;
+  period: "AM" | "PM";
+};
+
+type WorkbookAddSheetKind = "meeting" | "monthly" | "dues";
+
 type AppendantBodyItem = {
   key: string;
   name: string;
@@ -41,7 +54,25 @@ type AppendantBodyItem = {
   logoPath: string;
 };
 
+type WorkbookCellRow = {
+  key: string;
+  value: string;
+  original: unknown;
+};
+
+type EditableMemberForm = Omit<
+  MemberProfileUpdatePayload,
+  "appendant_bodies" | "meeting_attendance" | "monthly_attendance" | "annual_dues"
+> & {
+  appendantBodiesRows: WorkbookCellRow[];
+  meetingAttendanceRows: WorkbookCellRow[];
+  monthlyAttendanceRows: WorkbookCellRow[];
+  annualDuesRows: WorkbookCellRow[];
+};
+
 const calendarAddedStoragePrefix = "dll347-calendar-added-activity-";
+const defaultWorkbookMeetingName = "WB";
+const monthOptions = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function Icon({ children, className = "h-5 w-5" }: { children: ReactNode; className?: string }) {
   return (
@@ -67,6 +98,18 @@ function ShieldIcon() {
 
 function CalendarIcon({ plus = false }: { plus?: boolean }) {
   return <Icon><rect x="4" y="5.5" width="16" height="14.5" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M4 9.5h16M8 3.5v4M16 3.5v4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />{plus ? <path d="M12 12v5M9.5 14.5h5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /> : <path d="M8 13h2M13 13h2M8 16.5h2M13 16.5h2" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />}</Icon>;
+}
+
+function TextIcon() {
+  return <span className="text-[0.82rem] font-extrabold leading-none text-[#897b6d]">Tt</span>;
+}
+
+function ToolbarIcon({ label }: { label: string }) {
+  return <span className="flex h-7 w-7 items-center justify-center text-[0.78rem] font-bold text-[#8b7d70]">{label}</span>;
+}
+
+function TargetIcon() {
+  return <Icon className="h-5 w-5"><circle cx="12" cy="12" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /><circle cx="12" cy="12" r="1.8" fill="currentColor" /></Icon>;
 }
 
 function ClockIcon() {
@@ -226,6 +269,79 @@ function clamp(value: number, min: number, max: number): number {
 
 function minimumLoadingDelay(ms = 250): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function localDateTimeToIso(dateValue: string, timeValue: string): string | null {
+  const parsedDate = parseActivityDateInput(dateValue);
+  const parsedTime = parseActivityTimeInput(timeValue);
+  if (parsedDate === null || parsedTime === null) {
+    return null;
+  }
+  return new Date(
+    parsedDate.year,
+    parsedDate.monthIndex,
+    parsedDate.day,
+    parsedTime.hour,
+    parsedTime.minute,
+  ).toISOString();
+}
+
+function parseActivityDateInput(value: string): { year: number; monthIndex: number; day: number } | null {
+  const normalized = value.trim();
+  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const slashMatch = normalized.match(/^(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})$/);
+  const parts = isoMatch
+    ? { year: Number(isoMatch[1]), month: Number(isoMatch[2]), day: Number(isoMatch[3]) }
+    : slashMatch
+      ? { year: Number(slashMatch[3]), month: Number(slashMatch[1]), day: Number(slashMatch[2]) }
+      : null;
+  if (parts === null || parts.month < 1 || parts.month > 12 || parts.day < 1 || parts.day > 31) {
+    return null;
+  }
+  const date = new Date(parts.year, parts.month - 1, parts.day);
+  if (date.getFullYear() !== parts.year || date.getMonth() !== parts.month - 1 || date.getDate() !== parts.day) {
+    return null;
+  }
+  return { year: parts.year, monthIndex: parts.month - 1, day: parts.day };
+}
+
+function parseActivityTimeInput(value: string): { hour: number; minute: number } | null {
+  const normalized = value.trim().replace(/\s*:\s*/g, ":").replace(/\s+/g, " ");
+  const match = normalized.match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
+  if (!match) {
+    return null;
+  }
+  let hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const meridiem = match[3]?.toUpperCase();
+  if (minute < 0 || minute > 59) {
+    return null;
+  }
+  if (meridiem) {
+    if (hour < 1 || hour > 12) {
+      return null;
+    }
+    if (meridiem === "AM") {
+      hour = hour === 12 ? 0 : hour;
+    } else {
+      hour = hour === 12 ? 12 : hour + 12;
+    }
+  } else if (hour < 0 || hour > 23) {
+    return null;
+  }
+  return { hour, minute };
+}
+
+function formatActivityDateInput(value: string): string {
+  const parsed = parseActivityDateInput(value);
+  if (parsed === null) {
+    return value;
+  }
+  return `${String(parsed.monthIndex + 1).padStart(2, "0")}/${String(parsed.day).padStart(2, "0")}/${parsed.year}`;
+}
+
+function datePickerValueToDisplay(value: string): string {
+  return formatActivityDateInput(value);
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -412,6 +528,145 @@ function displayValue(value: string | null | undefined): string {
   return value && value.trim() ? value : "-";
 }
 
+function dateInputValue(value: string | null | undefined): string {
+  return value ? value.slice(0, 10) : "";
+}
+
+function nullableDate(value: string): string | null {
+  return value ? value : null;
+}
+
+function currentYearString(): string {
+  return String(new Date().getFullYear());
+}
+
+function workbookCellValue(cell: unknown): string {
+  if (cell === null || cell === undefined) {
+    return "";
+  }
+  if (typeof cell === "object" && !Array.isArray(cell) && "value" in cell) {
+    const value = (cell as { value?: unknown }).value;
+    return value === null || value === undefined ? "" : String(value);
+  }
+  return String(cell);
+}
+
+function createWorkbookCell(value = "") {
+  return {
+    value,
+    formula: null,
+    style_id: null,
+    number_format: "builtin:0",
+  };
+}
+
+function workbookRecordToRows(record: Record<string, unknown>): WorkbookCellRow[] {
+  return Object.entries(record ?? {}).map(([key, original]) => ({
+    key,
+    value: workbookCellValue(original),
+    original,
+  }));
+}
+
+function appendantKeyForCode(code: string): string {
+  return `APPENDANT BODIES / CLUB / ${code}`;
+}
+
+function appendantRows(record: Record<string, unknown>): WorkbookCellRow[] {
+  const importedRows = workbookRecordToRows(record);
+  const importedByCode = new Map(importedRows.map((row) => [appendantBodyCode(row.key).toUpperCase(), row]));
+  const knownRows = Object.keys(appendantBodyDetails).map((code) => {
+    const existing = importedByCode.get(code.toUpperCase());
+    return existing ?? {
+      key: appendantKeyForCode(code),
+      value: "",
+      original: createWorkbookCell(""),
+    };
+  });
+  const extraRows = importedRows.filter((row) => !appendantBodyDetails[appendantBodyCode(row.key).toUpperCase()]);
+  return [...knownRows, ...extraRows];
+}
+
+function workbookKeyYear(key: string): number {
+  const match = key.match(/(?:^|\D)(20\d{2}|19\d{2})(?:\D|$)/);
+  return match ? Number(match[1]) : 0;
+}
+
+function workbookKeyMonthIndex(key: string): number {
+  const normalized = key.toLowerCase();
+  const index = monthOptions.findIndex((month) => normalized.includes(month.toLowerCase()));
+  return index;
+}
+
+function sortedWorkbookRows(rows: WorkbookCellRow[], type: "meeting" | "monthly" | "dues"): WorkbookCellRow[] {
+  return [...rows].sort((a, b) => {
+    const yearDiff = workbookKeyYear(b.key) - workbookKeyYear(a.key);
+    if (yearDiff !== 0) {
+      return yearDiff;
+    }
+    if (type === "monthly") {
+      const monthDiff = workbookKeyMonthIndex(b.key) - workbookKeyMonthIndex(a.key);
+      if (monthDiff !== 0) {
+        return monthDiff;
+      }
+    }
+    return b.key.localeCompare(a.key);
+  });
+}
+
+function workbookRowsToRecord(rows: WorkbookCellRow[]): Record<string, unknown> {
+  return rows.reduce<Record<string, unknown>>((result, row) => {
+    const key = row.key.trim();
+    if (!key) {
+      return result;
+    }
+    if (row.original && typeof row.original === "object" && !Array.isArray(row.original)) {
+      result[key] = { ...row.original, value: row.value };
+    } else {
+      result[key] = row.value;
+    }
+    return result;
+  }, {});
+}
+
+function editableMemberForm(profile: MemberEditableProfile): EditableMemberForm {
+  const positions = profile.positions_held.map((position) => ({
+    title: position.title,
+    date_range: position.date_range,
+    start_date: position.start_date,
+    end_date: position.end_date,
+    notes: position.notes,
+    source: position.source,
+  }));
+  return {
+    section: profile.section,
+    member_number: profile.member_number,
+    name: profile.name,
+    glp_id_number: profile.glp_id_number,
+    date_of_birth: profile.date_of_birth,
+    initiation_date: profile.initiation_date,
+    passing_date: profile.passing_date,
+    raising_date: profile.raising_date,
+    proficiency_date: profile.proficiency_date,
+    suspension: profile.suspension,
+    restored: profile.restored,
+    demit: profile.demit,
+    lml: profile.lml,
+    dual_plural_honorary_date: profile.dual_plural_honorary_date,
+    address: profile.address,
+    telephone: profile.telephone,
+    email: profile.email,
+    blood_type: profile.blood_type,
+    widow_or_sister: profile.widow_or_sister,
+    widow_or_sister_date_of_birth: profile.widow_or_sister_date_of_birth,
+    positions_held: positions,
+    appendantBodiesRows: appendantRows(profile.appendant_bodies),
+    meetingAttendanceRows: sortedWorkbookRows(workbookRecordToRows(profile.meeting_attendance), "meeting"),
+    monthlyAttendanceRows: sortedWorkbookRows(workbookRecordToRows(profile.monthly_attendance), "monthly"),
+    annualDuesRows: sortedWorkbookRows(workbookRecordToRows(profile.annual_dues), "dues"),
+  };
+}
+
 function appendantBodyCode(rawKey: string): string {
   return rawKey.split("/").at(-1)?.trim() ?? rawKey.trim();
 }
@@ -504,6 +759,97 @@ function memberGroupIcon(group: MemberGroupKey) {
   return details?.icon ?? <PersonIcon group />;
 }
 
+function workbookRowLabel(key: string): string {
+  const parts = key.split("/");
+  return (parts.at(-1) ?? key).trim() || key;
+}
+
+function WorkbookRowsEditor({
+  title,
+  rows,
+  emptyText,
+  mode = "text",
+  addLabel,
+  onAdd,
+  onChange,
+}: {
+  title: string;
+  rows: WorkbookCellRow[];
+  emptyText: string;
+  mode?: "mark" | "text";
+  addLabel?: string;
+  onAdd?: () => void;
+  onChange: (rows: WorkbookCellRow[]) => void;
+}) {
+  function updateRow(index: number, value: string) {
+    onChange(rows.map((row, rowIndex) => rowIndex === index ? { ...row, value } : row));
+  }
+
+  function clearFilledRows() {
+    onChange(rows.map((row) => ({ ...row, value: "" })));
+  }
+
+  function toggleMarked(index: number) {
+    onChange(rows.map((row, rowIndex) => (
+      rowIndex === index ? { ...row, value: row.value.trim() ? "" : "a" } : row
+    )));
+  }
+
+  const filledCount = rows.filter((row) => row.value.trim()).length;
+
+  return (
+    <div className="rounded-[0.82rem] border border-[#efe4d8] bg-[#fffdfb] p-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <span>
+          <span className="block text-[0.7rem] font-bold text-[#111111]">{title}</span>
+          <span className="mt-0.5 block text-[0.58rem] text-[#706760]">{filledCount} of {rows.length}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          {rows.length > 0 ? (
+            <button type="button" onClick={clearFilledRows} className="rounded-full bg-[#fff4e3] px-2.5 py-1 text-[0.58rem] font-bold text-[#a76a00]">
+              Clear
+            </button>
+          ) : null}
+          {onAdd ? (
+            <button type="button" onClick={onAdd} className="rounded-full bg-[#d40000] px-2.5 py-1 text-[0.58rem] font-bold text-white">
+              {addLabel ?? "Add"}
+            </button>
+          ) : null}
+        </span>
+      </div>
+      <div className="mt-2 max-h-64 space-y-1.5 overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {rows.length > 0 ? rows.map((row, index) => (
+          <div key={`${row.key}-${index}`} className="grid grid-cols-[minmax(0,1.2fr)_minmax(4.8rem,0.72fr)] items-center gap-2 rounded-[0.62rem] border border-[#f1e8de] bg-white px-2 py-1.5">
+            <span className="min-w-0">
+              <span className="block truncate text-[0.63rem] font-semibold text-[#2f2925]">{workbookRowLabel(row.key)}</span>
+              <span className="mt-0.5 block truncate text-[0.5rem] text-[#817871]">{row.key}</span>
+            </span>
+            {mode === "mark" ? (
+              <button
+                type="button"
+                onClick={() => toggleMarked(index)}
+                className={`h-8 min-w-0 rounded-[0.48rem] border px-2 text-[0.6rem] font-extrabold ${row.value.trim() ? "border-[#bfe8c7] bg-[#f2fbf4] text-[#009622]" : "border-[#ded6cf] bg-[#fffdfb] text-[#817871]"}`}
+                aria-pressed={Boolean(row.value.trim())}
+              >
+                {row.value.trim() ? "Marked" : "Blank"}
+              </button>
+            ) : (
+              <input
+                value={row.value}
+                onChange={(event) => updateRow(index, event.target.value)}
+                placeholder="-"
+                className="h-8 min-w-0 rounded-[0.48rem] border border-[#ded6cf] bg-[#fffdfb] px-2 text-[0.66rem] font-semibold text-[#111111] outline-none placeholder:text-[#b0a7a0]"
+              />
+            )}
+          </div>
+        )) : (
+          <p className="rounded-[0.62rem] bg-[#fbf7f0] px-3 py-3 text-center text-[0.64rem] text-[#665d57]">{emptyText}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function MemberDashboardScreen({
   profile,
   onLogout,
@@ -512,13 +858,28 @@ export function MemberDashboardScreen({
   onDashboardClose,
   onProfileClose,
   onDocumentsOpen,
+  canManageActivities = false,
+  canEditMembers = false,
 }: MemberDashboardScreenProps) {
   const isProfileOnly = initialView === "profile";
   const usesSecretaryNav = onDashboardClose !== undefined || onProfileClose !== undefined;
+  const contextualNavItems = usesSecretaryNav
+    ? secretaryNavItems.filter((item) => item.id !== "documents" || onDocumentsOpen !== undefined)
+    : navItems;
+  const contextualNavGridClass = usesSecretaryNav
+    ? contextualNavItems.length === 4 ? "grid-cols-4" : "grid-cols-3"
+    : "grid-cols-2";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const activityStartDateRef = useRef<HTMLInputElement | null>(null);
+  const activityEndDateRef = useRef<HTMLInputElement | null>(null);
+  const activityStartDatePickerRef = useRef<HTMLInputElement | null>(null);
+  const activityEndDatePickerRef = useRef<HTMLInputElement | null>(null);
+  const editMemberDetailsRef = useRef<HTMLElement | null>(null);
   const [activeView, setActiveView] = useState<MemberDashboardView>(initialView);
   const [isProfileViewClosing, setIsProfileViewClosing] = useState(false);
   const [isMembersViewClosing, setIsMembersViewClosing] = useState(false);
+  const [isActivityFormClosing, setIsActivityFormClosing] = useState(false);
+  const [isMemberEditClosing, setIsMemberEditClosing] = useState(false);
   const [uploadedProfile, setUploadedProfile] = useState<MemberDashboardProfile | null>(null);
   const [fullProfile, setFullProfile] = useState<MemberFullProfile | null>(null);
   const [activeTab, setActiveTab] = useState<MemberDashboardTab>(initialTab);
@@ -558,6 +919,45 @@ export function MemberDashboardScreen({
   const [positionsHeld, setPositionsHeld] = useState<MemberPositionHeld[] | null>(null);
   const [isPositionsLoading, setIsPositionsLoading] = useState(false);
   const [positionsError, setPositionsError] = useState("");
+  const [activityTitle, setActivityTitle] = useState("");
+  const [activityDetails, setActivityDetails] = useState("");
+  const [activityPlace, setActivityPlace] = useState("");
+  const [activityStartDate, setActivityStartDate] = useState("");
+  const [activityStartTime, setActivityStartTime] = useState("");
+  const [activityEndDate, setActivityEndDate] = useState("");
+  const [activityEndTime, setActivityEndTime] = useState("");
+  const [activityStatus, setActivityStatus] = useState<LodgeActivityFormPayload["status"]>("scheduled");
+  const [isActivityPublished, setIsActivityPublished] = useState(true);
+  const [isSavingActivity, setIsSavingActivity] = useState(false);
+  const [activityFormError, setActivityFormError] = useState("");
+  const [activitySuccessToast, setActivitySuccessToast] = useState("");
+  const [activityTimePicker, setActivityTimePicker] = useState<ActivityTimePickerState | null>(null);
+  const [activityScreenTab, setActivityScreenTab] = useState<ActivityScreenTab>("create");
+  const [managedActivities, setManagedActivities] = useState<LodgeActivity[]>([]);
+  const [managedActivitySearch, setManagedActivitySearch] = useState("");
+  const [isManagedActivitiesLoading, setIsManagedActivitiesLoading] = useState(false);
+  const [managedActivitiesError, setManagedActivitiesError] = useState("");
+  const [activityToDelete, setActivityToDelete] = useState<LodgeActivity | null>(null);
+  const [isDeletingActivity, setIsDeletingActivity] = useState(false);
+  const [activityDeleteError, setActivityDeleteError] = useState("");
+  const [editMemberSearch, setEditMemberSearch] = useState("");
+  const [editMemberFilter, setEditMemberFilter] = useState<MemberGroupKey>("active");
+  const [editMemberList, setEditMemberList] = useState<MemberListItem[]>([]);
+  const [editMemberListCount, setEditMemberListCount] = useState(0);
+  const [isEditMemberListLoading, setIsEditMemberListLoading] = useState(false);
+  const [editMemberListError, setEditMemberListError] = useState("");
+  const [selectedEditMember, setSelectedEditMember] = useState<MemberEditableProfile | null>(null);
+  const [editMemberForm, setEditMemberForm] = useState<EditableMemberForm | null>(null);
+  const [isEditMemberLoading, setIsEditMemberLoading] = useState(false);
+  const [editMemberFormError, setEditMemberFormError] = useState("");
+  const [editMemberSuccessToast, setEditMemberSuccessToast] = useState("");
+  const [isSavingMemberEdit, setIsSavingMemberEdit] = useState(false);
+  const [workbookAddSheet, setWorkbookAddSheet] = useState<WorkbookAddSheetKind | null>(null);
+  const [workbookAddYear, setWorkbookAddYear] = useState(currentYearString());
+  const [workbookAddMeeting, setWorkbookAddMeeting] = useState(defaultWorkbookMeetingName);
+  const [workbookAddPeriod, setWorkbookAddPeriod] = useState(monthOptions[new Date().getMonth()]);
+  const [workbookAddValue, setWorkbookAddValue] = useState("a");
+  const [workbookAddError, setWorkbookAddError] = useState("");
 
   const currentProfile = uploadedProfile ?? profile;
 
@@ -647,6 +1047,83 @@ export function MemberDashboardScreen({
       window.clearTimeout(debounce);
     };
   }, [activeView, activeMemberFilter, memberSearch]);
+
+  useEffect(() => {
+    if (activeView !== "member-edit" || !canEditMembers) {
+      return;
+    }
+
+    let isMounted = true;
+    const debounce = window.setTimeout(() => {
+      async function loadEditableMembers() {
+        setIsEditMemberListLoading(true);
+        setEditMemberListError("");
+        try {
+          const [response] = await Promise.all([
+            getMemberList(editMemberFilter, editMemberSearch),
+            minimumLoadingDelay(),
+          ]);
+          if (isMounted) {
+            setEditMemberList(response.members);
+            setEditMemberListCount(response.count);
+          }
+        } catch (error) {
+          if (isMounted) {
+            setEditMemberListError(error instanceof Error ? error.message : "Unable to load members.");
+          }
+        } finally {
+          if (isMounted) {
+            setIsEditMemberListLoading(false);
+          }
+        }
+      }
+
+      void loadEditableMembers();
+    }, 300);
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(debounce);
+    };
+  }, [activeView, canEditMembers, editMemberFilter, editMemberSearch]);
+
+  useEffect(() => {
+    if (activeView !== "activity" || activityScreenTab !== "list") {
+      return;
+    }
+
+    let isMounted = true;
+    const debounce = window.setTimeout(() => {
+      async function loadManagedActivities() {
+        setIsManagedActivitiesLoading(true);
+        setManagedActivitiesError("");
+        try {
+          const [response] = await Promise.all([
+            getManagedLodgeActivities(managedActivitySearch),
+            minimumLoadingDelay(),
+          ]);
+          if (isMounted) {
+            setManagedActivities(response.activities);
+          }
+        } catch (error) {
+          if (isMounted) {
+            setManagedActivitiesError(error instanceof Error ? error.message : "Unable to load activities.");
+          }
+        } finally {
+          if (isMounted) {
+            setIsManagedActivitiesLoading(false);
+          }
+        }
+      }
+
+      void loadManagedActivities();
+    }, 300);
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(debounce);
+    };
+  }, [activeView, activityScreenTab, managedActivitySearch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -805,6 +1282,380 @@ export function MemberDashboardScreen({
     }, 230);
   }
 
+  function openActivityForm() {
+    resetActivityForm();
+    setActivityFormError("");
+    setActivitySuccessToast("");
+    setActivityScreenTab("create");
+    setManagedActivitySearch("");
+    setManagedActivitiesError("");
+    setActivityToDelete(null);
+    setIsActivityFormClosing(false);
+    setActiveView("activity");
+  }
+
+  function closeActivityForm() {
+    setIsActivityFormClosing(true);
+    window.setTimeout(() => {
+      setActiveView("home");
+      setActiveTab("more");
+      setIsActivityFormClosing(false);
+    }, 230);
+  }
+
+  function openMemberEdit() {
+    setEditMemberFormError("");
+    setEditMemberSuccessToast("");
+    setSelectedEditMember(null);
+    setEditMemberForm(null);
+    setIsEditMemberLoading(false);
+    setIsMemberEditClosing(false);
+    setActiveView("member-edit");
+  }
+
+  function closeMemberEdit() {
+    setIsMemberEditClosing(true);
+    window.setTimeout(() => {
+      setActiveView("home");
+      setActiveTab("more");
+      setIsMemberEditClosing(false);
+    }, 230);
+  }
+
+  async function selectEditableMember(memberId: number) {
+    setIsEditMemberLoading(true);
+    setEditMemberFormError("");
+    setEditMemberSuccessToast("");
+    try {
+      const [profileData] = await Promise.all([
+        getEditableMemberProfile(memberId),
+        minimumLoadingDelay(),
+      ]);
+      setSelectedEditMember(profileData);
+      setEditMemberForm(editableMemberForm(profileData));
+      window.setTimeout(() => {
+        editMemberDetailsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 80);
+    } catch (error) {
+      setEditMemberFormError(error instanceof Error ? error.message : "Unable to load this member record.");
+    } finally {
+      setIsEditMemberLoading(false);
+    }
+  }
+
+  function updateEditMemberField<K extends keyof EditableMemberForm>(field: K, value: EditableMemberForm[K]) {
+    setEditMemberForm((current) => current ? { ...current, [field]: value } : current);
+  }
+
+  function updateEditMemberPosition(index: number, field: keyof MemberPositionHeldPayload, value: string | null) {
+    setEditMemberForm((current) => {
+      if (current === null) {
+        return current;
+      }
+      const positions = current.positions_held.map((position, positionIndex) => (
+        positionIndex === index ? { ...position, [field]: value } : position
+      ));
+      return { ...current, positions_held: positions };
+    });
+  }
+
+  function addEditMemberPosition() {
+    setEditMemberForm((current) => current ? {
+      ...current,
+      positions_held: [
+        ...current.positions_held,
+        { title: "", date_range: "", start_date: null, end_date: null, notes: "", source: "manual" },
+      ],
+    } : current);
+  }
+
+  function removeEditMemberPosition(index: number) {
+    setEditMemberForm((current) => current ? {
+      ...current,
+      positions_held: current.positions_held.filter((_, positionIndex) => positionIndex !== index),
+    } : current);
+  }
+
+  function openWorkbookAddSheet(kind: WorkbookAddSheetKind) {
+    setWorkbookAddSheet(kind);
+    setWorkbookAddYear(currentYearString());
+    setWorkbookAddMeeting(defaultWorkbookMeetingName);
+    setWorkbookAddPeriod(kind === "monthly" ? monthOptions[new Date().getMonth()] : kind === "meeting" ? "UD" : "");
+    setWorkbookAddValue(kind === "dues" ? "Paid" : "a");
+    setWorkbookAddError("");
+  }
+
+  function closeWorkbookAddSheet() {
+    setWorkbookAddSheet(null);
+    setWorkbookAddError("");
+  }
+
+  function upsertWorkbookRow(rows: WorkbookCellRow[], nextRow: WorkbookCellRow, type: "meeting" | "monthly" | "dues"): WorkbookCellRow[] {
+    const nextKey = nextRow.key.trim().toLowerCase();
+    const updated = rows.some((row) => row.key.trim().toLowerCase() === nextKey)
+      ? rows.map((row) => row.key.trim().toLowerCase() === nextKey ? { ...row, value: nextRow.value } : row)
+      : [nextRow, ...rows];
+    return sortedWorkbookRows(updated, type);
+  }
+
+  function saveWorkbookAddSheet() {
+    if (editMemberForm === null || workbookAddSheet === null) {
+      return;
+    }
+    const year = workbookAddYear.trim();
+    const meeting = workbookAddMeeting.trim();
+    const period = workbookAddPeriod.trim();
+    const value = workbookAddValue.trim();
+    if (!/^\d{4}$/.test(year)) {
+      setWorkbookAddError("Enter a valid year.");
+      return;
+    }
+    if (workbookAddSheet !== "dues" && (!meeting || !period)) {
+      setWorkbookAddError("Meeting and period are required.");
+      return;
+    }
+    if (workbookAddSheet === "dues" && !value) {
+      setWorkbookAddError("Annual dues value is required.");
+      return;
+    }
+
+    if (workbookAddSheet === "dues") {
+      const row = {
+        key: `ANNUAL DUES / ${year}`,
+        value,
+        original: createWorkbookCell(value),
+      };
+      setEditMemberForm((current) => current ? {
+        ...current,
+        annualDuesRows: upsertWorkbookRow(current.annualDuesRows, row, "dues"),
+      } : current);
+    } else if (workbookAddSheet === "monthly") {
+      const row = {
+        key: `${year} - ${meeting} / ${period}`,
+        value: value || "a",
+        original: createWorkbookCell(value || "a"),
+      };
+      setEditMemberForm((current) => current ? {
+        ...current,
+        monthlyAttendanceRows: upsertWorkbookRow(current.monthlyAttendanceRows, row, "monthly"),
+      } : current);
+    } else {
+      const row = {
+        key: `${year} - ${meeting} / ${period}`,
+        value: value || "a",
+        original: createWorkbookCell(value || "a"),
+      };
+      setEditMemberForm((current) => current ? {
+        ...current,
+        meetingAttendanceRows: upsertWorkbookRow(current.meetingAttendanceRows, row, "meeting"),
+      } : current);
+    }
+    closeWorkbookAddSheet();
+  }
+
+  async function saveMemberEdit() {
+    if (selectedEditMember === null || editMemberForm === null) {
+      setEditMemberFormError("Please select a member first.");
+      return;
+    }
+    if (!editMemberForm.name.trim()) {
+      setEditMemberFormError("Name is required.");
+      return;
+    }
+
+    const payload: MemberProfileUpdatePayload = {
+      section: editMemberForm.section,
+      member_number: editMemberForm.member_number,
+      name: editMemberForm.name.trim(),
+      glp_id_number: editMemberForm.glp_id_number,
+      date_of_birth: editMemberForm.date_of_birth,
+      initiation_date: editMemberForm.initiation_date,
+      passing_date: editMemberForm.passing_date,
+      raising_date: editMemberForm.raising_date,
+      proficiency_date: editMemberForm.proficiency_date,
+      suspension: editMemberForm.suspension,
+      restored: editMemberForm.restored,
+      demit: editMemberForm.demit,
+      lml: editMemberForm.lml,
+      dual_plural_honorary_date: editMemberForm.dual_plural_honorary_date,
+      address: editMemberForm.address,
+      telephone: editMemberForm.telephone,
+      email: editMemberForm.email,
+      appendant_bodies: workbookRowsToRecord(editMemberForm.appendantBodiesRows),
+      blood_type: editMemberForm.blood_type,
+      widow_or_sister: editMemberForm.widow_or_sister,
+      widow_or_sister_date_of_birth: editMemberForm.widow_or_sister_date_of_birth,
+      meeting_attendance: workbookRowsToRecord(editMemberForm.meetingAttendanceRows),
+      monthly_attendance: workbookRowsToRecord(editMemberForm.monthlyAttendanceRows),
+      annual_dues: workbookRowsToRecord(editMemberForm.annualDuesRows),
+      positions_held: editMemberForm.positions_held,
+    };
+
+    setIsSavingMemberEdit(true);
+    setEditMemberFormError("");
+    setEditMemberSuccessToast("");
+    try {
+      const [response] = await Promise.all([
+        updateMemberProfile(selectedEditMember.id, payload),
+        minimumLoadingDelay(),
+      ]);
+      setSelectedEditMember(response.member);
+      setEditMemberForm(editableMemberForm(response.member));
+      setEditMemberSuccessToast(response.message);
+      window.setTimeout(() => setEditMemberSuccessToast(""), 3200);
+    } catch (error) {
+      setEditMemberFormError(error instanceof Error ? error.message : "Unable to save member record.");
+    } finally {
+      setIsSavingMemberEdit(false);
+    }
+  }
+
+  function resetActivityForm() {
+    setActivityTitle("");
+    setActivityDetails("");
+    setActivityPlace("");
+    setActivityStartDate("");
+    setActivityStartTime("");
+    setActivityEndDate("");
+    setActivityEndTime("");
+    setActivityStatus("scheduled");
+    setIsActivityPublished(true);
+  }
+
+  function openNativePicker(input: HTMLInputElement | null) {
+    if (!input) {
+      return;
+    }
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+      return;
+    }
+    input.click();
+    input.focus();
+  }
+
+  function openActivityTimePicker(target: ActivityTimePickerTarget) {
+    const currentValue = target === "start" ? activityStartTime : activityEndTime;
+    const parsed = parseActivityTimeInput(currentValue);
+    let hour = "05";
+    let minute = "00";
+    let period: "AM" | "PM" = "PM";
+    if (parsed !== null) {
+      period = parsed.hour >= 12 ? "PM" : "AM";
+      hour = String(parsed.hour % 12 || 12).padStart(2, "0");
+      minute = String(parsed.minute).padStart(2, "0");
+    }
+    setActivityTimePicker({ target, hour, minute, period });
+  }
+
+  function applyActivityTimePicker() {
+    if (activityTimePicker === null) {
+      return;
+    }
+    const nextTime = `${activityTimePicker.hour}:${activityTimePicker.minute} ${activityTimePicker.period}`;
+    if (activityTimePicker.target === "start") {
+      setActivityStartTime(nextTime);
+    } else {
+      setActivityEndTime(nextTime);
+    }
+    setActivityTimePicker(null);
+  }
+
+  async function saveActivity() {
+    const title = activityTitle.trim();
+    const details = activityDetails.trim();
+    const place = activityPlace.trim();
+    const startDate = activityStartDate || activityStartDateRef.current?.value || "";
+    const startTime = activityStartTime;
+    const endDate = activityEndDate || activityEndDateRef.current?.value || "";
+    const endTime = activityEndTime;
+    const missingFields = [
+      !title ? "Title" : "",
+      !place ? "Place" : "",
+      !startDate ? "Starts At date" : "",
+      !startTime ? "Starts At time" : "",
+      !endDate ? "Ends At date" : "",
+      !endTime ? "Ends At time" : "",
+    ].filter(Boolean);
+    if (missingFields.length > 0) {
+      setActivityFormError(`Missing: ${missingFields.join(", ")}.`);
+      return;
+    }
+
+    const startsAt = localDateTimeToIso(startDate, startTime);
+    const endsAt = localDateTimeToIso(endDate, endTime);
+    if (startsAt === null || endsAt === null) {
+      setActivityFormError("Please use valid dates and times, like 07/02/2026 and 05:30 PM.");
+      return;
+    }
+    if (new Date(endsAt) <= new Date(startsAt)) {
+      setActivityFormError("Ends At must be after Starts At.");
+      return;
+    }
+
+    setIsSavingActivity(true);
+    setActivityFormError("");
+    setActivitySuccessToast("");
+    try {
+      const [response] = await Promise.all([
+        createLodgeActivity({
+          title,
+          details,
+          place,
+          starts_at: startsAt,
+          ends_at: endsAt,
+          status: activityStatus,
+          is_published: isActivityPublished,
+        }),
+        minimumLoadingDelay(),
+      ]);
+      resetActivityForm();
+      setActivitySuccessToast(response.message);
+      window.setTimeout(() => setActivitySuccessToast(""), 3200);
+      setNextActivity((current) => {
+        if (response.activity.status !== "scheduled") {
+          return current;
+        }
+        if (current === null || new Date(response.activity.starts_at) < new Date(current.starts_at)) {
+          return response.activity;
+        }
+        return current;
+      });
+      setManagedActivities((current) => [response.activity, ...current].sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime()));
+    } catch (error) {
+      setActivityFormError(error instanceof Error ? error.message : "Unable to save activity.");
+    } finally {
+      setIsSavingActivity(false);
+    }
+  }
+
+  async function confirmDeleteActivity() {
+    if (activityToDelete === null) {
+      return;
+    }
+    setIsDeletingActivity(true);
+    setActivityDeleteError("");
+    try {
+      const [response] = await Promise.all([
+        deleteLodgeActivity(activityToDelete.id),
+        minimumLoadingDelay(),
+      ]);
+      setManagedActivities((current) => current.filter((activity) => activity.id !== activityToDelete.id));
+      setUpcomingActivities((current) => current.filter((activity) => activity.id !== activityToDelete.id));
+      setNextActivity((current) => current?.id === activityToDelete.id ? null : current);
+      setActivitySuccessToast(response.message);
+      window.setTimeout(() => setActivitySuccessToast(""), 3200);
+      setActivityToDelete(null);
+    } catch (error) {
+      setActivityDeleteError(error instanceof Error ? error.message : "Unable to delete activity.");
+    } finally {
+      setIsDeletingActivity(false);
+    }
+  }
+
   async function openMemberProfile(memberId: number) {
     setSelectedMemberProfile(null);
     setSelectedMemberProfileError("");
@@ -928,6 +1779,573 @@ export function MemberDashboardScreen({
     );
   }
 
+  if (activeView === "member-edit") {
+    const selectedGroup = memberGroupDetails(editMemberFilter);
+    const textInputClass = "mt-1.5 h-9 w-full rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[0.68rem] text-[#111111] outline-none placeholder:text-[#9a928b]";
+    const labelClass = "text-[0.66rem] font-bold text-[#2f2925]";
+
+    return (
+      <main className={`member-dashboard-paper h-[100svh] overflow-hidden text-[#111111] ${isMemberEditClosing ? "member-page-exit" : "member-page-enter"}`}>
+        <div className="relative mx-auto flex h-full w-full max-w-[26rem] flex-col overflow-hidden border-x border-[#eee7dd] bg-white/20 shadow-[0_0_35px_rgba(87,55,19,0.08)]">
+          {editMemberSuccessToast ? (
+            <div className="pointer-events-none absolute left-1/2 top-3 z-40 w-[min(22rem,calc(100%-2rem))] -translate-x-1/2 rounded-[0.8rem] border border-[#bfe8c7] bg-white/96 px-3.5 py-3 text-[0.7rem] font-semibold text-[#16802e] shadow-[0_12px_26px_rgba(45,98,39,0.14)] backdrop-blur-md">
+              {editMemberSuccessToast}
+            </div>
+          ) : null}
+          <header className="flex h-[4.4rem] shrink-0 items-center justify-between border-b border-[#eee7dd]/70 bg-white/72 px-4 backdrop-blur-md">
+            <button type="button" onClick={closeMemberEdit} className="flex h-9 w-9 items-center justify-center text-[#1f2529]" aria-label="Back to more">
+              <Icon className="h-6 w-6"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /></Icon>
+            </button>
+            <h1 className="text-[1.02rem] font-bold tracking-[-0.04em]">Edit Member</h1>
+            <span className="h-9 w-9" />
+          </header>
+
+          <div className="flex-1 overflow-y-auto px-3.5 pb-[7rem] pt-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <section className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#d40000] text-white"><PersonIcon /></span>
+                <span className="min-w-0">
+                  <span className="block text-[0.92rem] font-extrabold tracking-[-0.035em]">Select Member</span>
+                  <span className="mt-0.5 block text-[0.64rem] leading-4 text-[#6a625e]">Choose a section, search, then edit the selected record.</span>
+                </span>
+              </div>
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {memberListFilters.map((filter) => {
+                  const isActive = editMemberFilter === filter.key;
+                  return (
+                    <button
+                      key={filter.key}
+                      type="button"
+                      onClick={() => setEditMemberFilter(filter.key)}
+                      className="shrink-0 rounded-full border px-3 py-1.5 text-[0.62rem] font-bold"
+                      style={{ color: filter.color, borderColor: isActive ? filter.border : `${filter.border}99`, backgroundColor: isActive ? filter.tint : "rgba(255,255,255,0.7)" }}
+                    >
+                      {filter.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <label className="mt-2 flex h-10 items-center gap-2 rounded-[0.7rem] border border-[#f0e5d7] bg-white px-3 text-[#716a66]">
+                <SearchIcon />
+                <input type="search" value={editMemberSearch} onChange={(event) => setEditMemberSearch(event.target.value)} placeholder="Search member names" className="min-w-0 flex-1 bg-transparent text-[0.72rem] text-[#111111] outline-none placeholder:text-[#9a928b]" />
+              </label>
+              <div className="mt-3 flex items-center justify-between px-1">
+                <span className="text-[0.66rem] font-semibold" style={{ color: selectedGroup.color }}>{editMemberSearch.trim() ? "Search Results" : selectedGroup.heading}</span>
+                <span className="text-[0.8rem] font-bold">{isEditMemberListLoading ? <ThemedLoader size="sm" /> : editMemberListCount}</span>
+              </div>
+              <div className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {editMemberListError ? (
+                  <p className="rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{editMemberListError}</p>
+                ) : isEditMemberListLoading ? (
+                  <div className="flex justify-center rounded-[0.85rem] bg-white/88 px-4 py-5"><ThemedLoader size="sm" /></div>
+                ) : editMemberList.length > 0 ? (
+                  editMemberList.map((member) => {
+                    const isSelected = selectedEditMember?.id === member.id;
+                    const group = memberGroupFromSection(member.section);
+                    const groupDetails = memberGroupDetails(group);
+                    return (
+                      <button key={member.id} type="button" onClick={() => void selectEditableMember(member.id)} className={`flex w-full items-center gap-2.5 rounded-[0.78rem] px-2.5 py-2 text-left shadow-[0_8px_18px_rgba(75,48,20,0.04)] ${isSelected ? "bg-[#fff4e3] ring-1 ring-[#d68a00]" : "bg-white/90"}`}>
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.68rem] font-bold text-white">
+                          {member.profile_photo_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                          ) : memberInitials(member.name)}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[0.7rem] font-bold text-[#111111]">{memberListDisplayName(member.name)}</span>
+                          <span className="mt-0.5 block truncate text-[0.58rem] text-[#625b56]">GLP ID: {displayValue(member.glp_id_number)}</span>
+                        </span>
+                        <span className="shrink-0 rounded-full px-2 py-0.5 text-[0.52rem] font-semibold" style={{ color: groupDetails.color, backgroundColor: groupDetails.tint }}>{groupDetails.label}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p className="rounded-xl bg-white/88 px-3 py-5 text-center text-[0.7rem] text-[#665d57]">No members found.</p>
+                )}
+              </div>
+            </section>
+
+            {isEditMemberLoading ? <div className="mt-3 flex justify-center rounded-[1rem] bg-white/88 px-4 py-7"><ThemedLoader size="md" /></div> : null}
+
+            {editMemberForm ? (
+              <section ref={editMemberDetailsRef} className="mt-3 scroll-mt-3 space-y-3">
+                <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+                  <h2 className="text-[0.78rem] font-bold">Member Identity</h2>
+                  <div className="mt-3 grid grid-cols-2 gap-2.5">
+                    <label className={labelClass}>Name<input value={editMemberForm.name} onChange={(event) => updateEditMemberField("name", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>GLP ID<input value={editMemberForm.glp_id_number} onChange={(event) => updateEditMemberField("glp_id_number", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>Member No.<input value={editMemberForm.member_number} onChange={(event) => updateEditMemberField("member_number", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>Section<select value={editMemberForm.section} onChange={(event) => updateEditMemberField("section", event.target.value)} className={textInputClass}>
+                      <option value="MASTER MASONS - ACTIVE">Active</option>
+                      <option value="DUAL / PLURAL">Dual / Plural</option>
+                      <option value="HONORARY">Honorary</option>
+                      <option value="INACTIVE, SNPD, DEMIT">Inactive / SNPD / Demit</option>
+                      <option value="DROPPED THE WORKING TOOLS">Dropped Working Tools</option>
+                      <option value={editMemberForm.section}>Current: {editMemberForm.section || "-"}</option>
+                    </select></label>
+                  </div>
+                </div>
+
+                <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+                  <h2 className="text-[0.78rem] font-bold">Contact</h2>
+                  <div className="mt-3 space-y-2.5">
+                    <label className={labelClass}>Email<input value={editMemberForm.email} onChange={(event) => updateEditMemberField("email", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>Phone<input value={editMemberForm.telephone} onChange={(event) => updateEditMemberField("telephone", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>Address<textarea value={editMemberForm.address} onChange={(event) => updateEditMemberField("address", event.target.value)} className="mt-1.5 h-20 w-full resize-none rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 py-2 text-[0.68rem] leading-5 text-[#111111] outline-none" /></label>
+                  </div>
+                </div>
+
+                <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+                  <h2 className="text-[0.78rem] font-bold">Personal</h2>
+                  <div className="mt-3 grid grid-cols-2 gap-2.5">
+                    <label className={labelClass}>Birthdate<input type="date" value={dateInputValue(editMemberForm.date_of_birth)} onChange={(event) => updateEditMemberField("date_of_birth", nullableDate(event.target.value))} className={textInputClass} /></label>
+                    <label className={labelClass}>Blood Type<input value={editMemberForm.blood_type} onChange={(event) => updateEditMemberField("blood_type", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>Widow / Sister<input value={editMemberForm.widow_or_sister} onChange={(event) => updateEditMemberField("widow_or_sister", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>W/S Birthdate<input type="date" value={dateInputValue(editMemberForm.widow_or_sister_date_of_birth)} onChange={(event) => updateEditMemberField("widow_or_sister_date_of_birth", nullableDate(event.target.value))} className={textInputClass} /></label>
+                  </div>
+                </div>
+
+                <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+                  <h2 className="text-[0.78rem] font-bold">Membership History</h2>
+                  <div className="mt-3 grid grid-cols-2 gap-2.5">
+                    <label className={labelClass}>Initiated<input type="date" value={dateInputValue(editMemberForm.initiation_date)} onChange={(event) => updateEditMemberField("initiation_date", nullableDate(event.target.value))} className={textInputClass} /></label>
+                    <label className={labelClass}>Passed<input type="date" value={dateInputValue(editMemberForm.passing_date)} onChange={(event) => updateEditMemberField("passing_date", nullableDate(event.target.value))} className={textInputClass} /></label>
+                    <label className={labelClass}>Raised<input type="date" value={dateInputValue(editMemberForm.raising_date)} onChange={(event) => updateEditMemberField("raising_date", nullableDate(event.target.value))} className={textInputClass} /></label>
+                    <label className={labelClass}>Proficiency<input type="date" value={dateInputValue(editMemberForm.proficiency_date)} onChange={(event) => updateEditMemberField("proficiency_date", nullableDate(event.target.value))} className={textInputClass} /></label>
+                    <label className={labelClass}>Suspension<input value={editMemberForm.suspension} onChange={(event) => updateEditMemberField("suspension", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>Restored<input value={editMemberForm.restored} onChange={(event) => updateEditMemberField("restored", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>Demit<input value={editMemberForm.demit} onChange={(event) => updateEditMemberField("demit", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>LML<input value={editMemberForm.lml} onChange={(event) => updateEditMemberField("lml", event.target.value)} className={textInputClass} /></label>
+                  </div>
+                  <label className={`${labelClass} mt-2.5 block`}>Dual / Plural / Honorary Date<input value={editMemberForm.dual_plural_honorary_date} onChange={(event) => updateEditMemberField("dual_plural_honorary_date", event.target.value)} className={textInputClass} /></label>
+                </div>
+
+                <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-[0.78rem] font-bold">Positions Held</h2>
+                    <button type="button" onClick={addEditMemberPosition} className="rounded-full bg-[#fff4e3] px-3 py-1.5 text-[0.62rem] font-bold text-[#a76a00]">Add</button>
+                  </div>
+                  <div className="mt-3 space-y-2.5">
+                    {editMemberForm.positions_held.map((position, index) => (
+                      <div key={index} className="rounded-[0.8rem] border border-[#efe4d8] bg-[#fffdfb] p-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <input value={position.title} onChange={(event) => updateEditMemberPosition(index, "title", event.target.value)} placeholder="Title" className="min-w-0 flex-1 bg-transparent text-[0.68rem] font-bold outline-none placeholder:text-[#9a928b]" />
+                          <button type="button" onClick={() => removeEditMemberPosition(index)} className="text-[0.62rem] font-bold text-[#c10000]">Remove</button>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <input value={position.date_range} onChange={(event) => updateEditMemberPosition(index, "date_range", event.target.value)} placeholder="Date range" className={textInputClass} />
+                          <input value={position.source} onChange={(event) => updateEditMemberPosition(index, "source", event.target.value)} placeholder="Source" className={textInputClass} />
+                          <input type="date" value={dateInputValue(position.start_date)} onChange={(event) => updateEditMemberPosition(index, "start_date", nullableDate(event.target.value))} className={textInputClass} />
+                          <input type="date" value={dateInputValue(position.end_date)} onChange={(event) => updateEditMemberPosition(index, "end_date", nullableDate(event.target.value))} className={textInputClass} />
+                        </div>
+                        <textarea value={position.notes} onChange={(event) => updateEditMemberPosition(index, "notes", event.target.value)} placeholder="Notes" className="mt-2 h-14 w-full resize-none rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 py-2 text-[0.64rem] leading-4 outline-none" />
+                      </div>
+                    ))}
+                    {editMemberForm.positions_held.length === 0 ? <p className="rounded-xl bg-[#fbf7f0] px-3 py-4 text-center text-[0.68rem] text-[#665d57]">No positions recorded.</p> : null}
+                  </div>
+                </div>
+
+                <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+                  <h2 className="text-[0.78rem] font-bold">Workbook Data</h2>
+                  <div className="mt-3 space-y-2.5">
+                    <WorkbookRowsEditor
+                      title="Appendant Bodies"
+                      rows={editMemberForm.appendantBodiesRows}
+                      emptyText="No appendant body columns were imported for this member."
+                      mode="mark"
+                      onChange={(rows) => updateEditMemberField("appendantBodiesRows", rows)}
+                    />
+                    <WorkbookRowsEditor
+                      title="Meeting Attendance"
+                      rows={editMemberForm.meetingAttendanceRows}
+                      emptyText="No meeting attendance columns were imported for this member."
+                      mode="mark"
+                      addLabel="Add"
+                      onAdd={() => openWorkbookAddSheet("meeting")}
+                      onChange={(rows) => updateEditMemberField("meetingAttendanceRows", rows)}
+                    />
+                    <WorkbookRowsEditor
+                      title="Monthly Attendance"
+                      rows={editMemberForm.monthlyAttendanceRows}
+                      emptyText="No monthly attendance columns were imported for this member."
+                      mode="mark"
+                      addLabel="Add"
+                      onAdd={() => openWorkbookAddSheet("monthly")}
+                      onChange={(rows) => updateEditMemberField("monthlyAttendanceRows", rows)}
+                    />
+                    <WorkbookRowsEditor
+                      title="Annual Dues"
+                      rows={editMemberForm.annualDuesRows}
+                      emptyText="No annual dues columns were imported for this member."
+                      addLabel="Add"
+                      onAdd={() => openWorkbookAddSheet("dues")}
+                      onChange={(rows) => updateEditMemberField("annualDuesRows", rows)}
+                    />
+                  </div>
+                </div>
+              </section>
+            ) : !isEditMemberLoading ? (
+              <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/92 px-4 py-6 text-center shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+                <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#fff4e3] text-[#d68a00]">
+                  <PersonIcon />
+                </div>
+                <h2 className="mt-3 text-[0.82rem] font-bold">No member selected</h2>
+                <p className="mt-1 text-[0.66rem] leading-5 text-[#6a625e]">Select a member above to open the edit form.</p>
+              </section>
+            ) : null}
+
+            {editMemberFormError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{editMemberFormError}</p> : null}
+          </div>
+
+          {workbookAddSheet ? (
+            <div className="absolute inset-0 z-40 flex items-end bg-[#171717]/42 backdrop-blur-[1px]">
+              <section className="w-full rounded-t-[1.2rem] bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.22)] member-sheet-panel-enter">
+                <div className="mx-auto h-1 w-9 rounded-full bg-[#9b9b9b]" />
+                <div className="mt-4 flex items-center justify-between">
+                  <button type="button" onClick={closeWorkbookAddSheet} className="h-9 px-1 text-[0.72rem] font-bold text-[#c10000]">Cancel</button>
+                  <h2 className="text-[0.92rem] font-bold tracking-[-0.03em]">
+                    {workbookAddSheet === "dues" ? "Add Annual Dues" : workbookAddSheet === "monthly" ? "Add Monthly Attendance" : "Add Meeting Attendance"}
+                  </h2>
+                  <button type="button" onClick={saveWorkbookAddSheet} className="h-9 px-1 text-[0.72rem] font-bold text-[#d68a00]">Save</button>
+                </div>
+
+                <div className="mt-4 rounded-[1rem] border border-[#f0e5d7] bg-[#fffdfb] p-3.5 shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label className="text-[0.66rem] font-bold text-[#2f2925]">
+                      Year
+                      <input value={workbookAddYear} onChange={(event) => setWorkbookAddYear(event.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" className="mt-1.5 h-10 w-full rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[0.72rem] text-[#111111] outline-none" />
+                    </label>
+
+                    {workbookAddSheet === "dues" ? (
+                      <label className="text-[0.66rem] font-bold text-[#2f2925]">
+                        Value
+                        <input value={workbookAddValue} onChange={(event) => setWorkbookAddValue(event.target.value)} placeholder="Paid" className="mt-1.5 h-10 w-full rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[0.72rem] text-[#111111] outline-none" />
+                      </label>
+                    ) : (
+                      <label className="text-[0.66rem] font-bold text-[#2f2925]">
+                        Meeting
+                        <input value={workbookAddMeeting} onChange={(event) => setWorkbookAddMeeting(event.target.value)} placeholder="WB" className="mt-1.5 h-10 w-full rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[0.72rem] text-[#111111] outline-none" />
+                      </label>
+                    )}
+                  </div>
+
+                  {workbookAddSheet !== "dues" ? (
+                    <div className="mt-3 grid grid-cols-2 gap-2.5">
+                      <label className="text-[0.66rem] font-bold text-[#2f2925]">
+                        {workbookAddSheet === "monthly" ? "Month" : "Code"}
+                        {workbookAddSheet === "monthly" ? (
+                          <select value={workbookAddPeriod} onChange={(event) => setWorkbookAddPeriod(event.target.value)} className="mt-1.5 h-10 w-full rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[0.72rem] text-[#111111] outline-none">
+                            {monthOptions.map((month) => <option key={month} value={month}>{month}</option>)}
+                          </select>
+                        ) : (
+                          <input value={workbookAddPeriod} onChange={(event) => setWorkbookAddPeriod(event.target.value)} placeholder="UD" className="mt-1.5 h-10 w-full rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[0.72rem] text-[#111111] outline-none" />
+                        )}
+                      </label>
+                      <label className="text-[0.66rem] font-bold text-[#2f2925]">
+                        Mark
+                        <button type="button" onClick={() => setWorkbookAddValue((value) => value.trim() ? "" : "a")} className={`mt-1.5 h-10 w-full rounded-[0.55rem] border px-2 text-[0.68rem] font-extrabold ${workbookAddValue.trim() ? "border-[#bfe8c7] bg-[#f2fbf4] text-[#009622]" : "border-[#ded6cf] bg-white text-[#817871]"}`} aria-pressed={Boolean(workbookAddValue.trim())}>
+                          {workbookAddValue.trim() ? "Marked" : "Blank"}
+                        </button>
+                      </label>
+                    </div>
+                  ) : null}
+
+                  {workbookAddError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.66rem] text-[#c90000]">{workbookAddError}</p> : null}
+                </div>
+              </section>
+            </div>
+          ) : null}
+
+          <div className="absolute inset-x-0 bottom-0 z-20 border-t border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
+            <div className="grid grid-cols-[0.9fr_1.8fr] gap-2.5">
+              <button type="button" onClick={closeMemberEdit} className="h-11 rounded-[0.62rem] border border-[#eadfda] bg-white text-[0.72rem] font-bold text-[#c10000]">Cancel</button>
+              <button type="button" onClick={() => void saveMemberEdit()} disabled={isSavingMemberEdit || editMemberForm === null} className="flex h-11 items-center justify-center gap-2 rounded-[0.62rem] bg-[linear-gradient(145deg,#f1a51c,#d88400)] text-[0.72rem] font-extrabold text-white shadow-[0_10px_20px_rgba(205,133,0,0.2)] disabled:cursor-not-allowed disabled:opacity-60">
+                {isSavingMemberEdit ? <ThemedLoader size="sm" className="brightness-125" /> : <PersonIcon />}
+                <span>{isSavingMemberEdit ? "Saving..." : "Save Member"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (activeView === "activity") {
+    return (
+      <main className={`member-dashboard-paper h-[100svh] overflow-hidden text-[#111111] ${isActivityFormClosing ? "member-page-exit" : "member-page-enter"}`}>
+        <div className="relative mx-auto flex h-full w-full max-w-[26rem] flex-col overflow-hidden border-x border-[#eee7dd] bg-white/20 shadow-[0_0_35px_rgba(87,55,19,0.08)]">
+          {activitySuccessToast ? (
+            <div className="pointer-events-none absolute left-1/2 top-3 z-40 w-[min(22rem,calc(100%-2rem))] -translate-x-1/2 rounded-[0.8rem] border border-[#bfe8c7] bg-white/96 px-3.5 py-3 text-[0.7rem] font-semibold text-[#16802e] shadow-[0_12px_26px_rgba(45,98,39,0.14)] backdrop-blur-md">
+              {activitySuccessToast}
+            </div>
+          ) : null}
+          <header className="flex h-[4.4rem] shrink-0 items-center justify-between border-b border-[#eee7dd]/70 bg-white/72 px-4 backdrop-blur-md">
+            <button type="button" onClick={closeActivityForm} className="flex h-9 w-9 items-center justify-center text-[#1f2529]" aria-label="Back to more">
+              <Icon className="h-6 w-6"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /></Icon>
+            </button>
+            <h1 className="text-[1.02rem] font-bold tracking-[-0.04em]">Activity</h1>
+            <span className="h-9 w-9" />
+          </header>
+
+          <div className="flex-1 overflow-y-auto px-3.5 pb-[6.1rem] pt-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="mb-3 grid grid-cols-2 rounded-[0.82rem] border border-[#eadfd3] bg-white/76 p-1 shadow-[0_8px_18px_rgba(75,48,20,0.04)]">
+              {[
+                ["create", "Create"],
+                ["list", "List"],
+              ].map(([tab, label]) => {
+                const isActive = activityScreenTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setActivityScreenTab(tab as ActivityScreenTab)}
+                    className={`h-9 rounded-[0.62rem] text-[0.68rem] font-extrabold ${isActive ? "bg-[#d40000] text-white shadow-[0_6px_14px_rgba(208,0,0,0.14)]" : "text-[#6a625e]"}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {activityScreenTab === "create" ? (
+            <>
+            <section className="relative overflow-hidden rounded-[1rem] border border-white/80 bg-white/90 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+              <LodgeWatermark />
+              <div className="relative z-10 flex items-center gap-3">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#fff7ec] text-[#d68a00] shadow-[inset_0_0_0_1px_rgba(220,171,91,0.12)]">
+                  <CalendarIcon />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[0.94rem] font-extrabold tracking-[-0.035em]">New Lodge Activity</span>
+                  <span className="mt-1 block text-[0.68rem] leading-5 text-[#6a625e]">Fill in the details below to schedule a new activity.</span>
+                </span>
+              </div>
+            </section>
+
+            <section className="mt-4 rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+              <label className="text-[0.72rem] font-bold">Title <span className="text-[#d00000]">*</span></label>
+              <div className="mt-2 flex h-10 items-center gap-3 rounded-[0.55rem] border border-[#ded6cf] bg-white px-3 text-[#8b7d70]">
+                <TextIcon />
+                <input value={activityTitle} onChange={(event) => setActivityTitle(event.target.value.slice(0, 100))} placeholder="Enter activity title" className="min-w-0 flex-1 bg-transparent text-[0.7rem] text-[#111111] outline-none placeholder:text-[#9a928b]" />
+              </div>
+              <p className="mt-1 text-right text-[0.62rem] text-[#6f6763]">{activityTitle.length} / 100</p>
+
+              <label className="mt-4 block text-[0.72rem] font-bold">Details <span className="font-normal text-[#6f6763]">(Optional)</span></label>
+              <div className="mt-2 overflow-hidden rounded-[0.55rem] border border-[#ded6cf] bg-white">
+                <div className="flex h-9 items-center gap-1 border-b border-[#e6ddd3] bg-[#fbf8f3] px-2">
+                  <ToolbarIcon label="B" />
+                  <ToolbarIcon label="I" />
+                  <ToolbarIcon label="U" />
+                  <ToolbarIcon label="≡" />
+                  <ToolbarIcon label="☷" />
+                  <ToolbarIcon label="↗" />
+                </div>
+                <textarea value={activityDetails} onChange={(event) => setActivityDetails(event.target.value.slice(0, 2000))} placeholder="Provide details about the activity..." className="h-36 w-full resize-none bg-white px-3 py-3 text-[0.7rem] leading-5 text-[#111111] outline-none placeholder:text-[#9a928b]" />
+              </div>
+              <p className="mt-1 text-right text-[0.62rem] text-[#6f6763]">{activityDetails.length} / 2000</p>
+
+              <label className="mt-4 block text-[0.72rem] font-bold">Place <span className="text-[#d00000]">*</span></label>
+              <div className="mt-2 flex h-10 items-center gap-3 rounded-[0.55rem] border border-[#ded6cf] bg-white px-3 text-[#8b7d70]">
+                <PinIcon />
+                <input value={activityPlace} onChange={(event) => setActivityPlace(event.target.value)} placeholder="Enter venue or location" className="min-w-0 flex-1 bg-transparent text-[0.7rem] text-[#111111] outline-none placeholder:text-[#9a928b]" />
+                <TargetIcon />
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[0.72rem] font-bold">Starts At <span className="text-[#d00000]">*</span></label>
+                  <label className="relative mt-2 flex h-10 items-center gap-2 rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[#8b7d70]" onClick={() => openNativePicker(activityStartDatePickerRef.current)}>
+                    <CalendarIcon />
+                    <span className={`min-w-0 flex-1 text-[0.64rem] ${activityStartDate ? "text-[#111111]" : "text-[#9a928b]"}`}>{activityStartDate || "MM/DD/YYYY"}</span>
+                    <input ref={activityStartDatePickerRef} type="date" value={parseActivityDateInput(activityStartDate) ? `${parseActivityDateInput(activityStartDate)!.year}-${String(parseActivityDateInput(activityStartDate)!.monthIndex + 1).padStart(2, "0")}-${String(parseActivityDateInput(activityStartDate)!.day).padStart(2, "0")}` : ""} onChange={(event) => setActivityStartDate(datePickerValueToDisplay(event.target.value))} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Select start date" />
+                  </label>
+                  <button type="button" className="relative mt-2 flex h-10 w-full items-center gap-2 rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-left text-[#8b7d70]" onClick={() => openActivityTimePicker("start")}>
+                    <ClockIcon />
+                    <span className={`min-w-0 flex-1 text-[0.64rem] ${activityStartTime ? "text-[#111111]" : "text-[#9a928b]"}`}>{activityStartTime || "HH:MM AM"}</span>
+                  </button>
+                </div>
+                <div>
+                  <label className="text-[0.72rem] font-bold">Ends At <span className="text-[#d00000]">*</span></label>
+                  <label className="relative mt-2 flex h-10 items-center gap-2 rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[#8b7d70]" onClick={() => openNativePicker(activityEndDatePickerRef.current)}>
+                    <CalendarIcon />
+                    <span className={`min-w-0 flex-1 text-[0.64rem] ${activityEndDate ? "text-[#111111]" : "text-[#9a928b]"}`}>{activityEndDate || "MM/DD/YYYY"}</span>
+                    <input ref={activityEndDatePickerRef} type="date" value={parseActivityDateInput(activityEndDate) ? `${parseActivityDateInput(activityEndDate)!.year}-${String(parseActivityDateInput(activityEndDate)!.monthIndex + 1).padStart(2, "0")}-${String(parseActivityDateInput(activityEndDate)!.day).padStart(2, "0")}` : ""} onChange={(event) => setActivityEndDate(datePickerValueToDisplay(event.target.value))} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Select end date" />
+                  </label>
+                  <button type="button" className="relative mt-2 flex h-10 w-full items-center gap-2 rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-left text-[#8b7d70]" onClick={() => openActivityTimePicker("end")}>
+                    <ClockIcon />
+                    <span className={`min-w-0 flex-1 text-[0.64rem] ${activityEndTime ? "text-[#111111]" : "text-[#9a928b]"}`}>{activityEndTime || "HH:MM AM"}</span>
+                  </button>
+                </div>
+              </div>
+
+              <label className="mt-4 block text-[0.72rem] font-bold">Status <span className="text-[#d00000]">*</span></label>
+              <div className="relative mt-2">
+                <select value={activityStatus} onChange={(event) => setActivityStatus(event.target.value as LodgeActivityFormPayload["status"])} className="h-10 w-full appearance-none rounded-[0.55rem] border border-[#ded6cf] bg-white py-0 pl-8 pr-9 text-[0.7rem] text-[#111111] outline-none">
+                  <option value="scheduled">Planned</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+                <span className="pointer-events-none absolute left-3.5 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[#d68a00]" />
+                <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 rotate-90 text-[#8b7d70]"><ChevronIcon /></span>
+              </div>
+
+              <div className="mt-4 flex items-center justify-between gap-4">
+                <span>
+                  <span className="block text-[0.74rem] font-bold">Is Published</span>
+                  <span className="mt-0.5 block text-[0.66rem] leading-4 text-[#6a625e]">Make this activity visible to all members.</span>
+                </span>
+                <button type="button" onClick={() => setIsActivityPublished((value) => !value)} className={`relative h-8 w-12 shrink-0 overflow-hidden rounded-full transition-colors ${isActivityPublished ? "bg-[#d68a00]" : "bg-[#ded6cf]"}`} aria-pressed={isActivityPublished} aria-label="Toggle published status">
+                  <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-[0_3px_8px_rgba(0,0,0,0.16)] transition-transform ${isActivityPublished ? "translate-x-4" : "translate-x-0"}`} />
+                </button>
+              </div>
+            </section>
+
+            {activityFormError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{activityFormError}</p> : null}
+
+            <div className="mt-4 grid grid-cols-[0.9fr_1.85fr] gap-2.5">
+              <button type="button" onClick={closeActivityForm} className="h-12 rounded-[0.62rem] border border-[#eadfda] bg-white text-[0.72rem] font-bold text-[#c10000] shadow-[0_8px_18px_rgba(75,48,20,0.045)]">
+                Cancel
+              </button>
+              <button type="button" onClick={() => void saveActivity()} disabled={isSavingActivity} className="flex h-12 items-center justify-center gap-2 rounded-[0.62rem] bg-[linear-gradient(145deg,#f1a51c,#d88400)] text-[0.72rem] font-extrabold text-white shadow-[0_10px_20px_rgba(205,133,0,0.2)] disabled:cursor-not-allowed disabled:opacity-75">
+                {isSavingActivity ? <ThemedLoader size="sm" className="brightness-125" /> : <CalendarIcon />}
+                <span>{isSavingActivity ? "Saving..." : "Save Activity"}</span>
+              </button>
+            </div>
+            </>
+            ) : (
+              <>
+                <div className="rounded-[1rem] border border-[#f0e5d7] bg-white/88 px-3.5 py-2.5 shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
+                  <label className="flex items-center gap-2 text-[#716a66]">
+                    <SearchIcon />
+                    <input
+                      type="search"
+                      value={managedActivitySearch}
+                      onChange={(event) => setManagedActivitySearch(event.target.value)}
+                      placeholder="Search activities"
+                      className="min-w-0 flex-1 bg-transparent text-[0.74rem] text-[#111111] outline-none placeholder:text-[#9a928b]"
+                    />
+                  </label>
+                </div>
+
+                <section className="mt-3 space-y-2.5">
+                  {managedActivitiesError ? (
+                    <p className="rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{managedActivitiesError}</p>
+                  ) : isManagedActivitiesLoading ? (
+                    <div className="flex justify-center rounded-[1rem] bg-white/88 px-4 py-8"><ThemedLoader size="md" /></div>
+                  ) : managedActivities.length > 0 ? (
+                    managedActivities.map((activity) => (
+                      <article key={activity.id} className="rounded-[0.92rem] border border-white/80 bg-white/92 p-3 shadow-[0_8px_20px_rgba(75,48,20,0.05)]">
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="min-w-0">
+                            <span className="block truncate text-[0.78rem] font-bold text-[#111111]">{activity.title}</span>
+                            <span className="mt-1 flex items-center gap-1.5 text-[0.62rem] text-[#5f5751]"><CalendarIcon />{formatSheetDateTime(activity.starts_at)}</span>
+                            <span className="mt-0.5 flex items-center gap-1.5 text-[0.62rem] text-[#5f5751]"><PinIcon />{activity.place || "-"}</span>
+                          </span>
+                          <span className="shrink-0 rounded-full bg-[#fbf4ea] px-2.5 py-1 text-[0.56rem] font-bold text-[#8a5d12]">{activity.status}</span>
+                        </div>
+                        {activity.details ? <p className="mt-2 line-clamp-2 text-[0.64rem] leading-4 text-[#6a625e]">{activity.details}</p> : null}
+                        <div className="mt-3 flex items-center justify-between gap-2">
+                          <button type="button" onClick={() => void openActivityDetails(activity)} className="h-9 rounded-[0.6rem] border border-[#eadfd3] bg-[#fffdfb] px-3 text-[0.64rem] font-bold text-[#4b4540]">View</button>
+                          <button type="button" onClick={() => { setActivityToDelete(activity); setActivityDeleteError(""); }} className="h-9 rounded-[0.6rem] bg-[#fff0f0] px-3 text-[0.64rem] font-bold text-[#c10000]">Delete</button>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="rounded-[1rem] bg-white/88 px-4 py-8 text-center text-[0.72rem] leading-5 text-[#665d57]">No activities found.</p>
+                  )}
+                </section>
+              </>
+            )}
+          </div>
+
+          <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
+            <div className={`grid gap-1 ${contextualNavGridClass}`}>
+              {contextualNavItems.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => {
+                    if (item.id === "dashboard") {
+                      setActiveView("home");
+                      setActiveTab("dashboard");
+                    } else if (item.id === "profile") {
+                      void openFullProfile();
+                    } else if (item.id === "documents") {
+                      onDocumentsOpen?.();
+                    } else {
+                      closeActivityForm();
+                    }
+                  }}
+                  className={`flex flex-col items-center gap-1 ${item.id === "more" ? "text-[#d00000]" : "text-[#716a66]"}`}
+                >
+                  {item.icon}
+                  <span className="text-[0.55rem] font-medium sm:text-[0.62rem]">{item.label}</span>
+                  <span className={`h-[0.12rem] w-8 rounded-full ${item.id === "more" ? "bg-[#d00000]" : "bg-transparent"}`} />
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          {activityTimePicker ? (
+            <div className="absolute inset-0 z-40 flex items-end bg-[#171717]/42 backdrop-blur-[1px] member-sheet-backdrop-enter">
+              <section className="w-full rounded-t-[1.25rem] bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.22)] member-sheet-panel-enter">
+                <div className="mx-auto h-1 w-9 rounded-full bg-[#b8b0a8]" />
+                <div className="mt-4 flex items-center justify-between">
+                  <button type="button" onClick={() => setActivityTimePicker(null)} className="h-9 px-2 text-[0.72rem] font-bold text-[#c10000]">Cancel</button>
+                  <h2 className="text-[0.92rem] font-extrabold tracking-[-0.03em]">{activityTimePicker.target === "start" ? "Start Time" : "End Time"}</h2>
+                  <button type="button" onClick={applyActivityTimePicker} className="h-9 px-2 text-[0.72rem] font-bold text-[#d68a00]">Set</button>
+                </div>
+                <div className="mt-4 grid grid-cols-[1fr_1fr_1fr] gap-2.5">
+                  <label className="text-[0.62rem] font-semibold text-[#6a625e]">
+                    Hour
+                    <select value={activityTimePicker.hour} onChange={(event) => setActivityTimePicker((current) => current ? { ...current, hour: event.target.value } : current)} className="mt-1 h-11 w-full rounded-[0.65rem] border border-[#ded6cf] bg-white px-2 text-center text-[0.82rem] font-bold text-[#111111] outline-none">
+                      {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => <option key={hour} value={hour}>{hour}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-[0.62rem] font-semibold text-[#6a625e]">
+                    Minute
+                    <select value={activityTimePicker.minute} onChange={(event) => setActivityTimePicker((current) => current ? { ...current, minute: event.target.value } : current)} className="mt-1 h-11 w-full rounded-[0.65rem] border border-[#ded6cf] bg-white px-2 text-center text-[0.82rem] font-bold text-[#111111] outline-none">
+                      {Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, "0")).map((minute) => <option key={minute} value={minute}>{minute}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-[0.62rem] font-semibold text-[#6a625e]">
+                    Period
+                    <select value={activityTimePicker.period} onChange={(event) => setActivityTimePicker((current) => current ? { ...current, period: event.target.value as "AM" | "PM" } : current)} className="mt-1 h-11 w-full rounded-[0.65rem] border border-[#ded6cf] bg-white px-2 text-center text-[0.82rem] font-bold text-[#111111] outline-none">
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+            </div>
+          ) : null}
+
+          {activityToDelete ? (
+            <div className="absolute inset-0 z-50 flex items-end bg-[#171717]/48 backdrop-blur-[1px] member-sheet-backdrop-enter">
+              <section className="w-full rounded-t-[1.25rem] bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.22)] member-sheet-panel-enter">
+                <div className="mx-auto h-1 w-9 rounded-full bg-[#b8b0a8]" />
+                <div className="mt-4 text-center">
+                  <h2 className="text-[0.98rem] font-extrabold tracking-[-0.035em]">Delete Activity?</h2>
+                  <p className="mx-auto mt-2 max-w-[20rem] text-[0.72rem] leading-5 text-[#6a625e]">
+                    This will permanently delete “{activityToDelete.title}”.
+                  </p>
+                </div>
+                {activityDeleteError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{activityDeleteError}</p> : null}
+                <div className="mt-4 grid grid-cols-2 gap-2.5">
+                  <button type="button" onClick={() => setActivityToDelete(null)} disabled={isDeletingActivity} className="h-11 rounded-[0.65rem] border border-[#eadfda] bg-white text-[0.72rem] font-bold text-[#4b4540] disabled:opacity-60">No</button>
+                  <button type="button" onClick={() => void confirmDeleteActivity()} disabled={isDeletingActivity} className="flex h-11 items-center justify-center gap-2 rounded-[0.65rem] bg-[#d40000] text-[0.72rem] font-extrabold text-white disabled:opacity-70">
+                    {isDeletingActivity ? <ThemedLoader size="sm" className="brightness-125" /> : null}
+                    <span>{isDeletingActivity ? "Deleting..." : "Yes, Delete"}</span>
+                  </button>
+                </div>
+              </section>
+            </div>
+          ) : null}
+        </div>
+      </main>
+    );
+  }
+
   if (activeView === "members") {
     const activeFilter = memberListFilters.find((filter) => filter.key === activeMemberFilter) ?? memberListFilters[0];
     const isSearchingMembers = memberSearch.trim().length > 0;
@@ -1028,8 +2446,8 @@ export function MemberDashboardScreen({
           </div>
 
           <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
-            <div className={`grid gap-1 ${usesSecretaryNav ? "grid-cols-4" : "grid-cols-2"}`}>
-              {(usesSecretaryNav ? secretaryNavItems : navItems).map((item) => {
+            <div className={`grid gap-1 ${contextualNavGridClass}`}>
+              {contextualNavItems.map((item) => {
                 const isActive = usesSecretaryNav ? item.id === activeTab : activeTab === item.id;
                 return (
                   <button
@@ -1196,8 +2614,8 @@ export function MemberDashboardScreen({
           </div>
 
           <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
-            <div className={`grid gap-1 ${usesSecretaryNav ? "grid-cols-4" : "grid-cols-2"}`}>
-              {(usesSecretaryNav ? secretaryNavItems : navItems).map((item) => {
+            <div className={`grid gap-1 ${contextualNavGridClass}`}>
+              {contextualNavItems.map((item) => {
                 const isActive = usesSecretaryNav ? item.id === "profile" : activeTab === item.id;
                 return (
                   <button
@@ -1422,8 +2840,8 @@ export function MemberDashboardScreen({
                   )}
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-base font-bold tracking-[-0.03em] text-[#111111]">More</h2>
-                  <p className="mt-0.5 text-[0.68rem] leading-snug text-[#655e59] sm:text-xs">Manage your member profile preferences.</p>
+                  <h2 className="text-base font-bold tracking-[-0.03em] text-[#111111]">Tools</h2>
+                  <p className="mt-0.5 text-[0.68rem] leading-snug text-[#655e59] sm:text-xs">Access profile photo, lodge activities, and member record tools.</p>
                 </div>
               </div>
 
@@ -1440,14 +2858,40 @@ export function MemberDashboardScreen({
                 <span className="text-[#77716d]"><ChevronIcon /></span>
               </button>
 
+              {canManageActivities ? (
+                <button type="button" onClick={openActivityForm} className="mt-3 flex w-full items-center justify-between rounded-[1rem] border border-[#f0e5d7] bg-[#fffdfb] p-3 text-left shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
+                  <span className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[linear-gradient(145deg,#eda600,#c77900)] text-white"><CalendarIcon /></span>
+                    <span>
+                      <span className="block text-xs font-semibold text-[#111111]">Activity</span>
+                      <span className="mt-0.5 block text-[0.62rem] text-[#706760]">Create and publish lodge activities.</span>
+                    </span>
+                  </span>
+                  <span className="text-[#77716d]"><ChevronIcon /></span>
+                </button>
+              ) : null}
+
+              {canEditMembers ? (
+                <button type="button" onClick={openMemberEdit} className="mt-3 flex w-full items-center justify-between rounded-[1rem] border border-[#f0e5d7] bg-[#fffdfb] p-3 text-left shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-white"><PersonIcon /></span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-semibold text-[#111111]">Edit Member</span>
+                      <span className="mt-0.5 block truncate text-[0.62rem] text-[#706760]">Select and update member records.</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[#77716d]"><ChevronIcon /></span>
+                </button>
+              ) : null}
+
               {photoError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{photoError}</p> : null}
             </section>
           )}
         </div>
 
         <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
-          <div className={`grid gap-1 ${usesSecretaryNav ? "grid-cols-4" : "grid-cols-2"}`}>
-            {(usesSecretaryNav ? secretaryNavItems : navItems).map((item) => {
+          <div className={`grid gap-1 ${contextualNavGridClass}`}>
+            {contextualNavItems.map((item) => {
               const isActive = usesSecretaryNav ? item.id === activeTab || (item.id === "profile" && activeView === "profile") : activeTab === item.id;
               return (
                 <button

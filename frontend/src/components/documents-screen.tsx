@@ -7,6 +7,8 @@ import {
   ApiError,
   LodgeDocument,
   LodgeDocumentCategory,
+  LodgeDocumentUploadResult,
+  deleteLodgeDocument,
   getLodgeDocuments,
   uploadLodgeDocuments,
 } from "@/lib/api";
@@ -24,25 +26,40 @@ const categories: { value: LodgeDocumentCategory; label: string; tokens: string[
   { value: "treasurers_report", label: "Treasurers Report", tokens: ["treasurer", "report"] },
   { value: "minutes_stated_meeting", label: "Minutes of the Stated Meeting", tokens: ["minutes", "stated"] },
   { value: "minutes_special_meeting", label: "Minutes of the Special Meeting", tokens: ["minutes", "special"] },
+  { value: "members_data", label: "Members Data", tokens: ["member"] },
 ];
 
-const allowedTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const documentAllowedTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const workbookAllowedTypes = new Set(["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream"]);
 const maxFileBytes = 20 * 1024 * 1024;
+const uploadBatchSize = 1;
 const listPageSize = 15;
-const monthNames = [
-  "january",
-  "february",
-  "march",
-  "april",
-  "may",
-  "june",
-  "july",
-  "august",
-  "september",
-  "october",
-  "november",
-  "december",
-];
+const monthAliases: Record<string, number> = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11,
+};
 
 function minimumLoadingDelay(ms = 250): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -109,6 +126,10 @@ function DownloadIcon() {
   return <Icon className="h-5.5 w-5.5"><path d="M12 4.5v9.2M8.5 10.4 12 13.9l3.5-3.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /><path d="M5.8 15.5v2.8h12.4v-2.8" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /></Icon>;
 }
 
+function TrashIcon() {
+  return <Icon className="h-5 w-5"><path d="M8.1 9.4v7.1M12 9.4v7.1M15.9 9.4v7.1" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.9" /><path d="M5.8 6.8h12.4M9.2 6.8l.6-2h4.4l.6 2M7.1 6.8l.8 13h8.2l.8-13" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" /></Icon>;
+}
+
 function RowDocumentIcon({ color }: { color: string }) {
   return (
     <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[0.65rem] text-white shadow-[0_8px_16px_rgba(0,0,0,0.08)] ${color}`}>
@@ -139,7 +160,11 @@ function categoryMismatch(file: File, category: LodgeDocumentCategory): string {
 
 function validateFile(file: File, category: LodgeDocumentCategory): string[] {
   const errors: string[] = [];
-  if (!allowedTypes.has(file.type)) {
+  if (category === "members_data") {
+    if (!file.name.toLowerCase().endsWith(".xlsx") || !workbookAllowedTypes.has(file.type || "application/octet-stream")) {
+      errors.push(`${file.name} must be an XLSX members workbook.`);
+    }
+  } else if (!documentAllowedTypes.has(file.type)) {
     errors.push(`${file.name} must be a PDF, JPG, or PNG.`);
   }
   if (file.size > maxFileBytes) {
@@ -159,13 +184,25 @@ function validateFiles(files: File[], category: LodgeDocumentCategory): string[]
     filenameCounts.set(normalizedName, (filenameCounts.get(normalizedName) ?? 0) + 1);
   });
 
-  return files.flatMap((file) => {
+  const errors = files.flatMap((file) => {
     const errors = validateFile(file, category);
     if ((filenameCounts.get(file.name.trim().toLowerCase()) ?? 0) > 1) {
       errors.push(`${file.name} has already been selected.`);
     }
     return errors;
   });
+  if (category === "members_data" && files.length > 1) {
+    errors.push("Members Data accepts one workbook at a time.");
+  }
+  return errors;
+}
+
+function uploadFileBatches(files: File[], batchSize: number): File[][] {
+  const batches: File[][] = [];
+  for (let index = 0; index < files.length; index += batchSize) {
+    batches.push(files.slice(index, index + batchSize));
+  }
+  return batches;
 }
 
 function FileBadge({ file, category }: { file: File; category: LodgeDocumentCategory }) {
@@ -175,7 +212,9 @@ function FileBadge({ file, category }: { file: File; category: LodgeDocumentCate
     ? "bg-[#e11616] text-white"
     : category === "minutes_stated_meeting"
       ? "bg-[#d98a00] text-white"
-      : "bg-[#7d3fd0] text-white";
+      : category === "members_data"
+        ? "bg-[#1769ba] text-white"
+        : "bg-[#7d3fd0] text-white";
 
   return (
     <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.35rem] shadow-[0_7px_14px_rgba(0,0,0,0.08)] ${badgeClass}`}>
@@ -201,6 +240,9 @@ function NavButton({ active, label, icon, onClick }: { active?: boolean; label: 
 }
 
 function documentMonthLabel(document: LodgeDocument): string {
+  if (document.treasurer_summary?.report_month && document.treasurer_summary.report_year) {
+    return formatDocumentPeriod(document.treasurer_summary.report_month - 1, document.treasurer_summary.report_year);
+  }
   const documentDate = parseDocumentDateFromFilename(document.original_filename);
   if (documentDate) {
     return documentDate;
@@ -224,14 +266,15 @@ function formatShortDate(value: string): string {
 
 function parseDocumentDateFromFilename(filename: string): string | null {
   const normalized = filename.replace(/[_-]+/g, " ");
-  const monthPattern = monthNames.join("|");
+  const monthPattern = Object.keys(monthAliases).join("|");
   const monthMatch = normalized.match(new RegExp(`\\b(${monthPattern})\\b\\s*,?\\s*(20\\d{2}|19\\d{2})`, "i"));
   if (monthMatch) {
-    const monthIndex = monthNames.indexOf(monthMatch[1].toLowerCase());
-    return new Date(Number(monthMatch[2]), monthIndex, 1).toLocaleDateString("en-US", {
-      month: "long",
-      year: "numeric",
-    });
+    return formatDocumentPeriod(monthAliases[monthMatch[1].toLowerCase()], Number(monthMatch[2]));
+  }
+
+  const prefixedMonthMatch = normalized.match(/^\s*(0?[1-9]|1[0-2])\b[\s\S]*?\b(20\d{2}|19\d{2})\b/);
+  if (prefixedMonthMatch) {
+    return formatDocumentPeriod(Number(prefixedMonthMatch[1]) - 1, Number(prefixedMonthMatch[2]));
   }
 
   const isoMatch = normalized.match(/\b(20\d{2}|19\d{2})[ .](0?[1-9]|1[0-2])(?:[ .](0?[1-9]|[12]\d|3[01]))?\b/);
@@ -246,12 +289,19 @@ function parseDocumentDateFromFilename(filename: string): string | null {
       day: "numeric",
       year: "numeric",
     } : {
-      month: "long",
+      month: "short",
       year: "numeric",
     });
   }
 
   return null;
+}
+
+function formatDocumentPeriod(monthIndex: number, year: number): string {
+  return new Date(year, monthIndex, 1).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function documentDisplayTitle(document: LodgeDocument): string {
@@ -274,6 +324,9 @@ function documentTheme(document: LodgeDocument) {
   if (document.category === "minutes_stated_meeting") {
     return { tile: "bg-[linear-gradient(145deg,#ef9c00,#d17a00)]", badge: "bg-[#fff0d8] text-[#d07800]" };
   }
+  if (document.category === "members_data") {
+    return { tile: "bg-[linear-gradient(145deg,#2384d5,#1769ba)]", badge: "bg-[#e7f2ff] text-[#1769ba]" };
+  }
   return { tile: "bg-[linear-gradient(145deg,#8e4edb,#7436bd)]", badge: "bg-[#efe3ff] text-[#7d3fd0]" };
 }
 
@@ -287,6 +340,7 @@ export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) 
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
+  const [errorModalMessages, setErrorModalMessages] = useState<string[]>([]);
   const [uploadMessage, setUploadMessage] = useState("");
   const [successToastMessage, setSuccessToastMessage] = useState("");
   const [isUploading, setIsUploading] = useState(false);
@@ -297,6 +351,9 @@ export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) 
   const [listYear, setListYear] = useState<DocumentYearFilter>("all");
   const [documentSearch, setDocumentSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [documentToDelete, setDocumentToDelete] = useState<LodgeDocument | null>(null);
+  const [isDeletingDocument, setIsDeletingDocument] = useState(false);
+  const [deleteDocumentError, setDeleteDocumentError] = useState("");
 
   const totalSize = useMemo(() => selectedFiles.reduce((sum, file) => sum + file.size, 0), [selectedFiles]);
   const listYearOptions = useMemo(() => {
@@ -442,7 +499,9 @@ export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) 
 
   function addFiles(files: File[]) {
     if (!selectedCategory) {
-      setErrors(["Select a category before choosing files."]);
+      const nextErrors = ["Select a category before choosing files."];
+      setErrors(nextErrors);
+      setErrorModalMessages(nextErrors);
       return;
     }
     const nextFiles = [...selectedFiles, ...files];
@@ -471,16 +530,21 @@ export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) 
 
   async function handleUpload() {
     if (!selectedCategory) {
-      setErrors(["Select a category before uploading."]);
+      const nextErrors = ["Select a category before uploading."];
+      setErrors(nextErrors);
+      setErrorModalMessages(nextErrors);
       return;
     }
     if (selectedFiles.length === 0) {
-      setErrors(["Choose at least one file to upload."]);
+      const nextErrors = ["Choose at least one file to upload."];
+      setErrors(nextErrors);
+      setErrorModalMessages(nextErrors);
       return;
     }
     const validationErrors = validateFiles(selectedFiles, selectedCategory);
     if (validationErrors.length > 0) {
       setErrors(validationErrors);
+      setErrorModalMessages(validationErrors);
       return;
     }
 
@@ -489,28 +553,74 @@ export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) 
     setUploadMessage("");
     setSuccessToastMessage("");
     try {
-      const [response] = await Promise.all([
-        uploadLodgeDocuments(selectedCategory, selectedFiles, notes),
-        minimumLoadingDelay(),
-      ]);
-      const responseErrors = response.results.flatMap((result) =>
+      const results: LodgeDocumentUploadResult[] = [];
+      const batches = selectedCategory === "members_data"
+        ? [selectedFiles]
+        : uploadFileBatches(selectedFiles, uploadBatchSize);
+
+      for (let index = 0; index < batches.length; index += 1) {
+        const batch = batches[index];
+        setUploadMessage(`Uploading ${Math.min(index + 1, batches.length)} of ${batches.length}...`);
+        try {
+          const [response] = await Promise.all([
+            uploadLodgeDocuments(selectedCategory, batch, notes),
+            minimumLoadingDelay(),
+          ]);
+          results.push(...response.results);
+        } catch (error) {
+          if (error instanceof ApiError) {
+            const message = error.message.split("\n").filter(Boolean).join(" ");
+            results.push(
+              ...batch.map((file) => ({
+                filename: file.name,
+                status: "rejected" as const,
+                errors: [message || "Unable to upload this file."],
+              })),
+            );
+            if (error.status === 401 || error.status === 403) {
+              const remainingFiles = batches.slice(index + 1).flat();
+              results.push(
+                ...remainingFiles.map((file) => ({
+                  filename: file.name,
+                  status: "rejected" as const,
+                  errors: ["Upload stopped because your session or permission was rejected."],
+                })),
+              );
+              break;
+            }
+          } else {
+            results.push(
+              ...batch.map((file) => ({
+                filename: file.name,
+                status: "rejected" as const,
+                errors: ["Unable to upload this file."],
+              })),
+            );
+          }
+        }
+      }
+
+      const responseErrors = results.flatMap((result) =>
         result.errors.map((error) => `${result.filename}: ${error}`),
       );
       const rejectedFilenames = new Set(
-        response.results
+        results
           .filter((result) => result.status === "rejected")
           .map((result) => result.filename),
       );
-      const uploadedCount = response.results.filter((result) => result.status === "uploaded").length;
+      const uploadedCount = results.filter((result) => result.status === "uploaded").length;
       const rejectedCount = rejectedFilenames.size;
       if (rejectedCount > 0) {
         setUploadMessage(`Uploaded ${uploadedCount} file${uploadedCount === 1 ? "" : "s"}. ${rejectedCount} file${rejectedCount === 1 ? "" : "s"} need${rejectedCount === 1 ? "s" : ""} attention.`);
       } else {
         setUploadMessage("");
-        showSuccessToast(response.message);
+        showSuccessToast(`Uploaded ${uploadedCount} file${uploadedCount === 1 ? "" : "s"}.`);
         window.setTimeout(scrollToDocumentsTop, 80);
       }
       setErrors(responseErrors);
+      if (responseErrors.length > 0) {
+        setErrorModalMessages(responseErrors);
+      }
       setSelectedFiles((currentFiles) =>
         currentFiles.filter((file) => rejectedFilenames.has(file.name)),
       );
@@ -519,12 +629,39 @@ export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) 
       }
     } catch (error) {
       if (error instanceof ApiError) {
-        setErrors([error.message]);
+        const nextErrors = error.message.split("\n").filter(Boolean);
+        setErrors(nextErrors);
+        setErrorModalMessages(nextErrors);
       } else {
-        setErrors(["Unable to upload documents."]);
+        const nextErrors = ["Unable to upload documents."];
+        setErrors(nextErrors);
+        setErrorModalMessages(nextErrors);
       }
     } finally {
       setIsUploading(false);
+    }
+  }
+
+  async function handleDeleteDocument() {
+    if (!documentToDelete) {
+      return;
+    }
+    setIsDeletingDocument(true);
+    setDeleteDocumentError("");
+    try {
+      const [response] = await Promise.all([
+        deleteLodgeDocument(documentToDelete.id),
+        minimumLoadingDelay(),
+      ]);
+      setDocuments((currentDocuments) =>
+        currentDocuments.filter((document) => document.id !== documentToDelete.id),
+      );
+      setDocumentToDelete(null);
+      showSuccessToast(response.message);
+    } catch (error) {
+      setDeleteDocumentError(error instanceof Error ? error.message : "Unable to delete document.");
+    } finally {
+      setIsDeletingDocument(false);
     }
   }
 
@@ -614,13 +751,13 @@ export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) 
                         <button type="button" onClick={() => inputRef.current?.click()} className="mt-3 rounded-[0.52rem] border border-[#e00000] bg-white px-6 py-2.5 text-[0.74rem] font-bold text-[#d00000]">
                           Choose Files
                         </button>
-                        <input ref={inputRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={handleFileInput} className="hidden" />
+                        <input ref={inputRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.xlsx,application/pdf,image/jpeg,image/png,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={handleFileInput} className="hidden" />
                       </div>
                       <div className="flex gap-3 border-t border-[#eadfd6] px-3.5 py-3">
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#fff0f0] text-[#d00000]"><InfoIcon /></span>
                         <div className="text-[0.62rem] leading-4 text-[#6a625e]">
                           <p>You can upload multiple files</p>
-                          <p>Max file size: 20MB per file • Allowed: PDF, JPG, PNG</p>
+                          <p>Max file size: 20MB per file • Allowed: PDF, JPG, PNG, XLSX</p>
                         </div>
                       </div>
                     </div>
@@ -730,12 +867,24 @@ export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) 
                           <p className="mt-1 truncate text-[0.64rem] text-[#6a625e]">
                             {formatBytes(document.size_bytes)} <span className="mx-1">•</span> Uploaded {formatShortDate(document.created_at)}
                           </p>
+                          {document.extraction_status === "pending_review" ? (
+                            <p className="mt-1 text-[0.6rem] font-semibold text-[#d07800]">Processing...</p>
+                          ) : document.extraction_status === "failed" ? (
+                            <p className="mt-1 line-clamp-2 text-[0.6rem] font-semibold text-[#c90000]">{document.extraction_errors[0] ?? "Processing failed."}</p>
+                          ) : document.extraction_status === "extracted" ? (
+                            <p className="mt-1 text-[0.6rem] font-semibold text-[#14842d]">Processed</p>
+                          ) : null}
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-2">
                           <span className="text-[0.62rem] font-medium text-[#6a625e]">{documentMonthLabel(document)}</span>
-                          <a href={document.file_url} download={document.original_filename} className="flex h-10 w-10 items-center justify-center rounded-[0.72rem] border border-[#f3d9d9] bg-white text-[#d00000]" aria-label={`Download ${document.original_filename}`}>
-                            <DownloadIcon />
-                          </a>
+                          <div className="flex items-center gap-1.5">
+                            <a href={document.file_url} download={document.original_filename} className="flex h-9 w-9 items-center justify-center rounded-[0.62rem] border border-[#f3d9d9] bg-white text-[#d00000]" aria-label={`Download ${document.original_filename}`}>
+                              <DownloadIcon />
+                            </a>
+                            <button type="button" onClick={() => { setDocumentToDelete(document); setDeleteDocumentError(""); }} className="flex h-9 w-9 items-center justify-center rounded-[0.62rem] border border-[#f0e1dc] bg-[#fffafa] text-[#9f1414]" aria-label={`Delete ${document.original_filename}`}>
+                              <TrashIcon />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -771,6 +920,58 @@ export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) 
             <NavButton label="More" icon={<DotsIcon />} onClick={() => onNavigate("more")} />
           </div>
         </nav>
+
+        {errorModalMessages.length > 0 ? (
+          <div className="absolute inset-0 z-50 flex items-end bg-[#171717]/48 backdrop-blur-[1px]">
+            <section className="w-full rounded-t-[1.25rem] bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.22)]">
+              <div className="mx-auto h-1 w-9 rounded-full bg-[#b8b0a8]" />
+              <div className="mt-4 flex items-center justify-between">
+                <span className="h-9 w-9" />
+                <h2 className="text-[0.98rem] font-extrabold tracking-[-0.035em] text-[#c90000]">Upload Needs Attention</h2>
+                <button type="button" onClick={() => setErrorModalMessages([])} className="flex h-9 w-9 items-center justify-center text-[#111111]" aria-label="Close upload errors">
+                  <CloseIcon />
+                </button>
+              </div>
+              <div className="mt-4 max-h-[46svh] overflow-y-auto rounded-[0.9rem] bg-[#fff0f0] px-3 py-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {errorModalMessages.map((message, index) => (
+                  <p key={`${message}-${index}`} className="border-b border-[#f5caca] py-2 text-[0.68rem] leading-5 text-[#a60000] last:border-b-0">{message}</p>
+                ))}
+              </div>
+              <button type="button" onClick={() => setErrorModalMessages([])} className="mt-4 h-11 w-full rounded-[0.7rem] bg-[#d00000] text-[0.74rem] font-extrabold text-white">
+                OK
+              </button>
+            </section>
+          </div>
+        ) : null}
+        {documentToDelete ? (
+          <div className="absolute inset-0 z-50 flex items-end bg-[#171717]/48 backdrop-blur-[1px]">
+            <section className="w-full rounded-t-[1.25rem] bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.22)]">
+              <div className="mx-auto h-1 w-9 rounded-full bg-[#b8b0a8]" />
+              <div className="mt-4 flex items-center justify-between">
+                <span className="h-9 w-9" />
+                <h2 className="text-[0.98rem] font-extrabold tracking-[-0.035em] text-[#111111]">Delete Document</h2>
+                <button type="button" onClick={() => setDocumentToDelete(null)} disabled={isDeletingDocument} className="flex h-9 w-9 items-center justify-center text-[#111111] disabled:opacity-40" aria-label="Close delete confirmation">
+                  <CloseIcon />
+                </button>
+              </div>
+              <div className="mt-4 rounded-[0.9rem] bg-[#fff7f4] px-3.5 py-3">
+                <p className="text-[0.72rem] font-semibold leading-5 text-[#251f1c]">Delete “{documentDisplayTitle(documentToDelete)}”?</p>
+                <p className="mt-1 text-[0.64rem] leading-4 text-[#6a625e]">This removes the document from the list and deletes the uploaded file.</p>
+              </div>
+              {deleteDocumentError ? (
+                <p className="mt-3 rounded-[0.7rem] bg-[#fff0f0] px-3 py-2 text-[0.66rem] font-semibold text-[#c90000]">{deleteDocumentError}</p>
+              ) : null}
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setDocumentToDelete(null)} disabled={isDeletingDocument} className="h-11 rounded-[0.7rem] border border-[#eadfda] bg-white text-[0.74rem] font-extrabold text-[#4d4743] disabled:opacity-50">
+                  No
+                </button>
+                <button type="button" onClick={() => void handleDeleteDocument()} disabled={isDeletingDocument} className="flex h-11 items-center justify-center gap-2 rounded-[0.7rem] bg-[#d00000] text-[0.74rem] font-extrabold text-white disabled:bg-[#e4b1b1]">
+                  {isDeletingDocument ? <><ThemedLoader size="sm" className="brightness-125" /><span>Deleting...</span></> : "Yes, Delete"}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
       </div>
     </main>
   );

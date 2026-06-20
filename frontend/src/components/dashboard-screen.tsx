@@ -679,6 +679,7 @@ export function DashboardScreen() {
   const [closingSheet, setClosingSheet] = useState<SecretarySheetName | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [isTightViewport, setIsTightViewport] = useState(false);
+  const canAccessDocuments = account?.role === "secretary";
   const navItems = account?.role === "secretary"
     ? baseNavItems
     : baseNavItems.filter((item) => item.id !== "documents");
@@ -906,7 +907,7 @@ export function DashboardScreen() {
   }
 
   if (account?.role === "member") {
-    return <MemberDashboardScreen profile={account.member_profile} onLogout={handleLogout} />;
+    return <MemberDashboardScreen profile={account.member_profile} onLogout={handleLogout} canManageActivities={account.can_manage_activities} canEditMembers={account.can_edit_members} />;
   }
 
   if (activeView === "profile") {
@@ -917,7 +918,9 @@ export function DashboardScreen() {
         initialView="profile"
         onDashboardClose={() => setActiveView("home")}
         onProfileClose={() => setActiveView("home")}
-        onDocumentsOpen={() => setActiveView("documents")}
+        onDocumentsOpen={canAccessDocuments ? () => setActiveView("documents") : undefined}
+        canManageActivities={account?.can_manage_activities ?? false}
+        canEditMembers={account?.can_edit_members ?? false}
       />
     );
   }
@@ -930,7 +933,9 @@ export function DashboardScreen() {
         initialTab="more"
         onDashboardClose={() => setActiveView("home")}
         onProfileClose={() => setActiveView("home")}
-        onDocumentsOpen={() => setActiveView("documents")}
+        onDocumentsOpen={canAccessDocuments ? () => setActiveView("documents") : undefined}
+        canManageActivities={account?.can_manage_activities ?? false}
+        canEditMembers={account?.can_edit_members ?? false}
       />
     );
   }

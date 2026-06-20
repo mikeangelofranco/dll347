@@ -63,7 +63,7 @@ def _ocr_binary_path() -> str | None:
         return None
 
 
-def _ocr_document_text(upload: BinaryIO) -> str:
+def _ocr_with_macos_vision(upload: BinaryIO) -> str:
     path = _upload_path(upload)
     binary_path = _ocr_binary_path()
     if not path or not binary_path:
@@ -81,6 +81,57 @@ def _ocr_document_text(upload: BinaryIO) -> str:
     if completed.returncode != 0:
         return ""
     return _clean_database_text(completed.stdout)
+
+
+def _ocr_with_tesseract(upload: BinaryIO, content_type: str) -> str:
+    path = _upload_path(upload)
+    tesseract = shutil.which("tesseract")
+    if not path or not tesseract:
+        return ""
+
+    image_paths: list[Path] = []
+    with tempfile.TemporaryDirectory(prefix="dll347_ocr_") as tmpdir:
+        tmp_path = Path(tmpdir)
+        if content_type == "application/pdf":
+            pdftoppm = shutil.which("pdftoppm")
+            if not pdftoppm:
+                return ""
+            prefix = tmp_path / "page"
+            try:
+                subprocess.run(
+                    [pdftoppm, "-r", "220", "-png", path, str(prefix)],
+                    check=True,
+                    capture_output=True,
+                    timeout=60,
+                )
+            except Exception:
+                return ""
+            image_paths = sorted(tmp_path.glob("page-*.png"))
+        else:
+            image_paths = [Path(path)]
+
+        output: list[str] = []
+        for image_path in image_paths[:6]:
+            try:
+                completed = subprocess.run(
+                    [tesseract, str(image_path), "stdout", "--psm", "6"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+            except Exception:
+                continue
+            if completed.returncode == 0 and completed.stdout.strip():
+                output.append(completed.stdout)
+        return _clean_database_text("\n".join(output))
+
+
+def _ocr_document_text(upload: BinaryIO, content_type: str) -> str:
+    text = _ocr_with_tesseract(upload, content_type)
+    if text.strip():
+        return text
+    return _ocr_with_macos_vision(upload)
 
 
 @dataclass
@@ -128,12 +179,12 @@ def read_document_text(upload: BinaryIO, content_type: str) -> str:
         text = _extract_pdf_text(upload)
         if text.strip():
             return text
-        text = _ocr_document_text(upload)
+        text = _ocr_document_text(upload, content_type)
         if text.strip():
             return text
         return ""
     if content_type in {"image/jpeg", "image/png"}:
-        text = _ocr_document_text(upload)
+        text = _ocr_document_text(upload, content_type)
         if text.strip():
             return text
     return _fallback_text(upload)

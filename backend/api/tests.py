@@ -1,4 +1,6 @@
 from datetime import date, timedelta
+from decimal import Decimal
+from pathlib import Path
 import tempfile
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -21,7 +23,7 @@ from .excel_members import (
     normalize_member_name,
     sheet_columns,
 )
-from .models import LodgeActivity, MemberDatabaseRecord, MembersWorkbookImport, PreidentifiedEmail
+from .models import LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
 
 
 class ExcelMemberImportHelpersTests(SimpleTestCase):
@@ -198,6 +200,7 @@ class AuthApiTests(TestCase):
         self.assertEqual(payload["account"]["role"], "administrator")
         self.assertTrue(payload["account"]["is_staff"])
         self.assertFalse(payload["account"]["is_admin"])
+        self.assertFalse(payload["account"]["can_edit_members"])
         self.assertEqual(payload["code"], "LOGIN_SUCCESS")
 
     def test_login_returns_three_lights_role(self):
@@ -830,6 +833,57 @@ class AuthApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("overall_percent", response.json())
 
+    def test_financial_summary_uses_filename_period_when_extracted_year_is_wrong(self):
+        three_lights_user = get_user_model().objects.create_user(
+            email="three-lights-finances@dll347.org",
+            password=self.password,
+            role="three_lights",
+        )
+        self.client.force_login(three_lights_user)
+        june_document = LodgeDocument.objects.create(
+            category=LodgeDocument.Category.TREASURERS_REPORT,
+            file=SimpleUploadedFile("06 DLL 347 Treasurers Report June 2025.pdf", b"%PDF-1.4\n", content_type="application/pdf"),
+            original_filename="06 DLL 347 Treasurers Report June 2025.pdf",
+            content_type="application/pdf",
+            size_bytes=9,
+            uploaded_by=three_lights_user,
+            extraction_status=LodgeDocument.ExtractionStatus.EXTRACTED,
+        )
+        december_document = LodgeDocument.objects.create(
+            category=LodgeDocument.Category.TREASURERS_REPORT,
+            file=SimpleUploadedFile("12 DLL 347 Treasurers Report December 2025.pdf", b"%PDF-1.4\n", content_type="application/pdf"),
+            original_filename="12 DLL 347 Treasurers Report December 2025.pdf",
+            content_type="application/pdf",
+            size_bytes=9,
+            uploaded_by=three_lights_user,
+            extraction_status=LodgeDocument.ExtractionStatus.EXTRACTED,
+        )
+        TreasurerReportSummary.objects.create(
+            document=june_document,
+            report_month=6,
+            report_year=2026,
+            cash_to_date=Decimal("243875.61"),
+            cash_disbursements=Decimal("63915.71"),
+            remaining_cash=Decimal("179959.90"),
+        )
+        TreasurerReportSummary.objects.create(
+            document=december_document,
+            report_month=12,
+            report_year=2025,
+            cash_to_date=Decimal("559344.51"),
+            cash_disbursements=Decimal("211040.00"),
+            remaining_cash=Decimal("348304.51"),
+        )
+
+        response = self.client.get(reverse("api:secretary-dashboard-summary"))
+
+        self.assertEqual(response.status_code, 200)
+        finances = response.json()["finances"]
+        self.assertEqual(finances["report_month"], 12)
+        self.assertEqual(finances["report_year"], 2025)
+        self.assertEqual(finances["report_period_label"], "December 2025")
+        self.assertEqual(finances["cash_to_date"], "348304.51")
+
     def test_next_lodge_activity_returns_nearest_upcoming_published_activity(self):
         self.client.force_login(self.user)
         later = LodgeActivity.objects.create(
@@ -885,6 +939,507 @@ class AuthApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.json()["member_profile"])
+
+    def test_secretary_can_access_lodge_documents(self):
+        secretary_user = get_user_model().objects.create_user(
+            email="secretary-documents@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        self.client.force_login(secretary_user)
+
+        response = self.client.get(reverse("api:lodge-documents"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"documents": []})
+
+    def test_non_secretary_cannot_access_lodge_documents(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("api:lodge-documents"))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "DOCUMENTS_ACCESS_DENIED")
+
+    def test_treasurer_report_upload_queues_extraction(self):
+        secretary_user = get_user_model().objects.create_user(
+            email="secretary-upload@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        self.client.force_login(secretary_user)
+
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            upload = SimpleUploadedFile(
+                "02 DLL 347 Treasurers Report Feb 2025.pdf",
+                b"%PDF-1.4\n% test treasurer report\n",
+                content_type="application/pdf",
+            )
+
+            with patch("api.views.queue_treasurer_report_extraction") as queue_extraction:
+                with self.captureOnCommitCallbacks(execute=True):
+                    response = self.client.post(
+                        reverse("api:lodge-documents"),
+                        {
+                            "category": LodgeDocument.Category.TREASURERS_REPORT,
+                            "notes": "",
+                            "files": [upload],
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["results"][0]["status"], "uploaded")
+        self.assertEqual(response.json()["results"][0]["document"]["extraction_status"], "pending_review")
+        queue_extraction.assert_called_once()
+
+    def test_members_data_upload_queues_update(self):
+        secretary_user = get_user_model().objects.create_user(
+            email="secretary-members-data@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        self.client.force_login(secretary_user)
+
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            upload = SimpleUploadedFile(
+                "DLL 347 Members Data.xlsx",
+                b"not a real workbook",
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+            with patch("api.views.queue_members_data_update") as queue_update:
+                with self.captureOnCommitCallbacks(execute=True):
+                    response = self.client.post(
+                        reverse("api:lodge-documents"),
+                        {
+                            "category": LodgeDocument.Category.MEMBERS_DATA,
+                            "notes": "",
+                            "files": [upload],
+                        },
+                    )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["results"][0]["status"], "uploaded")
+        self.assertEqual(response.json()["results"][0]["document"]["category"], "members_data")
+        self.assertEqual(response.json()["results"][0]["document"]["extraction_status"], "pending_review")
+        queue_update.assert_called_once()
+
+    def test_members_data_upload_replaces_existing_members_workbook(self):
+        secretary_user = get_user_model().objects.create_user(
+            email="secretary-members-data-replace@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        self.client.force_login(secretary_user)
+
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            existing = LodgeDocument.objects.create(
+                category=LodgeDocument.Category.MEMBERS_DATA,
+                file=SimpleUploadedFile(
+                    "old-members.xlsx",
+                    b"old workbook",
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
+                original_filename="old-members.xlsx",
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                size_bytes=12,
+                uploaded_by=secretary_user,
+            )
+            old_file_path = existing.file.path
+            upload = SimpleUploadedFile(
+                "DLL 347 Members Data.xlsx",
+                b"new workbook",
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+            with patch("api.views.queue_members_data_update") as queue_update:
+                with self.captureOnCommitCallbacks(execute=True):
+                    response = self.client.post(
+                        reverse("api:lodge-documents"),
+                        {
+                            "category": LodgeDocument.Category.MEMBERS_DATA,
+                            "notes": "",
+                            "files": [upload],
+                        },
+                    )
+
+            self.assertEqual(response.status_code, 201)
+            self.assertFalse(Path(old_file_path).exists())
+            self.assertEqual(LodgeDocument.objects.filter(category=LodgeDocument.Category.MEMBERS_DATA).count(), 1)
+            self.assertEqual(LodgeDocument.objects.get(category=LodgeDocument.Category.MEMBERS_DATA).original_filename, "DLL 347 Members Data.xlsx")
+            queue_update.assert_called_once()
+
+    def test_members_data_rejects_non_xlsx_upload(self):
+        secretary_user = get_user_model().objects.create_user(
+            email="secretary-members-data-invalid@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        self.client.force_login(secretary_user)
+
+        upload = SimpleUploadedFile(
+            "DLL 347 Members Data.pdf",
+            b"%PDF-1.4\n",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            reverse("api:lodge-documents"),
+            {
+                "category": LodgeDocument.Category.MEMBERS_DATA,
+                "notes": "",
+                "files": [upload],
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["results"][0]["status"], "rejected")
+        self.assertIn(".xlsx", " ".join(response.json()["results"][0]["errors"]))
+
+    def test_secretary_can_delete_lodge_document(self):
+        secretary_user = get_user_model().objects.create_user(
+            email="secretary-delete-document@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        self.client.force_login(secretary_user)
+
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            document = LodgeDocument.objects.create(
+                category=LodgeDocument.Category.STATED_MEETING_MINUTES,
+                file=SimpleUploadedFile("minutes.pdf", b"%PDF-1.4\n", content_type="application/pdf"),
+                original_filename="minutes.pdf",
+                content_type="application/pdf",
+                size_bytes=9,
+                uploaded_by=secretary_user,
+            )
+            file_path = document.file.path
+
+            response = self.client.delete(reverse("api:lodge-document-detail", args=[document.id]))
+
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(LodgeDocument.objects.filter(pk=document.id).exists())
+            self.assertFalse(Path(file_path).exists())
+
+    def test_document_tool_access_is_logged_for_authorized_user(self):
+        secretary_user = get_user_model().objects.create_user(
+            email="secretary-tool-log@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        self.client.force_login(secretary_user)
+
+        response = self.client.get(
+            reverse("api:lodge-documents"),
+            HTTP_X_DLL347_WINDOW="/dashboard?view=documents",
+            HTTP_USER_AGENT="DLL347 PWA",
+        )
+        second_response = self.client.get(
+            reverse("api:lodge-documents"),
+            HTTP_X_DLL347_WINDOW="/dashboard?view=documents&tab=list",
+            HTTP_USER_AGENT="DLL347 PWA",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        log = ToolAccessLog.objects.get(account=secretary_user, tool=ToolAccessLog.Tool.DOCUMENTS)
+        self.assertEqual(log.email, "secretary-tool-log@dll347.org")
+        self.assertEqual(log.last_known_window, "/dashboard?view=documents&tab=list")
+        self.assertEqual(log.user_agent, "DLL347 PWA")
+        self.assertEqual(log.access_count, 2)
+
+    def test_denied_tool_access_is_not_logged(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("api:lodge-documents"),
+            HTTP_X_DLL347_WINDOW="/dashboard?view=documents",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(ToolAccessLog.objects.filter(account=self.user).exists())
+
+    def test_activity_create_requires_activity_permission(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("api:create-lodge-activity"),
+            {
+                "title": "Stated Meeting",
+                "details": "Monthly stated meeting.",
+                "place": "Lodge Hall",
+                "starts_at": "2026-07-10T18:00:00+08:00",
+                "ends_at": "2026-07-10T21:00:00+08:00",
+                "status": "scheduled",
+                "is_published": True,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "ACTIVITY_ACCESS_DENIED")
+
+    def test_activity_manager_can_create_activity(self):
+        activity_manager = get_user_model().objects.create_user(
+            email="activity-manager@dll347.org",
+            password=self.password,
+            can_manage_activities=True,
+        )
+        self.client.force_login(activity_manager)
+
+        response = self.client.post(
+            reverse("api:create-lodge-activity"),
+            {
+                "title": "Stated Meeting",
+                "details": "Monthly stated meeting.",
+                "place": "Lodge Hall",
+                "starts_at": "2026-07-10T18:00:00+08:00",
+                "ends_at": "2026-07-10T21:00:00+08:00",
+                "status": "scheduled",
+                "is_published": True,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["activity"]["title"], "Stated Meeting")
+        self.assertTrue(LodgeActivity.objects.filter(title="Stated Meeting", created_by=activity_manager).exists())
+
+    def test_activity_manager_can_list_and_search_activities_latest_first(self):
+        activity_manager = get_user_model().objects.create_user(
+            email="activity-list-manager@dll347.org",
+            password=self.password,
+            can_manage_activities=True,
+        )
+        self.client.force_login(activity_manager)
+        older = LodgeActivity.objects.create(
+            title="Older Fellowship",
+            place="Lodge Hall",
+            starts_at=timezone.now() + timedelta(days=1),
+        )
+        newer = LodgeActivity.objects.create(
+            title="Latest Degree Work",
+            place="Temple",
+            starts_at=timezone.now() + timedelta(days=3),
+        )
+
+        response = self.client.get(reverse("api:managed-lodge-activities"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item["id"] for item in response.json()["activities"][:2]], [newer.id, older.id])
+
+        search_response = self.client.get(reverse("api:managed-lodge-activities"), {"search": "degree"})
+        self.assertEqual(search_response.status_code, 200)
+        self.assertEqual([item["id"] for item in search_response.json()["activities"]], [newer.id])
+
+    def test_activity_manager_can_delete_activity(self):
+        activity_manager = get_user_model().objects.create_user(
+            email="activity-delete-manager@dll347.org",
+            password=self.password,
+            can_manage_activities=True,
+        )
+        self.client.force_login(activity_manager)
+        activity = LodgeActivity.objects.create(
+            title="Delete Me",
+            place="Lodge Hall",
+            starts_at=timezone.now() + timedelta(days=1),
+        )
+
+        response = self.client.delete(reverse("api:lodge-activity-detail", args=[activity.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(LodgeActivity.objects.filter(pk=activity.id).exists())
+
+    def test_member_edit_requires_member_edit_permission(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="member-edit-permission.xlsx",
+            file_sha256="e" * 64,
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12001,
+            name="Readonly Member",
+            section="MASTER MASONS - ACTIVE",
+        )
+
+        response = self.client.get(reverse("api:member-edit-profile", args=[member.id]))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "MEMBER_EDIT_FORBIDDEN")
+
+    def test_member_editor_can_update_member_record(self):
+        editor = get_user_model().objects.create_user(
+            email="member-editor@dll347.org",
+            password=self.password,
+            can_edit_members=True,
+        )
+        self.client.force_login(editor)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="member-edit.xlsx",
+            file_sha256="f" * 64,
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12002,
+            name="Original Member",
+            email="original@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            member_number="12",
+            glp_id_number="GLP-OLD",
+            date_of_birth=date(1980, 1, 2),
+            initiation_date=date(2010, 3, 4),
+            passing_date=date(2010, 5, 6),
+            raising_date=date(2010, 7, 8),
+            proficiency_date=date(2011, 9, 10),
+            suspension="Old suspension",
+            restored="Old restored",
+            demit="Old demit",
+            lml="Old lml",
+            dual_plural_honorary_date="Old dual",
+            widow_or_sister="Old widow",
+            widow_or_sister_date_of_birth=date(1981, 2, 3),
+            appendant_bodies={
+                "APPENDANT BODIES / CLUB / YORK RITE": {
+                    "value": "",
+                    "formula": None,
+                    "style_id": 83,
+                    "number_format": "builtin:0",
+                }
+            },
+            meeting_attendance={
+                "2026 - WB Test / UD": {
+                    "value": "",
+                    "formula": None,
+                    "style_id": 93,
+                    "number_format": "builtin:0",
+                }
+            },
+            monthly_attendance={
+                "2026 - WB Test / Jan": {
+                    "value": "",
+                    "formula": None,
+                    "style_id": 62,
+                    "number_format": "builtin:0",
+                }
+            },
+            annual_dues={
+                "ANNUAL DUES / 2026": {
+                    "value": "",
+                    "formula": None,
+                    "style_id": 75,
+                    "number_format": "builtin:0",
+                }
+            },
+        )
+        MemberPositionHeld.objects.create(
+            member_record=member,
+            title="Old Role",
+            date_range="2020",
+        )
+
+        response = self.client.patch(
+            reverse("api:member-edit-profile", args=[member.id]),
+            {
+                "name": "Updated Member",
+                "section": "DUAL / PLURAL",
+                "member_number": "34",
+                "glp_id_number": "GLP-NEW",
+                "date_of_birth": "1985-01-02",
+                "initiation_date": "2015-03-04",
+                "passing_date": "2015-05-06",
+                "raising_date": "2015-07-08",
+                "proficiency_date": "2016-09-10",
+                "suspension": "Updated suspension",
+                "restored": "Updated restored",
+                "demit": "Updated demit",
+                "lml": "Updated lml",
+                "dual_plural_honorary_date": "Updated dual",
+                "email": "Updated@DLL347.org",
+                "telephone": "0917 000 0000",
+                "address": "Updated address",
+                "blood_type": "O+",
+                "widow_or_sister": "Updated widow",
+                "widow_or_sister_date_of_birth": "1986-02-03",
+                "appendant_bodies": {
+                    "APPENDANT BODIES / CLUB / YORK RITE": {
+                        "value": "a",
+                        "formula": None,
+                        "style_id": 83,
+                        "number_format": "builtin:0",
+                    }
+                },
+                "meeting_attendance": {
+                    "2026 - WB Test / UD": {
+                        "value": "a",
+                        "formula": None,
+                        "style_id": 93,
+                        "number_format": "builtin:0",
+                    }
+                },
+                "monthly_attendance": {
+                    "2026 - WB Test / Jan": {
+                        "value": "a",
+                        "formula": None,
+                        "style_id": 62,
+                        "number_format": "builtin:0",
+                    }
+                },
+                "annual_dues": {
+                    "ANNUAL DUES / 2026": {
+                        "value": "Paid",
+                        "formula": None,
+                        "style_id": 75,
+                        "number_format": "builtin:0",
+                    }
+                },
+                "positions_held": [
+                    {
+                        "title": "Secretary",
+                        "date_range": "2025 - Present",
+                        "start_date": "2025-01-01",
+                        "end_date": None,
+                        "notes": "Elected",
+                        "source": "manual",
+                    }
+                ],
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["member"]["name"], "Updated Member")
+        self.assertEqual(payload["member"]["email"], "updated@dll347.org")
+        member.refresh_from_db()
+        self.assertEqual(member.section, "DUAL / PLURAL")
+        self.assertEqual(member.member_number, "34")
+        self.assertEqual(member.glp_id_number, "GLP-NEW")
+        self.assertEqual(member.date_of_birth, date(1985, 1, 2))
+        self.assertEqual(member.initiation_date, date(2015, 3, 4))
+        self.assertEqual(member.passing_date, date(2015, 5, 6))
+        self.assertEqual(member.raising_date, date(2015, 7, 8))
+        self.assertEqual(member.proficiency_date, date(2016, 9, 10))
+        self.assertEqual(member.suspension, "Updated suspension")
+        self.assertEqual(member.restored, "Updated restored")
+        self.assertEqual(member.demit, "Updated demit")
+        self.assertEqual(member.lml, "Updated lml")
+        self.assertEqual(member.dual_plural_honorary_date, "Updated dual")
+        self.assertEqual(member.telephone, "0917 000 0000")
+        self.assertEqual(member.address, "Updated address")
+        self.assertEqual(member.blood_type, "O+")
+        self.assertEqual(member.widow_or_sister, "Updated widow")
+        self.assertEqual(member.widow_or_sister_date_of_birth, date(1986, 2, 3))
+        self.assertEqual(member.appendant_bodies["APPENDANT BODIES / CLUB / YORK RITE"]["value"], "a")
+        self.assertEqual(member.appendant_bodies["APPENDANT BODIES / CLUB / YORK RITE"]["style_id"], 83)
+        self.assertEqual(member.meeting_attendance["2026 - WB Test / UD"]["value"], "a")
+        self.assertEqual(member.meeting_attendance["2026 - WB Test / UD"]["style_id"], 93)
+        self.assertEqual(member.monthly_attendance["2026 - WB Test / Jan"]["value"], "a")
+        self.assertEqual(member.monthly_attendance["2026 - WB Test / Jan"]["style_id"], 62)
+        self.assertEqual(member.annual_dues["ANNUAL DUES / 2026"]["value"], "Paid")
+        self.assertEqual(member.annual_dues["ANNUAL DUES / 2026"]["style_id"], 75)
+        self.assertEqual(member.positions_held.count(), 1)
+        self.assertEqual(member.positions_held.first().title, "Secretary")
 
     def test_logout_clears_session(self):
         self.client.force_login(self.user)

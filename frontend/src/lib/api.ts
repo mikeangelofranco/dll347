@@ -17,6 +17,8 @@ export type LoginResponse = {
     id: number;
     email: string;
     role: AccountRole;
+    can_manage_activities: boolean;
+    can_edit_members: boolean;
     is_active: boolean;
     is_staff: boolean;
     is_admin: boolean;
@@ -141,6 +143,60 @@ export type MemberFullProfile = MemberDashboardProfile & {
   years_of_membership: number | null;
 };
 
+export type MemberEditableProfile = MemberFullProfile & {
+  suspension: string;
+  restored: string;
+  demit: string;
+  lml: string;
+  dual_plural_honorary_date: string;
+  widow_or_sister_date_of_birth: string | null;
+  meeting_attendance: Record<string, unknown>;
+  monthly_attendance: Record<string, unknown>;
+  annual_dues: Record<string, unknown>;
+};
+
+export type MemberPositionHeldPayload = {
+  title: string;
+  date_range: string;
+  start_date: string | null;
+  end_date: string | null;
+  notes: string;
+  source: string;
+};
+
+export type MemberProfileUpdatePayload = {
+  section: string;
+  member_number: string;
+  name: string;
+  glp_id_number: string;
+  date_of_birth: string | null;
+  initiation_date: string | null;
+  passing_date: string | null;
+  raising_date: string | null;
+  proficiency_date: string | null;
+  suspension: string;
+  restored: string;
+  demit: string;
+  lml: string;
+  dual_plural_honorary_date: string;
+  address: string;
+  telephone: string;
+  email: string;
+  appendant_bodies: Record<string, unknown>;
+  blood_type: string;
+  widow_or_sister: string;
+  widow_or_sister_date_of_birth: string | null;
+  meeting_attendance: Record<string, unknown>;
+  monthly_attendance: Record<string, unknown>;
+  annual_dues: Record<string, unknown>;
+  positions_held: MemberPositionHeldPayload[];
+};
+
+export type MemberProfileUpdateResponse = {
+  message: string;
+  member: MemberEditableProfile;
+};
+
 export type MemberPositionsHeldResponse = {
   positions: MemberPositionHeld[];
 };
@@ -155,12 +211,35 @@ export type LodgeActivity = {
   status: string;
 };
 
+export type LodgeActivityFormPayload = {
+  title: string;
+  details: string;
+  place: string;
+  starts_at: string;
+  ends_at: string;
+  status: "scheduled" | "cancelled" | "completed";
+  is_published: boolean;
+};
+
 export type NextLodgeActivityResponse = {
   activity: LodgeActivity | null;
 };
 
+export type CreateLodgeActivityResponse = {
+  message: string;
+  activity: LodgeActivity;
+};
+
 export type UpcomingLodgeActivitiesResponse = {
   activities: LodgeActivity[];
+};
+
+export type ManagedLodgeActivitiesResponse = {
+  activities: LodgeActivity[];
+};
+
+export type DeleteLodgeActivityResponse = {
+  message: string;
 };
 
 export type SecretaryDashboardSummaryResponse = {
@@ -210,7 +289,8 @@ export type SecretaryDashboardSummaryResponse = {
 export type LodgeDocumentCategory =
   | "treasurers_report"
   | "minutes_stated_meeting"
-  | "minutes_special_meeting";
+  | "minutes_special_meeting"
+  | "members_data";
 
 export type TreasurerReportSummary = {
   report_month: number | null;
@@ -261,9 +341,14 @@ export type LodgeDocumentUploadResponse = {
   results: LodgeDocumentUploadResult[];
 };
 
+export type DeleteLodgeDocumentResponse = {
+  message: string;
+};
+
 export type ApiErrorResponse = {
   code?: string;
   message?: string;
+  results?: unknown;
 };
 
 export class ApiError extends Error {
@@ -281,6 +366,22 @@ export class ApiError extends Error {
 function extractApiErrorMessage(payload: ApiErrorResponse | Record<string, unknown> | null): string {
   if (!payload || typeof payload !== "object") {
     return "";
+  }
+
+  if (Array.isArray(payload.results)) {
+    const resultErrors = payload.results.flatMap((result) => {
+      if (!result || typeof result !== "object" || !("errors" in result) || !Array.isArray(result.errors)) {
+        return [];
+      }
+      const filename = "filename" in result && typeof result.filename === "string" ? result.filename : "";
+      const errors = result.errors as unknown[];
+      return errors
+        .filter((error): error is string => typeof error === "string" && Boolean(error))
+        .map((error) => (filename ? `${filename}: ${error}` : error));
+    });
+    if (resultErrors.length > 0) {
+      return resultErrors.join("\n");
+    }
   }
 
   if ("message" in payload && typeof payload.message === "string" && payload.message) {
@@ -321,12 +422,28 @@ export function getApiEndpoint(path: string): string {
   return `${getApiBaseUrl()}${normalizedPath}`;
 }
 
+function currentWindowLabel(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return `${window.location.pathname}${window.location.search}`.slice(0, 255);
+}
+
 async function parseApiResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") ?? "";
   const isJson = contentType.includes("application/json");
   const payload = isJson ? ((await response.json()) as T | ApiErrorResponse) : null;
 
   if (!response.ok) {
+    if (response.status === 413) {
+      throw new ApiError(
+        413,
+        "The upload is too large for one request. Please upload fewer or smaller files.",
+        "REQUEST_ENTITY_TOO_LARGE",
+      );
+    }
+
     const message = extractApiErrorMessage(payload as ApiErrorResponse | Record<string, unknown>) ||
       `API request failed with status ${response.status}`;
     const code =
@@ -343,8 +460,13 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
-async function apiFetch<T>(path: string, init: RequestInit): Promise<T> {
+async function apiFetch<T>(path: string, init: RequestInit, timeoutMs = 15000): Promise<T> {
   let response: Response;
+  const headers = new Headers(init.headers);
+  const windowLabel = currentWindowLabel();
+  if (windowLabel && !headers.has("X-DLL347-Window")) {
+    headers.set("X-DLL347-Window", windowLabel);
+  }
 
   try {
     response = await fetchWithTimeout(
@@ -353,8 +475,9 @@ async function apiFetch<T>(path: string, init: RequestInit): Promise<T> {
         credentials: "include",
         cache: "no-store",
         ...init,
+        headers,
       },
-      15000,
+      timeoutMs,
     );
   } catch (error) {
     if (error instanceof RequestTimeoutError) {
@@ -380,7 +503,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   });
 }
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export async function apiPost<T>(path: string, body?: unknown, method = "POST"): Promise<T> {
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
@@ -397,7 +520,7 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   }
 
   return apiFetch<T>(path, {
-    method: "POST",
+    method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -415,11 +538,15 @@ export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
     }
   }
 
-  return apiFetch<T>(path, {
-    method: "POST",
-    headers,
-    body,
-  });
+  return apiFetch<T>(
+    path,
+    {
+      method: "POST",
+      headers,
+      body,
+    },
+    120000,
+  );
 }
 
 export async function prepareSessionCsrf(): Promise<void> {
@@ -533,6 +660,18 @@ export async function getMemberProfile(memberId: number): Promise<MemberFullProf
   return apiGet<MemberFullProfile>(`/members/${memberId}/profile/`);
 }
 
+export async function getEditableMemberProfile(memberId: number): Promise<MemberEditableProfile> {
+  return apiGet<MemberEditableProfile>(`/members/${memberId}/edit/`);
+}
+
+export async function updateMemberProfile(
+  memberId: number,
+  payload: MemberProfileUpdatePayload,
+): Promise<MemberProfileUpdateResponse> {
+  await prepareSessionCsrf();
+  return apiPost<MemberProfileUpdateResponse>(`/members/${memberId}/edit/`, payload, "PATCH");
+}
+
 export async function getMyPositionsHeld(): Promise<MemberPositionsHeldResponse> {
   return apiGet<MemberPositionsHeldResponse>("/members/me/positions-held/");
 }
@@ -550,6 +689,25 @@ export async function getUpcomingLodgeActivities(
     params.set("exclude_id", String(excludeId));
   }
   return apiGet<UpcomingLodgeActivitiesResponse>(`/lodge-activities/upcoming/?${params.toString()}`);
+}
+
+export async function getManagedLodgeActivities(search = ""): Promise<ManagedLodgeActivitiesResponse> {
+  const params = new URLSearchParams();
+  if (search.trim()) {
+    params.set("search", search.trim());
+  }
+  const query = params.toString();
+  return apiGet<ManagedLodgeActivitiesResponse>(`/lodge-activities/manage/${query ? `?${query}` : ""}`);
+}
+
+export async function createLodgeActivity(payload: LodgeActivityFormPayload): Promise<CreateLodgeActivityResponse> {
+  await prepareSessionCsrf();
+  return apiPost<CreateLodgeActivityResponse>("/lodge-activities/", payload);
+}
+
+export async function deleteLodgeActivity(activityId: number): Promise<DeleteLodgeActivityResponse> {
+  await prepareSessionCsrf();
+  return apiPost<DeleteLodgeActivityResponse>(`/lodge-activities/${activityId}/`, undefined, "DELETE");
 }
 
 export async function getSecretaryDashboardSummary(): Promise<SecretaryDashboardSummaryResponse> {
@@ -576,4 +734,9 @@ export async function uploadLodgeDocuments(
   body.append("notes", notes);
   files.forEach((file) => body.append("files", file));
   return apiPostForm<LodgeDocumentUploadResponse>("/documents/", body);
+}
+
+export async function deleteLodgeDocument(documentId: number): Promise<DeleteLodgeDocumentResponse> {
+  await prepareSessionCsrf();
+  return apiPost<DeleteLodgeDocumentResponse>(`/documents/${documentId}/`, undefined, "DELETE");
 }

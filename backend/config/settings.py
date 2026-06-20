@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = BASE_DIR / ".env"
@@ -138,6 +139,10 @@ CORS_ALLOWED_ORIGINS = get_list_env(
     "http://127.0.0.1:3000,http://localhost:3000",
 )
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = (
+    *default_headers,
+    "x-dll347-window",
+)
 
 CSRF_TRUSTED_ORIGINS = get_list_env(
     "DJANGO_CSRF_TRUSTED_ORIGINS",

@@ -55,6 +55,27 @@ class ParsedSheet:
         return cell.value
 
 
+class MembersWorkbookFormatError(Exception):
+    def __init__(self, errors: list[str]):
+        self.errors = errors
+        super().__init__("; ".join(errors))
+
+
+@dataclass
+class MembersWorkbookUpdateResult:
+    total_rows: int
+    updated_count: int
+    unmatched_count: int
+    unmatched_names: list[str]
+
+
+@dataclass(frozen=True)
+class MemberSheetLayout:
+    header_row: int
+    subheader_row: int
+    first_data_row: int
+
+
 def column_number(column_name: str) -> int:
     result = 0
     for character in column_name:
@@ -97,6 +118,10 @@ def text_value(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip()
+
+
+def normalized_header_value(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]+", "", text_value(value).upper())
 
 
 def integer_value(value: Any) -> int | None:
@@ -408,6 +433,44 @@ def current_section(sections: dict[int, str], row: int) -> str:
     return sections[max(applicable_rows)] if applicable_rows else ""
 
 
+def find_member_sheet_layout(sheet: ParsedSheet) -> MemberSheetLayout:
+    required_headers = {
+        "B": "NO",
+        "C": "NAME",
+        "D": "GLPIDNUMBER",
+        "E": "DATEOFBIRTH",
+    }
+    for row in range(1, 25):
+        if all(normalized_header_value(sheet.value(f"{column}{row}")) == expected for column, expected in required_headers.items()):
+            subheader_row = row + 1
+            missing_helpful_headers = []
+            email_header = normalized_header_value(sheet.value(f"Q{subheader_row}"))
+            if email_header not in {"EMAIL", "EMAILADDRESS"}:
+                missing_helpful_headers.append(f"Q{subheader_row}")
+            blood_type_header = normalized_header_value(sheet.value(f"AC{row}"))
+            if blood_type_header != "BLOODTYPE":
+                missing_helpful_headers.append(f"AC{row}")
+            if missing_helpful_headers:
+                raise MembersWorkbookFormatError(
+                    [
+                        "Members Data format issue: the member table was found, but expected supporting columns are missing or moved "
+                        f"({', '.join(missing_helpful_headers)}). Please use the DLL 347 Members workbook template."
+                    ]
+                )
+            return MemberSheetLayout(
+                header_row=row,
+                subheader_row=subheader_row,
+                first_data_row=row + 3,
+            )
+
+    raise MembersWorkbookFormatError(
+        [
+            "Members Data format issue: the worksheet was found, but the member table header row was not recognized. "
+            "Expected NO., NAME, GLP ID NUMBER, and DATE OF BIRTH near the top of the DLL 347 Members Database sheet."
+        ]
+    )
+
+
 def keyed_values(
     sheet: ParsedSheet,
     row: int,
@@ -427,6 +490,165 @@ def keyed_values(
             key = f"{key} [{column}]"
         result[key] = serialize_cell(cell)
     return result
+
+
+def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDatabaseRecord], dict[str, Any]]:
+    workbook_path = Path(path)
+
+    try:
+        with OOXMLWorkbook(workbook_path) as workbook:
+            missing_sheets = sorted({"DLL 347 Members Database"} - set(workbook.sheet_paths))
+            if missing_sheets:
+                raise MembersWorkbookFormatError(
+                    [f"Missing required worksheet: {', '.join(missing_sheets)}."]
+                )
+            members = workbook.read_sheet("DLL 347 Members Database")
+    except MembersWorkbookFormatError:
+        raise
+    except zipfile.BadZipFile:
+        raise MembersWorkbookFormatError(["The uploaded file is not a valid .xlsx workbook."])
+    except Exception as exc:
+        raise MembersWorkbookFormatError([f"Unable to read members workbook: {exc}"])
+
+    layout = find_member_sheet_layout(members)
+    member_columns = sheet_columns(members, "B", "GZ", (layout.header_row, layout.subheader_row))
+    member_sections = members_section_rows(members)
+    max_row = max(
+        [row for _column, row in (split_reference(reference) for reference in members.cells)]
+        or [layout.first_data_row]
+    )
+
+    member_records = []
+    for row in range(layout.first_data_row, max_row + 1):
+        if not is_numbered_record(members, row, "B", "C"):
+            continue
+        name = text_value(members.value(f"C{row}"))
+        member_records.append(
+            MemberDatabaseRecord(
+                source_row=row,
+                section=current_section(member_sections, row),
+                member_number=text_value(members.value(f"B{row}")),
+                name=name,
+                glp_id_number=text_value(members.value(f"D{row}")),
+                date_of_birth=excel_date(members.value(f"E{row}")),
+                initiation_date=excel_date(members.value(f"F{row}")),
+                passing_date=excel_date(members.value(f"G{row}")),
+                raising_date=excel_date(members.value(f"H{row}")),
+                proficiency_date=excel_date(members.value(f"I{row}")),
+                suspension=text_value(members.value(f"J{row}")),
+                restored=text_value(members.value(f"K{row}")),
+                demit=text_value(members.value(f"L{row}")),
+                lml=text_value(members.value(f"M{row}")),
+                dual_plural_honorary_date=text_value(members.value(f"N{row}")),
+                address=text_value(members.value(f"O{row}")),
+                telephone=text_value(members.value(f"P{row}")),
+                email=text_value(members.value(f"Q{row}")),
+                appendant_bodies=keyed_values(
+                    members, row, member_columns, set(column_name(i) for i in range(19, 28))
+                ),
+                blood_type=text_value(members.value(f"AC{row}")),
+                widow_or_sister=text_value(members.value(f"AD{row}")),
+                widow_or_sister_date_of_birth=excel_date(members.value(f"AE{row}")),
+                meeting_attendance=keyed_values(
+                    members, row, member_columns, set(column_name(i) for i in range(33, 81))
+                ),
+                monthly_attendance=keyed_values(
+                    members, row, member_columns, set(column_name(i) for i in range(83, 175))
+                ),
+                annual_dues=keyed_values(
+                    members, row, member_columns, set(column_name(i) for i in range(177, 208))
+                ),
+                raw_cells=raw_row(members, row, "B", "GZ"),
+            )
+        )
+
+    if not member_records:
+        raise MembersWorkbookFormatError(["No member rows were found in the expected member table range."])
+
+    return member_records, {
+        members.name: {"records": len(member_records), "columns": len(member_columns)},
+    }
+
+
+def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUpdateResult:
+    incoming_records, summaries = parsed_member_records_from_workbook(path)
+    workbook_path = Path(path)
+    file_sha256 = hashlib.sha256(workbook_path.read_bytes()).hexdigest()
+    existing_records = list(MemberDatabaseRecord.objects.all())
+    by_glp = {record.glp_id_number.strip().casefold(): record for record in existing_records if record.glp_id_number.strip()}
+    by_member_number = {record.member_number.strip().casefold(): record for record in existing_records if record.member_number.strip()}
+    by_name = build_member_name_index(existing_records)
+    mutable_fields = [
+        "source_row",
+        "section",
+        "member_number",
+        "name",
+        "glp_id_number",
+        "date_of_birth",
+        "initiation_date",
+        "passing_date",
+        "raising_date",
+        "proficiency_date",
+        "suspension",
+        "restored",
+        "demit",
+        "lml",
+        "dual_plural_honorary_date",
+        "address",
+        "telephone",
+        "email",
+        "appendant_bodies",
+        "blood_type",
+        "widow_or_sister",
+        "widow_or_sister_date_of_birth",
+        "meeting_attendance",
+        "monthly_attendance",
+        "annual_dues",
+        "raw_cells",
+    ]
+
+    updated_records = []
+    unmatched_names = []
+    with transaction.atomic():
+        workbook_import, _created = MembersWorkbookImport.objects.update_or_create(
+            file_sha256=file_sha256,
+            defaults={
+                "filename": workbook_path.name,
+                "sheet_summaries": summaries,
+            },
+        )
+        for incoming in incoming_records:
+            existing = None
+            if incoming.glp_id_number.strip():
+                existing = by_glp.get(incoming.glp_id_number.strip().casefold())
+            if existing is None and incoming.member_number.strip():
+                existing = by_member_number.get(incoming.member_number.strip().casefold())
+            if existing is None:
+                matched_member, match_status, _notes = resolve_member_name_match(incoming.name, by_name)
+                if match_status == "matched":
+                    existing = matched_member
+
+            if existing is None:
+                unmatched_names.append(incoming.name)
+                continue
+
+            existing.workbook_import = workbook_import
+            for field in mutable_fields:
+                setattr(existing, field, getattr(incoming, field))
+            updated_records.append(existing)
+
+        if updated_records:
+            MemberDatabaseRecord.objects.bulk_update(
+                updated_records,
+                ["workbook_import", *mutable_fields, "updated_at"],
+            )
+
+    return MembersWorkbookUpdateResult(
+        total_rows=len(incoming_records),
+        updated_count=len(updated_records),
+        unmatched_count=len(unmatched_names),
+        unmatched_names=unmatched_names[:10],
+    )
 
 
 def import_members_workbook(path: str | Path) -> MembersWorkbookImport:

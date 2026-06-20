@@ -25,6 +25,13 @@ TARGET_EXCLUDES: dict[str, set[str]] = {
         "venv",
         "__pycache__",
         ".git",
+        "media",
+        "staticfiles",
+        "logs",
+        "run",
+        "data",
+        "uploads",
+        ".postgres-data",
     },
 }
 

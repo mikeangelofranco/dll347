@@ -175,6 +175,126 @@ class MemberFullProfileSerializer(MemberDashboardProfileSerializer):
         return max(years, 0)
 
 
+class MemberEditableProfileSerializer(MemberFullProfileSerializer):
+    class Meta(MemberFullProfileSerializer.Meta):
+        fields = MemberFullProfileSerializer.Meta.fields + (
+            "suspension",
+            "restored",
+            "demit",
+            "lml",
+            "dual_plural_honorary_date",
+            "widow_or_sister_date_of_birth",
+            "meeting_attendance",
+            "monthly_attendance",
+            "annual_dues",
+        )
+
+
+class MemberPositionHeldUpdateSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    title = serializers.CharField(max_length=255, allow_blank=True)
+    date_range = serializers.CharField(max_length=150, allow_blank=True, required=False)
+    start_date = serializers.DateField(allow_null=True, required=False)
+    end_date = serializers.DateField(allow_null=True, required=False)
+    notes = serializers.CharField(allow_blank=True, required=False)
+    source = serializers.CharField(max_length=100, allow_blank=True, required=False)
+
+
+class MemberProfileUpdateSerializer(serializers.ModelSerializer):
+    positions_held = MemberPositionHeldUpdateSerializer(many=True, required=False)
+
+    class Meta:
+        model = MemberDatabaseRecord
+        fields = (
+            "section",
+            "member_number",
+            "name",
+            "glp_id_number",
+            "date_of_birth",
+            "initiation_date",
+            "passing_date",
+            "raising_date",
+            "proficiency_date",
+            "suspension",
+            "restored",
+            "demit",
+            "lml",
+            "dual_plural_honorary_date",
+            "address",
+            "telephone",
+            "email",
+            "appendant_bodies",
+            "blood_type",
+            "widow_or_sister",
+            "widow_or_sister_date_of_birth",
+            "meeting_attendance",
+            "monthly_attendance",
+            "annual_dues",
+            "positions_held",
+        )
+        extra_kwargs = {
+            "section": {"allow_blank": True, "required": False},
+            "member_number": {"allow_blank": True, "required": False},
+            "name": {"required": True},
+            "glp_id_number": {"allow_blank": True, "required": False},
+            "date_of_birth": {"allow_null": True, "required": False},
+            "initiation_date": {"allow_null": True, "required": False},
+            "passing_date": {"allow_null": True, "required": False},
+            "raising_date": {"allow_null": True, "required": False},
+            "proficiency_date": {"allow_null": True, "required": False},
+            "suspension": {"allow_blank": True, "required": False},
+            "restored": {"allow_blank": True, "required": False},
+            "demit": {"allow_blank": True, "required": False},
+            "lml": {"allow_blank": True, "required": False},
+            "dual_plural_honorary_date": {"allow_blank": True, "required": False},
+            "address": {"allow_blank": True, "required": False},
+            "telephone": {"allow_blank": True, "required": False},
+            "email": {"allow_blank": True, "required": False},
+            "blood_type": {"allow_blank": True, "required": False},
+            "widow_or_sister": {"allow_blank": True, "required": False},
+            "widow_or_sister_date_of_birth": {"allow_null": True, "required": False},
+            "appendant_bodies": {"required": False},
+            "meeting_attendance": {"required": False},
+            "monthly_attendance": {"required": False},
+            "annual_dues": {"required": False},
+        }
+
+    def validate_name(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Name is required.")
+        return value
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+    def update(self, instance: MemberDatabaseRecord, validated_data):
+        positions = validated_data.pop("positions_held", None)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save()
+
+        if positions is not None:
+            instance.positions_held.all().delete()
+            position_records = [
+                MemberPositionHeld(
+                    member_record=instance,
+                    title=item["title"].strip(),
+                    date_range=item.get("date_range", "").strip(),
+                    start_date=item.get("start_date"),
+                    end_date=item.get("end_date"),
+                    notes=item.get("notes", "").strip(),
+                    source=item.get("source", "").strip(),
+                )
+                for item in positions
+                if item.get("title", "").strip()
+            ]
+            if position_records:
+                MemberPositionHeld.objects.bulk_create(position_records)
+
+        return instance
+
+
 class LodgeActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = LodgeActivity
@@ -187,6 +307,49 @@ class LodgeActivitySerializer(serializers.ModelSerializer):
             "ends_at",
             "status",
         )
+
+
+class LodgeActivityCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LodgeActivity
+        fields = (
+            "title",
+            "details",
+            "place",
+            "starts_at",
+            "ends_at",
+            "status",
+            "is_published",
+        )
+
+    def validate_title(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Title is required.")
+        if len(value) > 100:
+            raise serializers.ValidationError("Title must be 100 characters or fewer.")
+        return value
+
+    def validate_details(self, value: str) -> str:
+        value = value.strip()
+        if len(value) > 2000:
+            raise serializers.ValidationError("Details must be 2000 characters or fewer.")
+        return value
+
+    def validate_place(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Place is required.")
+        return value
+
+    def validate(self, attrs):
+        starts_at = attrs.get("starts_at")
+        ends_at = attrs.get("ends_at")
+        if ends_at is None:
+            raise serializers.ValidationError({"ends_at": "Ends at is required."})
+        if starts_at and ends_at and ends_at <= starts_at:
+            raise serializers.ValidationError({"ends_at": "Ends at must be after starts at."})
+        return attrs
 
 
 class TreasurerReportSummarySerializer(serializers.ModelSerializer):
@@ -249,6 +412,8 @@ class AccountSerializer(serializers.ModelSerializer):
             "id",
             "email",
             "role",
+            "can_manage_activities",
+            "can_edit_members",
             "is_active",
             "is_staff",
             "is_admin",
@@ -279,7 +444,7 @@ class LoginSerializer(serializers.Serializer):
 
         account = (
             Account.objects.filter(email=email)
-            .only("id", "email", "password", "role", "is_active", "is_staff", "is_superuser")
+            .only("id", "email", "password", "role", "can_manage_activities", "can_edit_members", "is_active", "is_staff", "is_superuser")
             .first()
         )
         attrs["account"] = account

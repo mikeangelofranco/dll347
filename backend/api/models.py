@@ -78,6 +78,8 @@ class Account(AbstractBaseUser, PermissionsMixin):
 
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.MEMBER)
+    can_manage_activities = models.BooleanField(default=False)
+    can_edit_members = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -142,6 +144,40 @@ class Account(AbstractBaseUser, PermissionsMixin):
     def save(self, *args, **kwargs):
         self.full_clean()
         return super().save(*args, **kwargs)
+
+
+class ToolAccessLog(models.Model):
+    class Tool(models.TextChoices):
+        DOCUMENTS = "documents", "Documents"
+        ACTIVITY = "activity", "Activity"
+        EDIT_MEMBER = "edit_member", "Edit Member"
+
+    account = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="tool_access_logs",
+    )
+    email = models.EmailField()
+    tool = models.CharField(max_length=40, choices=Tool.choices)
+    last_accessed_at = models.DateTimeField(default=timezone.now)
+    last_known_window = models.CharField(max_length=255, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    access_count = models.PositiveIntegerField(default=1)
+    first_accessed_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        db_table = "dll347_tool_access_logs"
+        ordering = ["-last_accessed_at", "email"]
+        constraints = [
+            models.UniqueConstraint(fields=["account", "tool"], name="unique_account_tool_access"),
+        ]
+        indexes = [
+            models.Index(fields=["tool", "-last_accessed_at"], name="tool_access_tool_last_idx"),
+            models.Index(fields=["email"], name="tool_access_email_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.email} - {self.get_tool_display()}"
 
 
 class PreidentifiedEmail(models.Model):
@@ -388,6 +424,7 @@ class LodgeDocument(models.Model):
         TREASURERS_REPORT = "treasurers_report", "Treasurers Report"
         STATED_MEETING_MINUTES = "minutes_stated_meeting", "Minutes of the Stated Meeting"
         SPECIAL_MEETING_MINUTES = "minutes_special_meeting", "Minutes of the Special Meeting"
+        MEMBERS_DATA = "members_data", "Members Data"
 
     class ExtractionStatus(models.TextChoices):
         NOT_APPLICABLE = "not_applicable", "Not Applicable"
