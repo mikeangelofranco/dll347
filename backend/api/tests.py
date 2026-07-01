@@ -22,6 +22,7 @@ from .excel_members import (
     member_name_match_key,
     normalize_member_name,
     sheet_columns,
+    update_existing_members_from_workbook,
 )
 from .models import LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
 
@@ -290,7 +291,30 @@ class AuthApiTests(TestCase):
         self.assertEqual(response.json()["code"], "PASSWORD_UPDATED")
         account = get_user_model().objects.get(email="setup@dll347.org")
         self.assertTrue(account.check_password("ValidPass123!"))
+        self.assertEqual(account.role, "member")
         self.assertFalse(PreidentifiedEmail.objects.filter(email="setup@dll347.org").exists())
+
+    def test_setup_password_uses_preidentified_email_role(self):
+        PreidentifiedEmail.objects.create(
+            email="secretary-setup@dll347.org",
+            default_password="dll347",
+            role="secretary",
+        )
+
+        response = self.client.post(
+            reverse("api:setup-password"),
+            {
+                "email": "secretary-setup@dll347.org",
+                "default_password": "dll347",
+                "new_password": "ValidPass123!",
+                "confirm_password": "ValidPass123!",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        account = get_user_model().objects.get(email="secretary-setup@dll347.org")
+        self.assertEqual(account.role, "secretary")
 
     def test_setup_password_rejects_wrong_default_password(self):
         PreidentifiedEmail.objects.create(
@@ -696,6 +720,95 @@ class AuthApiTests(TestCase):
         self.assertEqual(counts["inactive_snpd_demit"], 1)
         self.assertEqual(counts["dropped_working_tools"], 1)
 
+    def test_member_summary_and_list_include_dynamic_excel_sections(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="dynamic-sections.xlsx",
+            file_sha256="d" * 64,
+        )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=13001,
+            name="Custom Section One",
+            email="custom-one@dll347.org",
+            section="LODGE AFFILIATE - ACTIVE",
+        )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=13002,
+            name="Custom Section Two",
+            email="custom-two@dll347.org",
+            section="LODGE AFFILIATE - ACTIVE",
+        )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=13003,
+            name="Emeritus Member",
+            email="emeritus@dll347.org",
+            section="EMERITUS MEMBERS",
+        )
+
+        summary_response = self.client.get(reverse("api:member-summary"))
+
+        self.assertEqual(summary_response.status_code, 200)
+        groups = summary_response.json()["groups"]
+        affiliate_group = next(item for item in groups if item["section"] == "LODGE AFFILIATE - ACTIVE")
+        emeritus_group = next(item for item in groups if item["section"] == "EMERITUS MEMBERS")
+        self.assertEqual(affiliate_group["label"], "Lodge Affiliate - Active")
+        self.assertEqual(affiliate_group["count"], 2)
+        self.assertEqual(emeritus_group["label"], "Emeritus Members")
+        self.assertEqual(emeritus_group["count"], 1)
+
+        list_response = self.client.get(reverse("api:member-list"), {"group": affiliate_group["key"]})
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["count"], 2)
+        self.assertEqual(
+            [member["group_label"] for member in list_response.json()["members"]],
+            ["Lodge Affiliate - Active", "Lodge Affiliate - Active"],
+        )
+
+    def test_member_workbook_update_prefers_name_when_member_numbers_repeat(self):
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="duplicate-member-numbers.xlsx",
+            file_sha256="e" * 64,
+        )
+        first_member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=14,
+            member_number="3",
+            name="Almagro, Erwin Ian V.",
+            section="MASTER MASONS - ACTIVE",
+        )
+        target_member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=95,
+            member_number="3",
+            name="Limpangog. Jay Neil A. - SNPD",
+            section="MASTER MASONS - INACTIVE, SNPD, DEMIT",
+        )
+        incoming_member = MemberDatabaseRecord(
+            source_row=95,
+            member_number="3",
+            name="Limpangog. Jay Neil A. - SNPD",
+            section="MASTER MASONS - INACTIVE",
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx") as workbook_file:
+            workbook_file.write(b"workbook bytes")
+            workbook_file.flush()
+            with patch(
+                "api.excel_members.parsed_member_records_from_workbook",
+                return_value=([incoming_member], {"DLL 347 Members Database": {"records": 1, "columns": 207}}),
+            ):
+                result = update_existing_members_from_workbook(workbook_file.name)
+
+        self.assertEqual(result.updated_count, 1)
+        first_member.refresh_from_db()
+        target_member.refresh_from_db()
+        self.assertEqual(first_member.section, "MASTER MASONS - ACTIVE")
+        self.assertEqual(target_member.section, "MASTER MASONS - INACTIVE")
+
     def test_member_list_includes_test_records_and_excludes_trestle_board(self):
         self.client.force_login(self.user)
         workbook_import = MembersWorkbookImport.objects.create(
@@ -1007,7 +1120,7 @@ class AuthApiTests(TestCase):
                 content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
-            with patch("api.views.queue_members_data_update") as queue_update:
+            with patch("api.views.process_members_data_document") as process_members_data:
                 with self.captureOnCommitCallbacks(execute=True):
                     response = self.client.post(
                         reverse("api:lodge-documents"),
@@ -1022,7 +1135,8 @@ class AuthApiTests(TestCase):
         self.assertEqual(response.json()["results"][0]["status"], "uploaded")
         self.assertEqual(response.json()["results"][0]["document"]["category"], "members_data")
         self.assertEqual(response.json()["results"][0]["document"]["extraction_status"], "pending_review")
-        queue_update.assert_called_once()
+        process_members_data.assert_called_once()
+        self.assertEqual(process_members_data.call_args.kwargs, {"manage_connections": False})
 
     def test_members_data_upload_replaces_existing_members_workbook(self):
         secretary_user = get_user_model().objects.create_user(
@@ -1052,7 +1166,7 @@ class AuthApiTests(TestCase):
                 content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
-            with patch("api.views.queue_members_data_update") as queue_update:
+            with patch("api.views.process_members_data_document") as process_members_data:
                 with self.captureOnCommitCallbacks(execute=True):
                     response = self.client.post(
                         reverse("api:lodge-documents"),
@@ -1067,7 +1181,8 @@ class AuthApiTests(TestCase):
             self.assertFalse(Path(old_file_path).exists())
             self.assertEqual(LodgeDocument.objects.filter(category=LodgeDocument.Category.MEMBERS_DATA).count(), 1)
             self.assertEqual(LodgeDocument.objects.get(category=LodgeDocument.Category.MEMBERS_DATA).original_filename, "DLL 347 Members Data.xlsx")
-            queue_update.assert_called_once()
+            process_members_data.assert_called_once()
+            self.assertEqual(process_members_data.call_args.kwargs, {"manage_connections": False})
 
     def test_members_data_rejects_non_xlsx_upload(self):
         secretary_user = get_user_model().objects.create_user(
@@ -1523,7 +1638,7 @@ class PreidentifiedEmailAdminApiTests(TestCase):
 
     def test_developer_can_list_preidentified_emails(self):
         PreidentifiedEmail.objects.create(email="zeta@dll347.org", default_password="dll347")
-        PreidentifiedEmail.objects.create(email="alpha@dll347.org", default_password="dll347")
+        PreidentifiedEmail.objects.create(email="alpha@dll347.org", default_password="dll347", role="secretary")
         self.client.force_login(self.developer)
 
         response = self.client.get(reverse("api:preidentified-emails"))
@@ -1532,20 +1647,23 @@ class PreidentifiedEmailAdminApiTests(TestCase):
         payload = response.json()
         self.assertEqual([item["email"] for item in payload], ["alpha@dll347.org", "zeta@dll347.org"])
         self.assertTrue(all(item["default_password"] == "dll347" for item in payload))
+        self.assertEqual([item["role"] for item in payload], ["secretary", "member"])
 
     def test_developer_can_save_preidentified_email(self):
         self.client.force_login(self.developer)
 
         response = self.client.post(
             reverse("api:preidentified-emails"),
-            {"email": "pending@dll347.org", "password": "dll347"},
+            {"email": "pending@dll347.org", "password": "dll347", "role": "three_lights"},
             content_type="application/json",
         )
 
         self.assertEqual(response.status_code, 201)
         record = PreidentifiedEmail.objects.get(email="pending@dll347.org")
         self.assertTrue(record.check_default_password("dll347"))
+        self.assertEqual(record.role, "three_lights")
         self.assertEqual(response.json()["record"]["default_password"], "dll347")
+        self.assertEqual(response.json()["record"]["role"], "three_lights")
 
     def test_developer_save_updates_existing_preidentified_email(self):
         PreidentifiedEmail.objects.create(email="pending@dll347.org", default_password="OldPass123!")

@@ -3,6 +3,7 @@ from django.contrib.auth.admin import UserAdmin
 
 from .models import (
     Account,
+    AuditLog,
     BallotingCoinRecord,
     LodgeActivity,
     LodgeVisitorRecord,
@@ -10,6 +11,7 @@ from .models import (
     MemberPositionHeld,
     MembersWorkbookImport,
     MembersWorkbookSheetSchema,
+    PasswordResetToken,
     PreidentifiedEmail,
     ToolAccessLog,
 )
@@ -18,17 +20,24 @@ from .models import (
 @admin.register(Account)
 class AccountAdmin(UserAdmin):
     ordering = ("id",)
-    list_display = ("id", "email", "role", "can_manage_activities", "can_edit_members", "is_active", "is_staff", "last_login")
+    list_display = ("id", "email", "role", "can_manage_activities", "can_edit_members", "is_active", "is_staff", "failed_login_attempts", "locked_until", "last_login")
     list_filter = ("role", "can_manage_activities", "can_edit_members", "is_active", "is_staff")
     search_fields = ("email",)
+    actions = ("unlock_accounts",)
 
     fieldsets = (
         (None, {"fields": ("email", "password")}),
         ("Access", {"fields": ("role", "can_manage_activities", "can_edit_members", "is_active", "is_staff", "is_superuser")}),
         ("Permissions", {"fields": ("groups", "user_permissions")}),
+        ("Lockout", {"fields": ("failed_login_attempts", "locked_until")}),
         ("Audit", {"fields": ("last_login", "created_at", "updated_at")}),
     )
-    readonly_fields = ("last_login", "created_at", "updated_at")
+    readonly_fields = ("last_login", "created_at", "updated_at", "failed_login_attempts", "locked_until")
+
+    @admin.action(description="Unlock selected accounts")
+    def unlock_accounts(self, request, queryset):
+        updated = queryset.update(failed_login_attempts=0, locked_until=None)
+        self.message_user(request, f"{updated} account(s) unlocked.")
 
     add_fieldsets = (
         (
@@ -43,7 +52,8 @@ class AccountAdmin(UserAdmin):
 
 @admin.register(PreidentifiedEmail)
 class PreidentifiedEmailAdmin(admin.ModelAdmin):
-    list_display = ("id", "email", "updated_at")
+    list_display = ("id", "email", "role", "updated_at")
+    list_filter = ("role",)
     search_fields = ("email",)
 
 
@@ -128,5 +138,47 @@ class BallotingCoinRecordAdmin(admin.ModelAdmin):
     list_filter = ("section",)
     search_fields = ("name",)
     readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(AuditLog)
+class AuditLogAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "action", "actor_email", "target_model", "target_id")
+    list_filter = ("action", "target_model")
+    search_fields = ("actor__email", "ip_address", "user_agent")
+    readonly_fields = ("actor", "action", "target_model", "target_id", "changes", "ip_address", "user_agent", "created_at")
+    date_hierarchy = "created_at"
+
+    def actor_email(self, obj):
+        return obj.actor.email if obj.actor else ""
+
+    actor_email.short_description = "Actor"
+    actor_email.admin_order_field = "actor__email"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PasswordResetToken)
+class PasswordResetTokenAdmin(admin.ModelAdmin):
+    list_display = ("account_email", "created_at")
+    search_fields = ("account__email", "token")
+    readonly_fields = ("account", "token", "created_at")
+    date_hierarchy = "created_at"
+
+    def account_email(self, obj):
+        return obj.account.email
+
+    account_email.short_description = "Account"
+    account_email.admin_order_field = "account__email"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
 
 # Register your models here.

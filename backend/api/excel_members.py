@@ -5,6 +5,7 @@ import json
 import re
 import unicodedata
 import zipfile
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -575,8 +576,18 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
     workbook_path = Path(path)
     file_sha256 = hashlib.sha256(workbook_path.read_bytes()).hexdigest()
     existing_records = list(MemberDatabaseRecord.objects.all())
-    by_glp = {record.glp_id_number.strip().casefold(): record for record in existing_records if record.glp_id_number.strip()}
-    by_member_number = {record.member_number.strip().casefold(): record for record in existing_records if record.member_number.strip()}
+    glp_counts = Counter(record.glp_id_number.strip().casefold() for record in existing_records if record.glp_id_number.strip())
+    member_number_counts = Counter(record.member_number.strip().casefold() for record in existing_records if record.member_number.strip())
+    by_glp = {
+        record.glp_id_number.strip().casefold(): record
+        for record in existing_records
+        if record.glp_id_number.strip() and glp_counts[record.glp_id_number.strip().casefold()] == 1
+    }
+    by_member_number = {
+        record.member_number.strip().casefold(): record
+        for record in existing_records
+        if record.member_number.strip() and member_number_counts[record.member_number.strip().casefold()] == 1
+    }
     by_name = build_member_name_index(existing_records)
     mutable_fields = [
         "source_row",
@@ -621,12 +632,12 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
             existing = None
             if incoming.glp_id_number.strip():
                 existing = by_glp.get(incoming.glp_id_number.strip().casefold())
-            if existing is None and incoming.member_number.strip():
-                existing = by_member_number.get(incoming.member_number.strip().casefold())
             if existing is None:
                 matched_member, match_status, _notes = resolve_member_name_match(incoming.name, by_name)
                 if match_status == "matched":
                     existing = matched_member
+            if existing is None and incoming.member_number.strip():
+                existing = by_member_number.get(incoming.member_number.strip().casefold())
 
             if existing is None:
                 unmatched_names.append(incoming.name)

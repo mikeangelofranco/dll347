@@ -15,11 +15,12 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .auth_tokens import build_password_reset_token, build_password_reset_url
+from .auth_tokens import build_password_reset_token, build_password_reset_url, invalidate_password_reset_tokens
 from .email_service import EmailDeliveryError, send_password_reset_email
 from .document_extraction import extract_treasurer_report
 from .excel_members import MembersWorkbookFormatError, update_existing_members_from_workbook
-from .models import Account, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
+from .member_groups import member_display_group_from_section
+from .models import Account, AuditLog, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
 from .permissions import IsDeveloper
 from .serializers import (
     AccountSerializer,
@@ -52,9 +53,15 @@ DOCUMENT_ALLOWED_CONTENT_TYPES = {
     "image/jpeg",
     "image/png",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/octet-stream",
+}
+
+DOCUMENT_EXTENSION_FALLBACK = {
+    ".pdf": "application/pdf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 DOCUMENT_MAX_BYTES = 20 * 1024 * 1024
+MAX_FAILED_LOGIN_ATTEMPTS = 5
+LOCKOUT_DURATION_MINUTES = 15
 DOCUMENT_EXTRACTION_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="document-extraction")
 logger = logging.getLogger(__name__)
 DOCUMENT_MONTH_NAMES = {
@@ -260,6 +267,33 @@ def record_tool_access(request, tool: str) -> None:
         )
 
 
+def create_audit_log(
+    action: str,
+    actor=None,
+    target_model: str = "",
+    target_id: int | None = None,
+    changes: dict | None = None,
+    ip_address: str = "",
+    user_agent: str = "",
+) -> None:
+    AuditLog.objects.create(
+        actor=actor if actor is not None and getattr(actor, "is_authenticated", False) else None,
+        action=action,
+        target_model=target_model,
+        target_id=target_id,
+        changes=changes or {},
+        ip_address=ip_address[:39] if ip_address else "",
+        user_agent=user_agent[:255] if user_agent else "",
+    )
+
+
+def audit_from_request(request) -> dict:
+    return {
+        "ip_address": request.META.get("REMOTE_ADDR", ""),
+        "user_agent": request.headers.get("User-Agent", "").strip()[:255],
+    }
+
+
 def filename_matches_category(filename: str, category: str) -> bool:
     normalized = filename.lower().replace("_", " ").replace("-", " ")
     if category == LodgeDocument.Category.MEMBERS_DATA:
@@ -326,8 +360,9 @@ def queue_treasurer_report_extraction(document_id: int) -> None:
     DOCUMENT_EXTRACTION_EXECUTOR.submit(process_treasurer_report_document, document_id)
 
 
-def process_members_data_document(document_id: int) -> None:
-    close_old_connections()
+def process_members_data_document(document_id: int, manage_connections: bool = True) -> None:
+    if manage_connections:
+        close_old_connections()
     try:
         document = LodgeDocument.objects.get(pk=document_id)
         result = update_existing_members_from_workbook(document.file.path)
@@ -361,7 +396,8 @@ def process_members_data_document(document_id: int) -> None:
             updated_at=timezone.now(),
         )
     finally:
-        close_old_connections()
+        if manage_connections:
+            close_old_connections()
 
 
 def queue_members_data_update(document_id: int) -> None:
@@ -489,7 +525,36 @@ def login_view(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
+    now = timezone.now()
+    if account.locked_until is not None and account.locked_until > now:
+        minutes_remaining = max(1, round((account.locked_until - now).total_seconds() / 60))
+        create_audit_log(
+            AuditLog.Action.ACCOUNT_LOCKED,
+            actor=account,
+            **audit_from_request(request),
+        )
+        return Response(
+            {
+                "code": "ACCOUNT_LOCKED",
+                "message": (
+                    f"Your account has been locked due to too many failed login attempts. "
+                    f"Please try again in {minutes_remaining} minute{'s' if minutes_remaining > 1 else ''}."
+                ),
+            },
+            status=status.HTTP_423_LOCKED,
+        )
+
     if not account.check_password(password):
+        new_attempts = account.failed_login_attempts + 1
+        update_fields = {"failed_login_attempts": new_attempts}
+        if new_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
+            update_fields["locked_until"] = now + timezone.timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+        Account.objects.filter(pk=account.pk).update(**update_fields)
+        create_audit_log(
+            AuditLog.Action.LOGIN_FAILED,
+            actor=account,
+            **audit_from_request(request),
+        )
         return Response(
             {
                 "code": "INVALID_CREDENTIALS",
@@ -498,8 +563,20 @@ def login_view(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
+    if account.failed_login_attempts > 0 or account.locked_until is not None:
+        Account.objects.filter(pk=account.pk).update(
+            failed_login_attempts=0,
+            locked_until=None,
+        )
+
     account.ensure_reserved_developer_access(persist=True)
     login(request, account)
+
+    create_audit_log(
+        AuditLog.Action.LOGIN_SUCCESS,
+        actor=account,
+        **audit_from_request(request),
+    )
 
     return Response(
         {
@@ -524,11 +601,19 @@ def setup_password_view(request):
     account = Account.objects.create_user(
         email=email,
         password=new_password,
-        role=Account.Role.MEMBER,
+        role=preidentified_email.role,
         is_active=True,
         is_staff=False,
     )
     preidentified_email.delete()
+
+    create_audit_log(
+        AuditLog.Action.PASSWORD_SETUP,
+        actor=account,
+        target_model="Account",
+        target_id=account.pk,
+        **audit_from_request(request),
+    )
 
     return Response(
         {
@@ -566,6 +651,14 @@ def forgot_password_view(request):
 
     token = build_password_reset_token(account)
     reset_url = build_password_reset_url(token)
+
+    create_audit_log(
+        AuditLog.Action.PASSWORD_RESET_REQUESTED,
+        actor=account,
+        target_model="Account",
+        target_id=account.pk,
+        **audit_from_request(request),
+    )
 
     try:
         send_password_reset_email(email, reset_url)
@@ -618,6 +711,15 @@ def reset_password_view(request):
     new_password = serializer.validated_data["new_password"]
     account.set_password(new_password)
     account.save(update_fields=["password", "updated_at"])
+    invalidate_password_reset_tokens(account)
+
+    create_audit_log(
+        AuditLog.Action.PASSWORD_RESET,
+        actor=account,
+        target_model="Account",
+        target_id=account.pk,
+        **audit_from_request(request),
+    )
 
     return Response(
         {
@@ -780,6 +882,14 @@ def member_edit_profile_view(request, member_id: int):
     )
     serializer.is_valid(raise_exception=True)
     updated_member = serializer.save()
+    create_audit_log(
+        AuditLog.Action.MEMBER_UPDATED,
+        actor=request.user,
+        target_model="MemberDatabaseRecord",
+        target_id=updated_member.pk,
+        changes={"updated_fields": list(serializer.validated_data.keys())},
+        **audit_from_request(request),
+    )
     return Response(
         {
             "message": "Member record updated successfully.",
@@ -812,35 +922,25 @@ def member_positions_held_view(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def member_summary_view(request):
-    counts = {
-        "active": 0,
-        "dual_plural": 0,
-        "honorary": 0,
-        "inactive_snpd_demit": 0,
-        "dropped_working_tools": 0,
-    }
-    records = MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD").only("section")
+    groups = {}
+    records = (
+        MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD")
+        .only("section", "source_row")
+        .order_by("source_row", "id")
+    )
     for record in records:
-        counts[classify_member_group(record.section)] += 1
+        group = member_display_group_from_section(record.section)
+        if group.key not in groups:
+            groups[group.key] = {
+                "key": group.key,
+                "label": group.label,
+                "section": group.section,
+                "count": 0,
+            }
+        groups[group.key]["count"] += 1
 
     return Response(
-        {
-            "groups": [
-                {"key": "active", "label": "Active", "count": counts["active"]},
-                {"key": "dual_plural", "label": "Dual / Plural", "count": counts["dual_plural"]},
-                {"key": "honorary", "label": "Honorary", "count": counts["honorary"]},
-                {
-                    "key": "inactive_snpd_demit",
-                    "label": "Inactive / SNPD / Demit",
-                    "count": counts["inactive_snpd_demit"],
-                },
-                {
-                    "key": "dropped_working_tools",
-                    "label": "Dropped Working Tools",
-                    "count": counts["dropped_working_tools"],
-                },
-            ],
-        },
+        {"groups": list(groups.values())},
         status=status.HTTP_200_OK,
     )
 
@@ -994,6 +1094,7 @@ def lodge_documents_view(request):
 
     notes = str(request.data.get("notes", "")).strip()[:200]
     results = []
+    accepted_count = 0
     if category == LodgeDocument.Category.MEMBERS_DATA and len(uploads) > 1:
         return Response(
             {
@@ -1028,6 +1129,12 @@ def lodge_documents_view(request):
             errors = []
             content_type = upload.content_type.lower()
             normalized_filename = upload.name.strip().casefold()
+
+            if content_type == "application/octet-stream" or content_type not in DOCUMENT_ALLOWED_CONTENT_TYPES:
+                for ext, mapped_type in DOCUMENT_EXTENSION_FALLBACK.items():
+                    if upload.name.lower().endswith(ext):
+                        content_type = mapped_type
+                        break
 
             if content_type not in DOCUMENT_ALLOWED_CONTENT_TYPES:
                 errors.append("Allowed file types are PDF, JPG, PNG, and XLSX.")
@@ -1084,7 +1191,7 @@ def lodge_documents_view(request):
                 )
             elif category == LodgeDocument.Category.MEMBERS_DATA:
                 transaction.on_commit(
-                    lambda document_id=document.id: queue_members_data_update(document_id)
+                    lambda document_id=document.id: process_members_data_document(document_id, manage_connections=False)
                 )
 
             results.append(
@@ -1096,7 +1203,17 @@ def lodge_documents_view(request):
                 }
             )
 
-    accepted_count = sum(1 for item in results if item["status"] == "uploaded")
+            accepted_count = sum(1 for item in results if item["status"] == "uploaded")
+            for result_item in results:
+                if result_item["status"] == "uploaded" and result_item.get("document"):
+                    create_audit_log(
+                        AuditLog.Action.DOCUMENT_UPLOADED,
+                        actor=request.user,
+                        target_model="LodgeDocument",
+                        target_id=result_item["document"].get("id"),
+                        changes={"filename": result_item["filename"], "category": category},
+                        **audit_from_request(request),
+                    )
     response_status = status.HTTP_201_CREATED if accepted_count else status.HTTP_400_BAD_REQUEST
     return Response(
         {
@@ -1122,6 +1239,14 @@ def lodge_document_detail_view(request, document_id: int):
     record_tool_access(request, ToolAccessLog.Tool.DOCUMENTS)
 
     document = get_object_or_404(LodgeDocument, pk=document_id)
+    create_audit_log(
+        AuditLog.Action.DOCUMENT_DELETED,
+        actor=request.user,
+        target_model="LodgeDocument",
+        target_id=document.pk,
+        changes={"filename": document.original_filename, "category": document.category},
+        **audit_from_request(request),
+    )
     delete_document_file(document)
     document.delete()
     return Response({"message": "Document deleted successfully."}, status=status.HTTP_200_OK)
@@ -1130,16 +1255,17 @@ def lodge_document_detail_view(request, document_id: int):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def member_list_view(request):
-    group = request.query_params.get("group", "active")
+    requested_group = request.query_params.get("group", "").strip()
     search = request.query_params.get("search", "").strip()
-    valid_groups = {
-        "active",
-        "dual_plural",
-        "honorary",
-        "inactive_snpd_demit",
-        "dropped_working_tools",
+    records = MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD")
+    available_groups = {
+        member_display_group_from_section(section).key
+        for section in records.values_list("section", flat=True).distinct()
     }
-    if group not in valid_groups:
+    if not requested_group:
+        requested_group = "active" if "active" in available_groups else next(iter(sorted(available_groups)), "")
+
+    if requested_group and requested_group not in available_groups and not search:
         return Response(
             {
                 "code": "INVALID_MEMBER_GROUP",
@@ -1148,18 +1274,21 @@ def member_list_view(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    records = MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD")
     if search:
         records = records.filter(name__icontains=search)
 
     if not search:
-        records = [record for record in records if classify_member_group(record.section) == group]
+        records = [
+            record
+            for record in records
+            if member_display_group_from_section(record.section).key == requested_group
+        ]
 
     records = sorted(records, key=lambda record: record.name.casefold())
 
     return Response(
         {
-            "group": group,
+            "group": requested_group,
             "count": len(records),
             "members": MemberListItemSerializer(records, many=True, context={"request": request}).data,
         },
@@ -1264,6 +1393,15 @@ def lodge_activity_detail_view(request, activity_id: int):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    create_audit_log(
+        AuditLog.Action.ACTIVITY_DELETED,
+        actor=request.user,
+        target_model="LodgeActivity",
+        target_id=activity.pk,
+        changes={"title": activity.title, "starts_at": str(activity.starts_at)},
+        **audit_from_request(request),
+    )
+
     activity.delete()
     return Response(
         {"message": "Activity deleted successfully."},
@@ -1288,6 +1426,14 @@ def create_lodge_activity_view(request):
     serializer = LodgeActivityCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     activity = serializer.save(created_by=request.user)
+    create_audit_log(
+        AuditLog.Action.ACTIVITY_CREATED,
+        actor=request.user,
+        target_model="LodgeActivity",
+        target_id=activity.pk,
+        changes={"title": activity.title, "starts_at": str(activity.starts_at)},
+        **audit_from_request(request),
+    )
     return Response(
         {
             "message": "Activity saved successfully.",

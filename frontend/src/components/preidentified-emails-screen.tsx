@@ -13,14 +13,13 @@ import {
   savePreidentifiedEmail,
 } from "@/lib/api";
 
-const DEFAULT_PASSWORD = "dll347";
-
 export function PreidentifiedEmailsScreen() {
   const router = useRouter();
   const [status, setStatus] = useState<"loading" | "ready" | "redirecting">("loading");
   const [accountEmail, setAccountEmail] = useState("");
   const [rows, setRows] = useState<PreidentifiedEmailRecord[]>([]);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -71,8 +70,9 @@ export function PreidentifiedEmailsScreen() {
     setIsSaving(true);
 
     try {
-      await savePreidentifiedEmail(email, DEFAULT_PASSWORD);
+      await savePreidentifiedEmail(email, password);
       setEmail("");
+      setPassword("");
       setSuccessMessage("Preidentified email saved.");
       await refreshList();
     } catch (error) {
@@ -161,12 +161,15 @@ export function PreidentifiedEmailsScreen() {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-[#4d382d]">Default password</span>
+              <span className="mb-2 block text-sm font-semibold text-[#4d382d]">Password</span>
               <input
                 type="text"
-                value={DEFAULT_PASSWORD}
-                readOnly
-                className="h-12 w-full rounded-[1rem] border border-[#e6d8c7] bg-[#f8f2ea] px-4 text-[#7a6556] outline-none"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Set a password"
+                required
+                disabled={isSaving}
+                className="h-12 w-full rounded-[1rem] border border-[#e6d8c7] bg-[#fffdfa] px-4 outline-none transition focus:border-[#cf8c00]"
               />
             </label>
 
@@ -212,7 +215,7 @@ export function PreidentifiedEmailsScreen() {
               <thead className="bg-[#f8f2ea] text-left text-sm text-[#5a473b]">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Email</th>
-                  <th className="px-4 py-3 font-semibold">Default Password</th>
+                  <th className="px-4 py-3 font-semibold">Created</th>
                 </tr>
               </thead>
               <tbody>
@@ -226,7 +229,9 @@ export function PreidentifiedEmailsScreen() {
                   rows.map((row) => (
                     <tr key={row.id} className="border-t border-[#f1e7db] bg-white text-sm">
                       <td className="px-4 py-3 text-[#24160f]">{row.email}</td>
-                      <td className="px-4 py-3 font-mono text-[#7d2218]">{row.default_password}</td>
+                      <td className="px-4 py-3 text-[#5d4b3f]">
+                        {new Date(row.created_at).toLocaleDateString()}
+                      </td>
                     </tr>
                   ))
                 )}

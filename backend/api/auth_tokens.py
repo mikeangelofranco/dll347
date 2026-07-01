@@ -1,46 +1,46 @@
+import secrets
+
 from django.conf import settings
-from django.core import signing
-from django.core.signing import BadSignature, SignatureExpired
+from django.utils import timezone
 
-from .models import Account
-
-PASSWORD_RESET_SALT = "dll347.password-reset"
+from .models import Account, PasswordResetToken
 
 
 def build_password_reset_token(account: Account) -> str:
-    payload = {
-        "email": account.email,
-        "password": account.password,
-        "updated_at": account.updated_at.isoformat(),
-    }
-    return signing.dumps(payload, salt=PASSWORD_RESET_SALT)
+    PasswordResetToken.objects.filter(account=account).delete()
+    raw_token = secrets.token_urlsafe(32)
+    PasswordResetToken.objects.create(account=account, token=raw_token)
+    return raw_token
 
 
 def get_account_from_password_reset_token(token: str) -> Account | None:
-    try:
-        payload = signing.loads(
-            token,
-            salt=PASSWORD_RESET_SALT,
-            max_age=settings.PASSWORD_RESET_LINK_EXPIRY_MINUTES * 60,
-        )
-    except (BadSignature, SignatureExpired):
+    if not token:
         return None
 
-    account = (
-        Account.objects.filter(email=payload.get("email"))
-        .only("id", "email", "password", "updated_at", "is_active", "role", "is_staff", "is_superuser")
+    reset_token = (
+        PasswordResetToken.objects.select_related("account")
+        .filter(token=token)
         .first()
     )
-    if account is None or not account.is_active:
+    if reset_token is None:
         return None
 
-    if account.password != payload.get("password"):
+    expiry_seconds = settings.PASSWORD_RESET_LINK_EXPIRY_MINUTES * 60
+    age = (timezone.now() - reset_token.created_at).total_seconds()
+    if age > expiry_seconds:
+        reset_token.delete()
         return None
 
-    if account.updated_at.isoformat() != payload.get("updated_at"):
+    account = reset_token.account
+    if not account.is_active:
         return None
 
     return account
+
+
+def invalidate_password_reset_tokens(account: Account) -> int:
+    deleted, _ = PasswordResetToken.objects.filter(account=account).delete()
+    return deleted
 
 
 def build_password_reset_url(token: str) -> str:

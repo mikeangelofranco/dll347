@@ -80,6 +80,8 @@ class Account(AbstractBaseUser, PermissionsMixin):
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.MEMBER)
     can_manage_activities = models.BooleanField(default=False)
     can_edit_members = models.BooleanField(default=False)
+    failed_login_attempts = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -180,9 +182,80 @@ class ToolAccessLog(models.Model):
         return f"{self.email} - {self.get_tool_display()}"
 
 
+class PasswordResetToken(models.Model):
+    account = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="password_reset_tokens",
+    )
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        db_table = "dll347_password_reset_tokens"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["token"], name="pwd_reset_token_idx"),
+            models.Index(fields=["account", "-created_at"], name="pwd_reset_account_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.token
+
+
+class AuditLog(models.Model):
+    class Action(models.TextChoices):
+        LOGIN_SUCCESS = "login_success", "Login Success"
+        LOGIN_FAILED = "login_failed", "Login Failed"
+        ACCOUNT_LOCKED = "account_locked", "Account Locked"
+        PASSWORD_SETUP = "password_setup", "Password Setup"
+        PASSWORD_RESET_REQUESTED = "password_reset_requested", "Password Reset Requested"
+        PASSWORD_RESET = "password_reset", "Password Reset"
+        MEMBER_UPDATED = "member_updated", "Member Updated"
+        DOCUMENT_UPLOADED = "document_uploaded", "Document Uploaded"
+        DOCUMENT_DELETED = "document_deleted", "Document Deleted"
+        ACTIVITY_CREATED = "activity_created", "Activity Created"
+        ACTIVITY_DELETED = "activity_deleted", "Activity Deleted"
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+    )
+    action = models.CharField(max_length=40, choices=Action.choices)
+    target_model = models.CharField(max_length=100, blank=True)
+    target_id = models.PositiveIntegerField(null=True, blank=True)
+    changes = models.JSONField(default=dict)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        db_table = "dll347_audit_logs"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["actor", "-created_at"], name="audit_actor_created_idx"),
+            models.Index(fields=["action", "-created_at"], name="audit_action_created_idx"),
+            models.Index(fields=["target_model", "target_id"], name="audit_target_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_action_display()} at {self.created_at}"
+
+
 class PreidentifiedEmail(models.Model):
+    ROLE_CHOICES = [
+        (Account.Role.MEMBER, Account.Role.MEMBER.label),
+        (Account.Role.SECRETARY, Account.Role.SECRETARY.label),
+        (Account.Role.THREE_LIGHTS, Account.Role.THREE_LIGHTS.label),
+        (Account.Role.ADMINISTRATOR, Account.Role.ADMINISTRATOR.label),
+    ]
+
     email = models.EmailField(unique=True)
     default_password = models.CharField(max_length=255)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=Account.Role.MEMBER)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 

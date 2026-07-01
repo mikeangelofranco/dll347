@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import { ThemedLoader } from "@/components/themed-loader";
 import { DocumentsScreen } from "@/components/documents-screen";
@@ -485,21 +485,56 @@ function formatSourceDate(value: string | null): string {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-const secretaryMemberGroups: { key: MemberGroupKey; label: string; color: string; icon: ReactNode }[] = [
-  { key: "active", label: "Active", color: "#17962a", icon: <MembersOutlineIcon /> },
-  { key: "dual_plural", label: "Dual / Plural", color: "#d68b00", icon: <MembersOutlineIcon /> },
-  { key: "honorary", label: "Honorary", color: "#1769ba", icon: <AwardIcon /> },
-  { key: "inactive_snpd_demit", label: "Inactive /\nSNPD / Demit", color: "#cf0000", icon: <InactiveIcon /> },
-  { key: "dropped_working_tools", label: "Dropped\nWorking Tools", color: "#6d6969", icon: <WorkingToolsIcon /> },
+type MemberGroupDisplay = MemberSummaryGroup & {
+  heading: string;
+  color: string;
+  tint: string;
+  border: string;
+  icon: ReactNode;
+  dashboardLabel: string;
+};
+
+const fallbackMemberSummaryGroups: MemberSummaryGroup[] = [
+  { key: "active", label: "Active", section: "MASTER MASONS - ACTIVE", count: 0 },
+  { key: "dual_plural", label: "Dual / Plural", section: "MASTER MASONS (DUAL/PLURAL) - ACTIVE", count: 0 },
+  { key: "honorary", label: "Honorary", section: "MASTER MASONS (HONORARY)", count: 0 },
+  { key: "inactive_snpd_demit", label: "Inactive / SNPD / Demit", section: "MASTER MASONS - INACTIVE, SNPD, DEMIT", count: 0 },
+  { key: "dropped_working_tools", label: "Dropped Working Tools", section: "DROPED THE WORKING TOOLS", count: 0 },
 ];
 
-const memberListFilters: { key: MemberGroupKey; label: string; heading: string; color: string; tint: string; border: string }[] = [
-  { key: "active", label: "Active", heading: "Active Members", color: "#009622", tint: "#f2fbf4", border: "#bfe8c7" },
-  { key: "dual_plural", label: "Dual / Plural", heading: "Dual / Plural Members", color: "#d18400", tint: "#fff8ec", border: "#f0cd94" },
-  { key: "honorary", label: "Honorary", heading: "Honorary Members", color: "#1769ba", tint: "#f1f8ff", border: "#bcd9ef" },
-  { key: "inactive_snpd_demit", label: "Inactive / SNPD / Demit", heading: "Inactive / SNPD / Demit", color: "#d00000", tint: "#fff5f5", border: "#f0b8b8" },
-  { key: "dropped_working_tools", label: "Dropped Working Tools", heading: "Dropped Working Tools", color: "#5f5a57", tint: "#f7f6f5", border: "#d8d2cc" },
+const legacyMemberGroupPresentation: Record<string, Partial<MemberGroupDisplay>> = {
+  active: { color: "#17962a", tint: "#f2fbf4", border: "#bfe8c7", icon: <MembersOutlineIcon />, dashboardLabel: "Active", heading: "Active Members" },
+  dual_plural: { color: "#d18400", tint: "#fff8ec", border: "#f0cd94", icon: <MembersOutlineIcon />, dashboardLabel: "Dual / Plural", heading: "Dual / Plural Members" },
+  honorary: { color: "#1769ba", tint: "#f1f8ff", border: "#bcd9ef", icon: <AwardIcon />, dashboardLabel: "Honorary", heading: "Honorary Members" },
+  inactive_snpd_demit: { color: "#d00000", tint: "#fff5f5", border: "#f0b8b8", icon: <InactiveIcon />, dashboardLabel: "Inactive /\nSNPD / Demit", heading: "Inactive / SNPD / Demit" },
+  dropped_working_tools: { color: "#5f5a57", tint: "#f7f6f5", border: "#d8d2cc", icon: <WorkingToolsIcon />, dashboardLabel: "Dropped\nWorking Tools", heading: "Dropped Working Tools" },
+};
+
+const dynamicMemberGroupPalette = [
+  { color: "#0f766e", tint: "#f0fdfa", border: "#99f6e4", icon: <MembersOutlineIcon /> },
+  { color: "#7c3aed", tint: "#f5f3ff", border: "#ddd6fe", icon: <MembersOutlineIcon /> },
+  { color: "#be123c", tint: "#fff1f2", border: "#fecdd3", icon: <InactiveIcon /> },
+  { color: "#0369a1", tint: "#f0f9ff", border: "#bae6fd", icon: <AwardIcon /> },
+  { color: "#4d7c0f", tint: "#f7fee7", border: "#d9f99d", icon: <MembersOutlineIcon /> },
+  { color: "#92400e", tint: "#fffbeb", border: "#fde68a", icon: <WorkingToolsIcon /> },
 ];
+
+function buildMemberDisplayGroups(groups: MemberSummaryGroup[] | null): MemberGroupDisplay[] {
+  const sourceGroups = groups && groups.length > 0 ? groups : fallbackMemberSummaryGroups;
+  return sourceGroups.map((group, index) => {
+    const legacy = legacyMemberGroupPresentation[group.key] ?? {};
+    const palette = dynamicMemberGroupPalette[index % dynamicMemberGroupPalette.length];
+    return {
+      ...group,
+      heading: legacy.heading ?? group.label,
+      color: legacy.color ?? palette.color,
+      tint: legacy.tint ?? palette.tint,
+      border: legacy.border ?? palette.border,
+      icon: legacy.icon ?? palette.icon,
+      dashboardLabel: legacy.dashboardLabel ?? group.label,
+    };
+  });
+}
 
 function minimumLoadingDelay(ms = 250): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -631,13 +666,25 @@ function memberGroupFromSection(section: string): MemberGroupKey {
   return "active";
 }
 
-function memberGroupDetails(group: MemberGroupKey) {
-  return memberListFilters.find((filter) => filter.key === group) ?? memberListFilters[0];
+function memberGroupDetails(group: MemberGroupKey, groups: MemberGroupDisplay[]) {
+  return groups.find((filter) => filter.key === group) ?? groups[0] ?? buildMemberDisplayGroups(null)[0];
 }
 
-function memberGroupIcon(group: MemberGroupKey) {
-  const details = secretaryMemberGroups.find((item) => item.key === group);
-  return details?.icon ?? <MembersOutlineIcon />;
+function memberGroupDetailsForMember(member: MemberListItem, groups: MemberGroupDisplay[]) {
+  const fallbackGroup = memberGroupFromSection(member.section);
+  const groupKey = member.group_key || fallbackGroup;
+  const existing = groups.find((filter) => filter.key === groupKey);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const fallback = memberGroupDetails(fallbackGroup, groups);
+  return {
+    ...fallback,
+    key: groupKey,
+    label: member.group_label || fallback.label,
+    dashboardLabel: member.group_label || fallback.dashboardLabel,
+    heading: member.group_label || fallback.heading,
+  };
 }
 
 const baseNavItems = [
@@ -683,6 +730,29 @@ export function DashboardScreen() {
   const navItems = account?.role === "secretary"
     ? baseNavItems
     : baseNavItems.filter((item) => item.id !== "documents");
+  const memberDisplayGroups = useMemo(
+    () => buildMemberDisplayGroups(memberSummaryGroups),
+    [memberSummaryGroups],
+  );
+  const resolvedActiveMemberFilter = memberDisplayGroups.some((group) => group.key === activeMemberFilter)
+    ? activeMemberFilter
+    : memberDisplayGroups[0]?.key ?? activeMemberFilter;
+
+  const refreshDashboardSummaries = useCallback(async () => {
+    try {
+      const [summary, memberSummary] = await Promise.all([
+        getSecretaryDashboardSummary(),
+        getMemberSummary(),
+      ]);
+      setDashboardSummary(normalizeDashboardSummary(summary));
+      setMemberSummaryGroups(memberSummary.groups);
+      setMemberSummaryError("");
+    } catch {
+      setDashboardSummary(normalizeDashboardSummary({}));
+      setMemberSummaryGroups(null);
+      setMemberSummaryError("Unable to load member counts.");
+    }
+  }, []);
 
   useEffect(() => {
     function updateViewportMode() {
@@ -708,19 +778,7 @@ export function DashboardScreen() {
         const currentAccount = await getCurrentAccount();
         setAccount(currentAccount);
         if (currentAccount.role !== "member") {
-          try {
-            const [summary, memberSummary] = await Promise.all([
-              getSecretaryDashboardSummary(),
-              getMemberSummary(),
-            ]);
-            setDashboardSummary(normalizeDashboardSummary(summary));
-            setMemberSummaryGroups(memberSummary.groups);
-            setMemberSummaryError("");
-          } catch {
-            setDashboardSummary(normalizeDashboardSummary({}));
-            setMemberSummaryGroups(null);
-            setMemberSummaryError("Unable to load member counts.");
-          }
+          await refreshDashboardSummaries();
         }
         setStatus("ready");
       } catch (error) {
@@ -736,10 +794,10 @@ export function DashboardScreen() {
     }
 
     void loadAccount();
-  }, [router]);
+  }, [refreshDashboardSummaries, router]);
 
   useEffect(() => {
-    if (activeView !== "members") {
+    if (activeView !== "members" || memberSummaryGroups === null) {
       return;
     }
 
@@ -750,7 +808,7 @@ export function DashboardScreen() {
         setMemberListError("");
         try {
           const [response] = await Promise.all([
-            getMemberList(activeMemberFilter, memberSearch),
+            getMemberList(resolvedActiveMemberFilter, memberSearch),
             minimumLoadingDelay(),
           ]);
           if (isMounted) {
@@ -775,7 +833,7 @@ export function DashboardScreen() {
       isMounted = false;
       window.clearTimeout(debounce);
     };
-  }, [activeView, activeMemberFilter, memberSearch]);
+  }, [activeView, resolvedActiveMemberFilter, memberSearch, memberSummaryGroups]);
 
   useEffect(() => {
     let isMounted = true;
@@ -945,12 +1003,13 @@ export function DashboardScreen() {
       <DocumentsScreen
         onLogout={handleLogout}
         onNavigate={(view) => setActiveView(view)}
+        onMembersDataUploaded={refreshDashboardSummaries}
       />
     );
   }
 
   if (activeView === "members") {
-    const activeFilter = memberListFilters.find((filter) => filter.key === activeMemberFilter) ?? memberListFilters[0];
+    const activeFilter = memberGroupDetails(resolvedActiveMemberFilter, memberDisplayGroups);
     const isSearchingMembers = memberSearch.trim().length > 0;
 
     return (
@@ -968,8 +1027,8 @@ export function DashboardScreen() {
 
           <div className="flex-1 overflow-y-auto px-3.5 pb-[5.6rem] pt-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="flex flex-wrap gap-2 pb-2">
-              {memberListFilters.map((filter) => {
-                const isActive = filter.key === activeMemberFilter;
+              {memberDisplayGroups.map((filter) => {
+                const isActive = filter.key === resolvedActiveMemberFilter;
                 return (
                   <button
                     key={filter.key}
@@ -1018,8 +1077,7 @@ export function DashboardScreen() {
                 <div className="flex justify-center rounded-[1rem] bg-white/88 px-4 py-8 shadow-[0_8px_20px_rgba(75,48,20,0.04)]"><ThemedLoader size="md" /></div>
               ) : memberList.length > 0 ? (
                 memberList.map((member) => {
-                  const group = memberGroupFromSection(member.section);
-                  const groupDetails = memberGroupDetails(group);
+                  const groupDetails = memberGroupDetailsForMember(member, memberDisplayGroups);
                   return (
                     <button key={member.id} type="button" onClick={() => void openMemberProfile(member.id)} className="flex w-full items-center gap-2.5 rounded-[0.85rem] bg-white/90 px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)]">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
@@ -1034,7 +1092,7 @@ export function DashboardScreen() {
                         <span className="block truncate text-[0.75rem] font-bold tracking-[-0.02em] text-[#111111]">{memberListDisplayName(member.name)}</span>
                         <span className="mt-0.5 block truncate text-[0.64rem] text-[#625b56]">GLP ID: {displayValue(member.glp_id_number)}</span>
                         <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[0.54rem] font-semibold leading-none" style={{ color: groupDetails.color, backgroundColor: groupDetails.tint }}>
-                          <span className="flex h-3.5 w-3.5 items-center justify-center">{memberGroupIcon(group)}</span>
+                          <span className="flex h-3.5 w-3.5 items-center justify-center">{groupDetails.icon}</span>
                           <span className="truncate">{groupDetails.label}</span>
                         </span>
                       </span>
@@ -1283,9 +1341,8 @@ export function DashboardScreen() {
             </div>
 
             <div className="mt-3.5 grid grid-cols-4 gap-1.5 min-[400px]:grid-cols-5">
-              {secretaryMemberGroups.map((group) => {
-                const summaryGroup = memberSummaryGroups?.find((item) => item.key === group.key);
-                const value = summaryGroup?.count;
+              {memberDisplayGroups.map((group) => {
+                const value = group.count;
                 return (
                   <button
                     key={group.key}
@@ -1303,10 +1360,10 @@ export function DashboardScreen() {
                       className="mt-1.5 min-h-7 whitespace-pre-line text-[0.55rem] font-medium leading-[1.22]"
                       style={{ color: group.color }}
                     >
-                      {group.label}
+                      {group.dashboardLabel}
                     </span>
                     <span className="mt-auto text-base font-bold text-[#18130f]">
-                      {value ?? "-"}
+                      {value}
                     </span>
                   </button>
                 );

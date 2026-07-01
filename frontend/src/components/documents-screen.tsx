@@ -18,6 +18,7 @@ import { ThemedLoader } from "@/components/themed-loader";
 type DocumentsScreenProps = {
   onLogout: () => Promise<void>;
   onNavigate: (view: "home" | "profile" | "documents" | "more") => void;
+  onMembersDataUploaded?: () => Promise<void> | void;
 };
 
 type DocumentYearFilter = "all" | "others" | string;
@@ -330,7 +331,7 @@ function documentTheme(document: LodgeDocument) {
   return { tile: "bg-[linear-gradient(145deg,#8e4edb,#7436bd)]", badge: "bg-[#efe3ff] text-[#7d3fd0]" };
 }
 
-export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) {
+export function DocumentsScreen({ onLogout, onNavigate, onMembersDataUploaded }: DocumentsScreenProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const uploadButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -626,6 +627,12 @@ export function DocumentsScreen({ onLogout, onNavigate }: DocumentsScreenProps) 
       );
       if (rejectedCount === 0) {
         setNotes("");
+      }
+      if (
+        selectedCategory === "members_data"
+        && results.some((result) => result.status === "uploaded")
+      ) {
+        await onMembersDataUploaded?.();
       }
     } catch (error) {
       if (error instanceof ApiError) {

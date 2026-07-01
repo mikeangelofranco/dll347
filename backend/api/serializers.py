@@ -13,6 +13,7 @@ from .models import (
     PreidentifiedEmail,
     TreasurerReportSummary,
 )
+from .member_groups import member_display_group_from_section
 
 
 def json_cell_value(item):
@@ -114,6 +115,8 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
 
 
 class MemberListItemSerializer(serializers.ModelSerializer):
+    group_key = serializers.SerializerMethodField()
+    group_label = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     profile_photo_url = serializers.SerializerMethodField()
 
@@ -124,9 +127,17 @@ class MemberListItemSerializer(serializers.ModelSerializer):
             "name",
             "glp_id_number",
             "section",
+            "group_key",
+            "group_label",
             "status",
             "profile_photo_url",
         )
+
+    def get_group_key(self, obj: MemberDatabaseRecord) -> str:
+        return member_display_group_from_section(obj.section).key
+
+    def get_group_label(self, obj: MemberDatabaseRecord) -> str:
+        return member_display_group_from_section(obj.section).label
 
     def get_status(self, obj: MemberDatabaseRecord) -> str:
         return MemberDashboardProfileSerializer(context=self.context).get_status(obj)
@@ -544,32 +555,34 @@ class PreidentifiedEmailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PreidentifiedEmail
-        fields = ("id", "email", "default_password", "created_at", "updated_at")
+        fields = ("id", "email", "role", "default_password", "created_at", "updated_at")
 
     def get_default_password(self, obj: PreidentifiedEmail) -> str:
-        return "dll347"
+        return ""
 
 
 class PreidentifiedEmailUpsertSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(
         trim_whitespace=False,
-        required=False,
-        allow_blank=True,
-        default="dll347",
+        write_only=True,
     )
 
     def validate_email(self, value: str) -> str:
         return value.strip().lower()
 
     def validate_password(self, value: str) -> str:
-        return value or "dll347"
+        if not value:
+            raise serializers.ValidationError("Password is required.")
+        return value
 
     def save(self, **kwargs) -> tuple[PreidentifiedEmail, bool]:
         email = self.validated_data["email"]
+        role = self.validated_data["role"]
         password = self.validated_data["password"]
 
         instance, created = PreidentifiedEmail.objects.get_or_create(email=email)
+        instance.role = role
         instance.set_default_password(password)
         instance.save()
         return instance, created

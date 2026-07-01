@@ -76,6 +76,7 @@ export type LogoutResponse = {
 export type PreidentifiedEmailRecord = {
   id: number;
   email: string;
+  role: AccountRole;
   default_password: string;
   created_at: string;
   updated_at: string;
@@ -92,8 +93,9 @@ export type MemberProfilePhotoUploadResponse = {
 };
 
 export type MemberSummaryGroup = {
-  key: "active" | "dual_plural" | "honorary" | "inactive_snpd_demit" | "dropped_working_tools";
+  key: string;
   label: string;
+  section: string;
   count: number;
 };
 
@@ -108,6 +110,8 @@ export type MemberListItem = {
   name: string;
   glp_id_number: string;
   section: string;
+  group_key: string;
+  group_label: string;
   status: string;
   profile_photo_url: string | null;
 };
@@ -409,8 +413,6 @@ function getApiBaseUrl(): string {
     const hostname = window.location.hostname;
     if (hostname === "127.0.0.1" || hostname === "localhost") {
       apiBaseUrl = "http://127.0.0.1:8000/api";
-    } else if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname)) {
-      apiBaseUrl = `http://${hostname}:8000/api`;
     }
   }
 
@@ -620,11 +622,13 @@ export async function getPreidentifiedEmails(): Promise<PreidentifiedEmailRecord
 export async function savePreidentifiedEmail(
   email: string,
   password: string,
+  role: AccountRole = "member",
 ): Promise<SavePreidentifiedEmailResponse> {
   await prepareSessionCsrf();
   return apiPost<SavePreidentifiedEmailResponse>("/preidentified-emails/", {
     email,
     password,
+    role,
   });
 }
 
