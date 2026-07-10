@@ -50,6 +50,12 @@ function AwardIcon() {
   return <Icon className="h-5 w-5"><circle cx="12" cy="9" r="5.2" fill="none" stroke="currentColor" strokeWidth="1.7" /><path d="m8.5 13-1 7 4.5-2.5 4.5 2.5-1-7" fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" /></Icon>;
 }
 
+type StatusPresentation = {
+  color: string;
+  background: string;
+  kind: "active" | "inactive" | "dropped";
+};
+
 function displayValue(value: string | null | undefined): string {
   return value && value.trim() ? value : "-";
 }
@@ -101,7 +107,49 @@ function appendantCellHasValue(value: unknown): boolean {
   return true;
 }
 
+function memberStatusPresentation(status: string): StatusPresentation {
+  const normalized = status.trim().toLowerCase();
+  if (normalized.includes("dropped") || normalized.includes("working tools")) {
+    return { color: "#5f5a57", background: "#f0eeeb", kind: "dropped" };
+  }
+  if (
+    normalized.includes("inactive")
+    || normalized.includes("snpd")
+    || normalized.includes("demit")
+    || normalized.includes("not active")
+  ) {
+    return { color: "#c90000", background: "#fff0f0", kind: "inactive" };
+  }
+  return { color: "#06a335", background: "#ecf9ef", kind: "active" };
+}
+
+function MemberStatusIcon({ presentation }: { presentation: StatusPresentation }) {
+  if (presentation.kind === "inactive") {
+    return (
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: presentation.background, color: presentation.color }}>
+        <Icon className="h-2.5 w-2.5">
+          <path d="M7 7 17 17M17 7 7 17" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.3" />
+        </Icon>
+      </span>
+    );
+  }
+
+  if (presentation.kind === "dropped") {
+    return (
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: presentation.background, color: presentation.color }}>
+        <Icon className="h-3 w-3">
+          <path d="M5 9h14v8.5A1.5 1.5 0 0 1 17.5 19h-11A1.5 1.5 0 0 1 5 17.5V9Z" fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="2" />
+          <path d="M9 9V7.2A1.2 1.2 0 0 1 10.2 6h3.6A1.2 1.2 0 0 1 15 7.2V9M5 12h14" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+        </Icon>
+      </span>
+    );
+  }
+
+  return <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: presentation.color }} />;
+}
+
 export function MemberProfileSheet({ profile, isLoading, error, onClose }: MemberProfileSheetProps) {
+  const statusPresentation = profile ? memberStatusPresentation(profile.status) : null;
   const profileRows = profile
     ? [
         ["GLP ID", displayValue(profile.glp_id_number)],
@@ -162,7 +210,10 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose }: Membe
                   <div className="min-w-0 flex-1 text-left">
                     <h3 className="text-[1.24rem] font-bold leading-none tracking-[-0.05em]">{profileDisplayName(profile.name)}</h3>
                     <div className="mt-2 w-fit rounded-full bg-[linear-gradient(145deg,#eba51a,#c97b00)] px-3 py-1 text-[0.64rem] font-semibold text-white shadow-[0_6px_12px_rgba(205,133,0,0.2)]">{profile.lodge_standing}</div>
-                    <div className="mt-3 flex items-center gap-2 text-[0.7rem] font-medium text-[#2d2824]"><span className="h-2.5 w-2.5 rounded-full bg-[#06b834]" />{profile.status}</div>
+                    <div className="mt-3 flex items-center gap-2 text-[0.7rem] font-medium" style={{ color: statusPresentation?.color ?? "#2d2824" }}>
+                      {statusPresentation ? <MemberStatusIcon presentation={statusPresentation} /> : null}
+                      {profile.status}
+                    </div>
                     <div className="mt-1.5 flex items-center gap-2 text-[0.66rem] font-medium text-[#4c4540]"><span className="h-1.5 w-1.5 rounded-full bg-[#3c444a]" />Datu Lapu-Lapu Lodge No. 347</div>
                   </div>
                 </div>
@@ -172,7 +223,7 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose }: Membe
                 {profileRows.map(([label, value]) => (
                   <div key={label} className="flex items-start justify-between gap-4 border-b border-[#e9e1d8] py-2.5 last:border-b-0">
                     <span className="text-[0.74rem] text-[#59524d]">{label}</span>
-                    <span className={`max-w-[58%] text-right text-[0.74rem] leading-snug ${label === "Status" ? "font-medium text-[#009622]" : "text-[#111111]"}`}>{value}</span>
+                    <span className={`max-w-[58%] text-right text-[0.74rem] leading-snug ${label === "Status" ? "font-medium" : "text-[#111111]"}`} style={label === "Status" ? { color: statusPresentation?.color ?? "#111111" } : undefined}>{value}</span>
                   </div>
                 ))}
               </section>

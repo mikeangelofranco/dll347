@@ -12,6 +12,11 @@ def member_profile_photo_upload_path(instance, filename: str) -> str:
     return f"member-profile-photos/member-{instance.pk}.{extension}"
 
 
+def member_default_profile_photo_upload_path(instance, filename: str) -> str:
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
+    return f"member-default-profile-photos/member-{instance.pk}.{extension}"
+
+
 def lodge_document_upload_path(instance, filename: str) -> str:
     category = getattr(instance, "category", "document") or "document"
     safe_category = category.replace("_", "-")
@@ -348,6 +353,7 @@ class MemberDatabaseRecord(models.Model):
     telephone = models.CharField(max_length=100, blank=True)
     email = models.CharField(max_length=255, blank=True)
     profile_photo = models.FileField(upload_to=member_profile_photo_upload_path, blank=True)
+    default_profile_photo = models.FileField(upload_to=member_default_profile_photo_upload_path, blank=True)
     appendant_bodies = models.JSONField(default=dict)
     blood_type = models.CharField(max_length=30, blank=True)
     widow_or_sister = models.CharField(max_length=255, blank=True)

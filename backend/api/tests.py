@@ -5,6 +5,7 @@ import tempfile
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -469,6 +470,58 @@ class AuthApiTests(TestCase):
         self.assertEqual(profile["attendance_this_year"], 2)
         self.assertIsNone(profile["profile_photo_url"])
 
+    def test_current_account_uses_default_profile_photo_when_no_upload_exists(self):
+        member_user = get_user_model().objects.create_user(
+            email="default-photo@dll347.org",
+            password=self.password,
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="default-photo.xlsx",
+            file_sha256="c" * 64,
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10004,
+            name="Default Photo",
+            email="default-photo@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            default_profile_photo="member-default-profile-photos/member-10004.png",
+        )
+        self.client.force_login(member_user)
+
+        response = self.client.get(reverse("api:current-account"))
+
+        self.assertEqual(response.status_code, 200)
+        photo_url = response.json()["member_profile"]["profile_photo_url"]
+        self.assertIn(member.default_profile_photo.url, photo_url)
+
+    def test_uploaded_profile_photo_overrides_default_profile_photo(self):
+        member_user = get_user_model().objects.create_user(
+            email="override-photo@dll347.org",
+            password=self.password,
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="override-photo.xlsx",
+            file_sha256="e" * 64,
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10005,
+            name="Override Photo",
+            email="override-photo@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            profile_photo="member-profile-photos/member-10005.jpg",
+            default_profile_photo="member-default-profile-photos/member-10005.png",
+        )
+        self.client.force_login(member_user)
+
+        response = self.client.get(reverse("api:current-account"))
+
+        self.assertEqual(response.status_code, 200)
+        photo_url = response.json()["member_profile"]["profile_photo_url"]
+        self.assertIn(member.profile_photo.url, photo_url)
+        self.assertNotIn(member.default_profile_photo.url, photo_url)
+
     def test_current_account_returns_member_profile_for_linked_secretary(self):
         secretary_user = get_user_model().objects.create_user(
             email="secretary-profile@dll347.org",
@@ -564,6 +617,43 @@ class AuthApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         member.refresh_from_db()
         self.assertTrue(member.profile_photo.name.startswith("member-profile-photos/member-"))
+
+    def test_import_member_profile_photos_matches_glp_id_and_normalized_name(self):
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="profile-import.xlsx",
+            file_sha256="f" * 64,
+        )
+        glp_member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10022,
+            name="GLP Photo",
+            email="glp-photo@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+            glp_id_number="RVIIA-347-12345",
+        )
+        name_member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10023,
+            name="Bro. Juan Miguel Dela Cruz Jr.",
+            email="name-photo@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+        )
+
+        with tempfile.TemporaryDirectory() as image_folder, tempfile.TemporaryDirectory() as media_root:
+            image_folder_path = Path(image_folder)
+            (image_folder_path / "RVIIA-347-12345.png").write_bytes(b"glp-image")
+            (image_folder_path / "Juan Dela Cruz.jpg").write_bytes(b"name-image")
+
+            with override_settings(MEDIA_ROOT=media_root):
+                call_command("import_member_profile_photos", image_folder)
+
+                glp_member.refresh_from_db()
+                name_member.refresh_from_db()
+
+                self.assertTrue(glp_member.default_profile_photo.name.endswith(".png"))
+                self.assertTrue(name_member.default_profile_photo.name.endswith(".jpg"))
+                self.assertTrue(Path(media_root, glp_member.default_profile_photo.name).exists())
+                self.assertTrue(Path(media_root, name_member.default_profile_photo.name).exists())
 
     def test_member_full_profile_returns_current_logged_in_member_details(self):
         member_user = get_user_model().objects.create_user(

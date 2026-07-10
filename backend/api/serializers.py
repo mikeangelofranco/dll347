@@ -106,11 +106,12 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
         return obj.initiation_date or obj.raising_date
 
     def get_profile_photo_url(self, obj: MemberDatabaseRecord) -> str | None:
-        if not obj.profile_photo:
+        photo = obj.profile_photo or obj.default_profile_photo
+        if not photo:
             return None
         request = self.context.get("request")
         version = int(obj.updated_at.timestamp() * 1000)
-        url = f"{obj.profile_photo.url}?{urlencode({'v': version})}"
+        url = f"{photo.url}?{urlencode({'v': version})}"
         return request.build_absolute_uri(url) if request is not None else url
 
 
