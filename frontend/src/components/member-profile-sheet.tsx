@@ -9,6 +9,8 @@ type MemberProfileSheetProps = {
   isLoading: boolean;
   error: string;
   onClose: () => void;
+  canEditMembers?: boolean;
+  onEdit?: (memberId: number) => void;
 };
 
 const appendantBodyDetails: Record<string, { name: string; logoPath: string }> = {
@@ -148,7 +150,7 @@ function MemberStatusIcon({ presentation }: { presentation: StatusPresentation }
   return <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: presentation.color }} />;
 }
 
-export function MemberProfileSheet({ profile, isLoading, error, onClose }: MemberProfileSheetProps) {
+export function MemberProfileSheet({ profile, isLoading, error, onClose, canEditMembers, onEdit }: MemberProfileSheetProps) {
   const statusPresentation = profile ? memberStatusPresentation(profile.status) : null;
   const profileRows = profile
     ? [
@@ -185,7 +187,16 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose }: Membe
             <CloseIcon />
           </button>
           <h2 className="text-[1rem] font-bold tracking-[-0.035em]">Member Profile</h2>
-          <span className="h-9 w-9" />
+          {canEditMembers && profile ? (
+            <button type="button" onClick={() => onEdit?.(profile.id)} className="rounded-full border border-[#c8e4cf] bg-[#eef8f0] px-2.5 py-1 text-[0.58rem] font-bold text-[#138122]" aria-label="Edit member">
+              <span className="flex items-center gap-1">
+                <Icon className="h-3 w-3"><circle cx="12" cy="12" r="3" fill="currentColor" /><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m-13 0 2.1-2.1m8.6-8.6 2.1-2.1" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" /></Icon>
+                Edit
+              </span>
+            </button>
+          ) : (
+            <span className="h-9 w-9" />
+          )}
         </div>
 
         <div className="mt-3 max-h-[calc(88svh-5rem)] overflow-y-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -295,7 +306,42 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose }: Membe
                 <div className="mt-3 grid grid-cols-3 divide-x divide-[#e9e1d8]">
                   <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Attendance</div><div className="mt-2 text-[1rem] font-bold">{profile.attendance_this_year}</div><div className="text-[0.58rem] text-[#5f5751]">meetings this year</div></div>
                   <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Dues Status</div><div className="mt-2 text-[0.8rem] font-bold text-[#7a716b]">{profile.dues_status}</div><div className="text-[0.58rem] text-[#5f5751]">status</div></div>
-                  <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Years</div><div className="mt-2 text-[1rem] font-bold">{profile.years_of_membership ?? "-"}</div><div className="text-[0.58rem] text-[#5f5751]">membership</div></div>
+                  <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Years</div><div className="mt-2 text-[1rem] font-bold">{profile.years_of_membership != null && profile.years_of_membership >= 25 ? "LML" : profile.years_of_membership ?? "-"}</div><div className="text-[0.58rem] text-[#5f5751]">membership</div></div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#eee7dd] pt-3">
+                  <div className={`flex items-center gap-2 rounded-lg border px-2 py-2 ${profile.three_meetings_rule ? "border-[#b8e3c2] bg-[#f3faf5]" : "border-[#e7e1d8] bg-[#faf7f2]"}`}>
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${profile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                      {profile.three_meetings_rule ? (
+                        <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                      ) : (
+                        <span className="text-[0.55rem] font-bold">—</span>
+                      )}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-[0.6rem] font-bold leading-tight text-[#3a342f]">3 Meeting Rule</div>
+                      <div className={`mt-0.5 text-[0.52rem] font-semibold ${profile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
+                        {profile.three_meetings_rule ? "Qualified" : "Not met"}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`flex items-center gap-2 rounded-lg border px-2 py-2 ${profile.six_meetings_rule ? "border-[#b8e3c2] bg-[#f3faf5]" : "border-[#e7e1d8] bg-[#faf7f2]"}`}>
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${profile.six_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                      {profile.six_meetings_rule ? (
+                        <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                      ) : (
+                        <span className="text-[0.55rem] font-bold">—</span>
+                      )}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-[0.6rem] font-bold leading-tight text-[#3a342f]">6 Meeting Rule</div>
+                      <div className="mt-0.5 flex items-baseline gap-1">
+                        <span className={`text-[0.7rem] font-bold tracking-tight ${profile.six_meetings_rule ? "text-[#147622]" : "text-[#6e665d]"}`}>
+                          {profile.attendance_this_year}
+                        </span>
+                        <span className="text-[0.5rem] font-semibold text-[#90887e]">{profile.attendance_this_year === 1 ? "month" : "months"}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </section>
             </>

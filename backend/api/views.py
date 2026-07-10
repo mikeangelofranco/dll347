@@ -39,6 +39,7 @@ from .serializers import (
     PreidentifiedEmailUpsertSerializer,
     ResetTokenValidationSerializer,
     ResetPasswordSerializer,
+    json_cell_value,
 )
 
 
@@ -748,6 +749,15 @@ def current_account_view(request):
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser])
 def member_profile_photo_view(request):
+    if not user_can_edit_members(request.user):
+        return Response(
+            {
+                "code": "MEMBER_EDIT_FORBIDDEN",
+                "message": "You do not have permission to upload member photos.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     member = MemberDatabaseRecord.objects.filter(email__iexact=request.user.email.strip()).first()
     if member is None:
         return Response(
@@ -758,6 +768,36 @@ def member_profile_photo_view(request):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    return _upload_profile_photo(request, member)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def member_profile_photo_edit_view(request, member_id: int):
+    if not user_can_edit_members(request.user):
+        return Response(
+            {
+                "code": "MEMBER_EDIT_FORBIDDEN",
+                "message": "You do not have permission to upload member photos.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    member = MemberDatabaseRecord.objects.filter(pk=member_id).first()
+    if member is None:
+        return Response(
+            {
+                "code": "MEMBER_PROFILE_NOT_FOUND",
+                "message": "We could not find that member profile.",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return _upload_profile_photo(request, member)
+
+
+def _upload_profile_photo(request, member: MemberDatabaseRecord):
     upload = request.FILES.get("photo")
     if upload is None:
         return Response(
@@ -859,7 +899,7 @@ def member_edit_profile_view(request, member_id: int):
 
     record_tool_access(request, ToolAccessLog.Tool.EDIT_MEMBER)
 
-    member = MemberDatabaseRecord.objects.filter(pk=member_id).first()
+    member = MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD").filter(pk=member_id).first()
     if member is None:
         return Response(
             {
@@ -1257,7 +1297,8 @@ def lodge_document_detail_view(request, document_id: int):
 def member_list_view(request):
     requested_group = request.query_params.get("group", "").strip()
     search = request.query_params.get("search", "").strip()
-    records = MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD")
+    dues_filter = request.query_params.get("dues_status", "").strip()
+    records = MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD").filter(is_test_record=False)
     available_groups = {
         member_display_group_from_section(section).key
         for section in records.values_list("section", flat=True).distinct()
@@ -1277,12 +1318,34 @@ def member_list_view(request):
     if search:
         records = records.filter(name__icontains=search)
 
-    if not search:
+    if not search and not dues_filter:
         records = [
             record
             for record in records
             if member_display_group_from_section(record.section).key == requested_group
         ]
+
+    if dues_filter:
+        records = [
+            record
+            for record in records
+            if member_display_group_from_section(record.section).key
+            not in {"inactive_snpd_demit", "dropped_working_tools"}
+        ]
+        if not search:
+            current_year = str(timezone.localdate().year)
+            dues_key = f"ANNUAL DUES / {current_year}"
+            records = [
+                record
+                for record in records
+                if dues_filter == "all"
+                or (
+                    json_cell_value(record.annual_dues.get(dues_key)) not in (None, "") and not (
+                        isinstance(json_cell_value(record.annual_dues.get(dues_key)), str)
+                        and json_cell_value(record.annual_dues.get(dues_key)).strip().upper() == "N/A"
+                    )
+                ) == (dues_filter == "paid")
+            ]
 
     records = sorted(records, key=lambda record: record.name.casefold())
 

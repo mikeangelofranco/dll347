@@ -6,7 +6,7 @@ import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "re
 import { ThemedLoader } from "@/components/themed-loader";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
 import { timeBasedGreeting } from "@/lib/greeting";
-import { createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, updateMemberProfile, uploadMemberProfilePhoto } from "@/lib/api";
+import { createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, updateMemberProfile, uploadMemberProfilePhotoById } from "@/lib/api";
 
 type MemberDashboardScreenProps = {
   profile: MemberDashboardProfile | null;
@@ -927,7 +927,7 @@ export function MemberDashboardScreen({
   const [isMembersViewClosing, setIsMembersViewClosing] = useState(false);
   const [isActivityFormClosing, setIsActivityFormClosing] = useState(false);
   const [isMemberEditClosing, setIsMemberEditClosing] = useState(false);
-  const [uploadedProfile, setUploadedProfile] = useState<MemberDashboardProfile | null>(null);
+  const [editReturnView, setEditReturnView] = useState<MemberDashboardView>("home");
   const [fullProfile, setFullProfile] = useState<MemberFullProfile | null>(null);
   const [activeTab, setActiveTab] = useState<MemberDashboardTab>(initialTab);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
@@ -1006,7 +1006,6 @@ export function MemberDashboardScreen({
   const [workbookAddValue, setWorkbookAddValue] = useState("a");
   const [workbookAddError, setWorkbookAddError] = useState("");
 
-  const currentProfile = uploadedProfile ?? profile;
   const memberDisplayGroups = useMemo(
     () => buildMemberDisplayGroups(memberSummaryGroups),
     [memberSummaryGroups],
@@ -1059,12 +1058,12 @@ export function MemberDashboardScreen({
   }, []);
 
   useEffect(() => {
-    if (!isProfileOnly || currentProfile === null || fullProfile !== null || isProfileLoading) {
+    if (!isProfileOnly || profile === null || fullProfile !== null || isProfileLoading) {
       return;
     }
 
     void openFullProfile();
-  }, [currentProfile, fullProfile, isProfileLoading, isProfileOnly]);
+  }, [profile, fullProfile, isProfileLoading, isProfileOnly]);
 
   useEffect(() => {
     if (activeView !== "members" || memberSummaryGroups === null) {
@@ -1258,7 +1257,7 @@ export function MemberDashboardScreen({
     }
   }
 
-  async function saveProfilePhoto() {
+  async function saveProfilePhoto(memberId: number) {
     if (selectedPhotoUrl === null) {
       setPhotoError("Please choose a photo first.");
       return;
@@ -1269,10 +1268,12 @@ export function MemberDashboardScreen({
     try {
       const croppedPhoto = await createCroppedProfilePhotoBlob(selectedPhotoUrl, crop);
       const [response] = await Promise.all([
-        uploadMemberProfilePhoto(croppedPhoto),
+        uploadMemberProfilePhotoById(memberId, croppedPhoto),
         minimumLoadingDelay(),
       ]);
-      setUploadedProfile(response.member_profile);
+      if (selectedEditMember) {
+        setSelectedEditMember((prev) => prev ? { ...prev, profile_photo_url: response.member_profile.profile_photo_url } : prev);
+      }
       setIsPhotoModalOpen(false);
       URL.revokeObjectURL(selectedPhotoUrl);
       setSelectedPhotoUrl(null);
@@ -1361,6 +1362,7 @@ export function MemberDashboardScreen({
   }
 
   function openMemberEdit() {
+    setEditReturnView(activeView);
     setEditMemberFormError("");
     setEditMemberSuccessToast("");
     setSelectedEditMember(null);
@@ -1373,10 +1375,24 @@ export function MemberDashboardScreen({
   function closeMemberEdit() {
     setIsMemberEditClosing(true);
     window.setTimeout(() => {
-      setActiveView("home");
-      setActiveTab("more");
+      const returnView = editReturnView;
+      setActiveView(returnView);
+      if (returnView === "home") {
+        setActiveTab("more");
+      }
       setIsMemberEditClosing(false);
     }, 230);
+  }
+
+  async function openEditMemberFor(memberId: number) {
+    setEditReturnView(activeView);
+    setEditMemberFormError("");
+    setEditMemberSuccessToast("");
+    setSelectedEditMember(null);
+    setEditMemberForm(null);
+    setIsMemberEditClosing(false);
+    setActiveView("member-edit");
+    await selectEditableMember(memberId);
   }
 
   async function selectEditableMember(memberId: number) {
@@ -1801,7 +1817,7 @@ export function MemberDashboardScreen({
     setCalendarAddedActivityId(activity.id);
   }
 
-  if (currentProfile === null) {
+  if (profile === null) {
     return (
       <main className="member-dashboard-paper flex h-[100svh] items-center justify-center px-6 text-[#111111]">
         <section className="w-full max-w-[28rem] rounded-[2rem] border border-white/80 bg-white/90 p-7 text-center shadow-[0_14px_38px_rgba(74,48,19,0.1)]">
@@ -1856,6 +1872,8 @@ export function MemberDashboardScreen({
             <h1 className="text-[1.02rem] font-bold tracking-[-0.04em]">Edit Member</h1>
             <span className="h-9 w-9" />
           </header>
+
+          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handlePhotoSelected} />
 
           <div className="flex-1 overflow-y-auto px-3.5 pb-[7rem] pt-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <section className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
@@ -1925,6 +1943,35 @@ export function MemberDashboardScreen({
 
             {editMemberForm ? (
               <section ref={editMemberDetailsRef} className="mt-3 scroll-mt-3 space-y-3">
+                <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+                  <h2 className="text-[0.72rem] font-bold">Category</h2>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {memberDisplayGroups.map((group) => {
+                      const isActive = editMemberForm.section.trim().toUpperCase() === group.section.trim().toUpperCase();
+                      return (
+                        <button
+                          key={group.key}
+                          type="button"
+                          onClick={() => updateEditMemberField("section", group.section)}
+                          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-center transition-colors"
+                          style={{
+                            color: isActive ? "#fff" : group.color,
+                            backgroundColor: isActive ? group.color : group.tint,
+                            borderColor: group.color,
+                            borderWidth: "1px",
+                            borderStyle: "solid",
+                          }}
+                        >
+                          <span className="flex h-4 w-4 items-center justify-center rounded-full text-[0.52rem]" style={{ backgroundColor: isActive ? "rgba(255,255,255,0.25)" : group.color, color: "#fff" }}>
+                            {isActive ? <Icon className="h-2.5 w-2.5"><path d="m5 13 4 4 9-9" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" /></Icon> : group.label.charAt(0)}
+                          </span>
+                          <span className="text-[0.55rem] font-bold leading-tight">{group.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
                   <h2 className="text-[0.78rem] font-bold">Member Identity</h2>
                   <div className="mt-3 grid grid-cols-2 gap-2.5">
@@ -1932,15 +1979,43 @@ export function MemberDashboardScreen({
                     <label className={labelClass}>GLP ID<input value={editMemberForm.glp_id_number} onChange={(event) => updateEditMemberField("glp_id_number", event.target.value)} className={textInputClass} /></label>
                     <label className={labelClass}>Member No.<input value={editMemberForm.member_number} onChange={(event) => updateEditMemberField("member_number", event.target.value)} className={textInputClass} /></label>
                     <label className={labelClass}>Section<select value={editMemberForm.section} onChange={(event) => updateEditMemberField("section", event.target.value)} className={textInputClass}>
-                      <option value="MASTER MASONS - ACTIVE">Active</option>
-                      <option value="DUAL / PLURAL">Dual / Plural</option>
-                      <option value="HONORARY">Honorary</option>
-                      <option value="INACTIVE, SNPD, DEMIT">Inactive / SNPD / Demit</option>
-                      <option value="DROPPED THE WORKING TOOLS">Dropped Working Tools</option>
-                      <option value={editMemberForm.section}>Current: {editMemberForm.section || "-"}</option>
+                      {memberDisplayGroups.filter((g) => !g.key.startsWith("trestle_board")).map((group) => (
+                        <option key={group.key} value={group.section}>{group.label}</option>
+                      ))}
+                      {!memberDisplayGroups.some((g) => g.section.trim().toUpperCase() === editMemberForm.section.trim().toUpperCase()) ? (
+                        <option value={editMemberForm.section}>Current: {editMemberForm.section || "-"}</option>
+                      ) : null}
                     </select></label>
                   </div>
                 </div>
+
+                {selectedEditMember ? (
+                  <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+                    <h2 className="text-[0.78rem] font-bold">Profile Photo</h2>
+                    <div className="mt-3 flex items-center gap-3">
+                      <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#f7efe5] text-[#d58d00] shadow-[inset_0_0_0_1px_rgba(220,171,91,0.18)]">
+                        {selectedEditMember.profile_photo_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={selectedEditMember.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <CameraIcon />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[0.68rem] text-[#655e59]">Upload a new profile photo for this member.</span>
+                        <button
+                          type="button"
+                          onClick={openPhotoSelector}
+                          disabled={isUploadingPhoto}
+                          className="mt-2 rounded-full border border-[#d40000] px-3 py-1 text-[0.62rem] font-bold text-[#d40000] disabled:opacity-50"
+                        >
+                          {isUploadingPhoto ? "Uploading..." : "Choose Photo"}
+                        </button>
+                      </span>
+                    </div>
+                    {photoError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{photoError}</p> : null}
+                  </div>
+                ) : null}
 
                 <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
                   <h2 className="text-[0.78rem] font-bold">Contact</h2>
@@ -2121,6 +2196,37 @@ export function MemberDashboardScreen({
               </button>
             </div>
           </div>
+          {isPhotoModalOpen ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1b130c]/45 px-4 backdrop-blur-sm">
+              <section className="w-full max-w-[22rem] rounded-[1.6rem] border border-white/80 bg-[#fffdfb] p-4 text-center shadow-[0_22px_60px_rgba(42,24,8,0.22)]">
+                <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#d40000] text-white shadow-[0_8px_18px_rgba(208,0,0,0.2)]"><CameraIcon /></div>
+                <h2 className="mt-3 text-lg font-bold tracking-[-0.04em]">Crop profile photo</h2>
+                <p className="mt-1 text-[0.68rem] leading-5 text-[#655e59]">Move and zoom the photo until it looks right inside the circle.</p>
+                <div className="mx-auto mt-4 h-52 w-52 overflow-hidden rounded-full border-[6px] border-[#f5ecdf] bg-[#f8f1e8] shadow-[inset_0_0_0_1px_rgba(215,188,151,0.35)]">
+                  {selectedPhotoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={selectedPhotoUrl} alt="" className="block select-none" style={getCropPreviewStyle(cropImageMeta, crop)} />
+                  ) : null}
+                </div>
+                <div className="mt-4 space-y-3 text-left">
+                  <label className="block text-[0.65rem] font-semibold text-[#4b413b]">Zoom
+                    <input type="range" min="1" max="3" step="0.05" value={crop.zoom} onChange={(event) => setCrop((current) => ({ ...current, zoom: Number(event.target.value) }))} className="mt-2 w-full accent-[#d40000]" />
+                  </label>
+                  <label className="block text-[0.65rem] font-semibold text-[#4b413b]">Move left / right
+                    <input type="range" min="-100" max="100" step="1" value={crop.x} onChange={(event) => setCrop((current) => ({ ...current, x: Number(event.target.value) }))} className="mt-2 w-full accent-[#d40000]" />
+                  </label>
+                  <label className="block text-[0.65rem] font-semibold text-[#4b413b]">Move up / down
+                    <input type="range" min="-100" max="100" step="1" value={crop.y} onChange={(event) => setCrop((current) => ({ ...current, y: Number(event.target.value) }))} className="mt-2 w-full accent-[#d40000]" />
+                  </label>
+                </div>
+                {photoError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{photoError}</p> : null}
+                <div className="mt-5 grid grid-cols-2 gap-2">
+                  <button type="button" disabled={isUploadingPhoto} onClick={() => setIsPhotoModalOpen(false)} className="rounded-full border border-[#ead8c7] px-4 py-2 text-xs font-semibold text-[#6f625a] disabled:opacity-60">Cancel</button>
+                  <button type="button" disabled={isUploadingPhoto || !selectedEditMember} onClick={() => { if (selectedEditMember) { void saveProfilePhoto(selectedEditMember.id); } }} className="flex items-center justify-center rounded-full bg-[#d40000] px-4 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(208,0,0,0.18)] disabled:opacity-70">{isUploadingPhoto ? <ThemedLoader size="sm" /> : "Save photo"}</button>
+                </div>
+              </section>
+            </div>
+          ) : null}
         </div>
       </main>
     );
@@ -2473,7 +2579,7 @@ export function MemberDashboardScreen({
                 memberList.map((member) => {
                   const groupDetails = memberGroupDetailsForMember(member, memberDisplayGroups);
                   return (
-                    <button key={member.id} type="button" onClick={() => void openMemberProfile(member.id)} className="flex w-full items-center gap-2.5 rounded-[0.85rem] bg-white/90 px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)]">
+                    <div key={member.id} role="button" tabIndex={0} onClick={() => void openMemberProfile(member.id)} onKeyDown={(e) => { if (e.key === "Enter") { void openMemberProfile(member.id); } }} className="flex w-full items-center gap-2.5 rounded-[0.85rem] bg-white/90 px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] cursor-pointer">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
                         {member.profile_photo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -2490,8 +2596,22 @@ export function MemberDashboardScreen({
                           <span className="truncate">{groupDetails.label}</span>
                         </span>
                       </span>
-                      <span className="text-[#111111]"><ChevronIcon /></span>
-                    </button>
+                      {canEditMembers ? (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void openEditMemberFor(member.id); }}
+                          className="shrink-0 rounded-full border border-[#c8e4cf] bg-[#eef8f0] px-2.5 py-1 text-[0.58rem] font-bold text-[#138122]"
+                          aria-label={`Edit ${member.name}`}
+                        >
+                          <span className="flex items-center gap-1">
+                            <Icon className="h-3 w-3"><circle cx="12" cy="12" r="3" fill="currentColor" /><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m-13 0 2.1-2.1m8.6-8.6 2.1-2.1" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" /></Icon>
+                            Edit
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="text-[#111111]"><ChevronIcon /></span>
+                      )}
+                    </div>
                   );
                 })
               ) : (
@@ -2538,6 +2658,8 @@ export function MemberDashboardScreen({
               isLoading={isSelectedMemberProfileLoading}
               error={selectedMemberProfileError}
               onClose={closeMemberProfile}
+              canEditMembers={canEditMembers}
+              onEdit={(memberId) => { void openEditMemberFor(memberId); }}
             />
           ) : null}
         </div>
@@ -2663,7 +2785,42 @@ export function MemberDashboardScreen({
               <div className="mt-3 grid grid-cols-3 divide-x divide-[#e9e1d8]">
                 <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Attendance</div><div className="mt-2 text-[1rem] font-bold">{fullProfile.attendance_this_year}</div><div className="text-[0.58rem] text-[#5f5751]">meetings this year</div></div>
                 <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Dues Status</div><div className="mt-2 text-[0.8rem] font-bold text-[#7a716b]">{fullProfile.dues_status}</div><div className="text-[0.58rem] text-[#5f5751]">status</div></div>
-                <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Years</div><div className="mt-2 text-[1rem] font-bold">{fullProfile.years_of_membership ?? "-"}</div><div className="text-[0.58rem] text-[#5f5751]">membership</div></div>
+                <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Years</div><div className="mt-2 text-[1rem] font-bold">{fullProfile.years_of_membership != null && fullProfile.years_of_membership >= 25 ? "LML" : fullProfile.years_of_membership ?? "-"}</div><div className="text-[0.58rem] text-[#5f5751]">membership</div></div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#eee7dd] pt-3">
+                <div className={`flex items-center gap-2 rounded-lg border px-2 py-2 ${fullProfile.three_meetings_rule ? "border-[#b8e3c2] bg-[#f3faf5]" : "border-[#e7e1d8] bg-[#faf7f2]"}`}>
+                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${fullProfile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                    {fullProfile.three_meetings_rule ? (
+                      <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                    ) : (
+                      <span className="text-[0.55rem] font-bold">—</span>
+                    )}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-[0.6rem] font-bold leading-tight text-[#3a342f]">3 Meeting Rule</div>
+                    <div className={`mt-0.5 text-[0.52rem] font-semibold ${fullProfile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
+                      {fullProfile.three_meetings_rule ? "Qualified" : "Not met"}
+                    </div>
+                  </div>
+                </div>
+                <div className={`flex items-center gap-2 rounded-lg border px-2 py-2 ${fullProfile.six_meetings_rule ? "border-[#b8e3c2] bg-[#f3faf5]" : "border-[#e7e1d8] bg-[#faf7f2]"}`}>
+                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${fullProfile.six_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                    {fullProfile.six_meetings_rule ? (
+                      <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                    ) : (
+                      <span className="text-[0.55rem] font-bold">—</span>
+                    )}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-[0.6rem] font-bold leading-tight text-[#3a342f]">6 Meeting Rule</div>
+                    <div className="mt-0.5 flex items-baseline gap-1">
+                      <span className={`text-[0.7rem] font-bold tracking-tight ${fullProfile.six_meetings_rule ? "text-[#147622]" : "text-[#6e665d]"}`}>
+                        {fullProfile.attendance_this_year}
+                      </span>
+                      <span className="text-[0.5rem] font-semibold text-[#90887e]">{fullProfile.attendance_this_year === 1 ? "month" : "months"}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </section>
           </div>
@@ -2803,29 +2960,65 @@ export function MemberDashboardScreen({
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#eda600,#c77900)] text-white shadow-[0_8px_20px_rgba(205,133,0,0.22)] sm:h-12 sm:w-12">
-                  {currentProfile.profile_photo_url ? (
+                  {profile.profile_photo_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={currentProfile.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                    <img src={profile.profile_photo_url} alt="" className="h-full w-full object-cover" />
                   ) : (
                     <PersonIcon />
                   )}
                 </div>
                 <div>
                   <div className="text-[0.68rem] font-semibold text-[#cc8300] sm:text-xs">My Lodge Standing</div>
-                  <h2 className="mt-1 text-[1.1rem] font-bold leading-none tracking-[-0.04em] sm:text-[1.25rem]">{currentProfile.lodge_standing}</h2>
+                  <h2 className="mt-1 text-[1.1rem] font-bold leading-none tracking-[-0.04em] sm:text-[1.25rem]">{profile.lodge_standing}</h2>
                 </div>
               </div>
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eef8f0] text-[#168129] sm:h-10 sm:w-10"><CheckIcon /></div>
             </div>
 
             <div className="mt-4 grid grid-cols-3 gap-1.5 sm:mt-5 sm:gap-3">
-              <div className="flex gap-1 text-[#d48a00]"><ShieldIcon /><div><div className="text-[0.62rem] text-[#282421] sm:text-[0.68rem]">Status</div><div className="mt-0.5 text-[0.6rem] font-medium text-[#08a83b] sm:text-[0.66rem]">{currentProfile.status}</div></div></div>
-              <div className="flex gap-1 text-[#d48a00]"><CalendarIcon /><div><div className="text-[0.62rem] text-[#282421] sm:text-[0.68rem]">Dues</div><div className="mt-0.5 text-[0.6rem] font-medium text-[#7a716b] sm:text-[0.66rem]">{currentProfile.dues_status}</div></div></div>
-              <div className="flex gap-1 text-[#d48a00]"><PersonIcon group /><div><div className="text-[0.62rem] text-[#282421] sm:text-[0.68rem]">Attendance</div><div className="mt-0.5 text-[0.6rem] leading-snug text-[#3f3935] sm:text-[0.66rem]">{currentProfile.attendance_this_year} meetings this year</div></div></div>
+              <div className="flex gap-1 text-[#d48a00]"><ShieldIcon /><div><div className="text-[0.62rem] text-[#282421] sm:text-[0.68rem]">Status</div><div className="mt-0.5 text-[0.6rem] font-medium text-[#08a83b] sm:text-[0.66rem]">{profile.status}</div></div></div>
+              <div className="flex gap-1 text-[#d48a00]"><CalendarIcon /><div><div className="text-[0.62rem] text-[#282421] sm:text-[0.68rem]">Dues</div><div className="mt-0.5 text-[0.6rem] font-medium text-[#7a716b] sm:text-[0.66rem]">{profile.dues_status}</div></div></div>
+              <div className="flex gap-1 text-[#d48a00]"><PersonIcon group /><div><div className="text-[0.62rem] text-[#282421] sm:text-[0.68rem]">Attendance</div><div className="mt-0.5 text-[0.6rem] leading-snug text-[#3f3935] sm:text-[0.66rem]">{profile.attendance_this_year} meetings this year</div></div></div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className={`flex items-center gap-2 rounded-lg border px-2 py-2 ${profile.three_meetings_rule ? "border-[#b8e3c2] bg-[#f3faf5]" : "border-[#e7e1d8] bg-[#faf7f2]"}`}>
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${profile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                  {profile.three_meetings_rule ? (
+                    <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                  ) : (
+                    <span className="text-[0.55rem] font-bold">—</span>
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[0.6rem] font-bold leading-tight text-[#3a342f]">3 Meeting Rule</div>
+                  <div className={`mt-0.5 text-[0.52rem] font-semibold ${profile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
+                    {profile.three_meetings_rule ? "Qualified" : "Not met"}
+                  </div>
+                </div>
+              </div>
+              <div className={`flex items-center gap-2 rounded-lg border px-2 py-2 ${profile.six_meetings_rule ? "border-[#b8e3c2] bg-[#f3faf5]" : "border-[#e7e1d8] bg-[#faf7f2]"}`}>
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${profile.six_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                  {profile.six_meetings_rule ? (
+                    <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                  ) : (
+                    <span className="text-[0.55rem] font-bold">—</span>
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[0.6rem] font-bold leading-tight text-[#3a342f]">6 Meeting Rule</div>
+                  <div className="mt-0.5 flex items-baseline gap-1">
+                    <span className={`text-[0.7rem] font-bold tracking-tight ${profile.six_meetings_rule ? "text-[#147622]" : "text-[#6e665d]"}`}>
+                      {profile.attendance_this_year}
+                    </span>
+                    <span className="text-[0.5rem] font-semibold text-[#90887e]">{profile.attendance_this_year === 1 ? "month" : "months"}</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <button type="button" disabled={isProfileLoading} onClick={() => void openFullProfile()} className="mt-4 flex w-full items-center justify-between rounded-[0.9rem] bg-[#fbf8f3] px-3.5 py-2.5 text-left text-[0.68rem] font-medium shadow-[inset_0_0_0_1px_rgba(238,228,214,0.35)] disabled:opacity-75 sm:mt-5 sm:px-4 sm:py-3 sm:text-xs">
-              <span>{formatMemberSince(currentProfile.member_since)}</span><span className="text-[#67615d]">{isProfileLoading ? <ThemedLoader size="sm" /> : <ChevronIcon />}</span>
+              <span>{formatMemberSince(profile.member_since)}</span><span className="text-[#67615d]">{isProfileLoading ? <ThemedLoader size="sm" /> : <ChevronIcon />}</span>
             </button>
             {profileError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{profileError}</p> : null}
           </section>
@@ -2886,9 +3079,9 @@ export function MemberDashboardScreen({
             <section className="rounded-[1.25rem] border border-white/80 bg-white/90 p-4 shadow-[0_12px_30px_rgba(74,48,19,0.08)] sm:rounded-[1.45rem] sm:p-5">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#f7efe5] text-[#d58d00] shadow-[inset_0_0_0_1px_rgba(220,171,91,0.18)]">
-                  {currentProfile.profile_photo_url ? (
+                  {profile.profile_photo_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={currentProfile.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                    <img src={profile.profile_photo_url} alt="" className="h-full w-full object-cover" />
                   ) : (
                     <CameraIcon />
                   )}
@@ -2898,19 +3091,6 @@ export function MemberDashboardScreen({
                   <p className="mt-0.5 text-[0.68rem] leading-snug text-[#655e59] sm:text-xs">Access profile photo, lodge activities, and member record tools.</p>
                 </div>
               </div>
-
-              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handlePhotoSelected} />
-
-              <button type="button" onClick={openPhotoSelector} className="mt-4 flex w-full items-center justify-between rounded-[1rem] border border-[#f0e5d7] bg-[#fffdfb] p-3 text-left shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
-                <span className="flex items-center gap-3">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#d40000] text-white"><CameraIcon /></span>
-                  <span>
-                    <span className="block text-xs font-semibold text-[#111111]">Upload profile photo</span>
-                    <span className="mt-0.5 block text-[0.62rem] text-[#706760]">Choose, crop, and save your display photo.</span>
-                  </span>
-                </span>
-                <span className="text-[#77716d]"><ChevronIcon /></span>
-              </button>
 
               {canManageActivities ? (
                 <button type="button" onClick={openActivityForm} className="mt-3 flex w-full items-center justify-between rounded-[1rem] border border-[#f0e5d7] bg-[#fffdfb] p-3 text-left shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
@@ -2937,8 +3117,6 @@ export function MemberDashboardScreen({
                   <span className="shrink-0 text-[#77716d]"><ChevronIcon /></span>
                 </button>
               ) : null}
-
-              {photoError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{photoError}</p> : null}
             </section>
           )}
         </div>
@@ -3043,50 +3221,6 @@ export function MemberDashboardScreen({
                 </section>
 
                 <button type="button" onClick={() => closeSheet("activity")} className="w-full rounded-[0.9rem] border border-[#ead8c7] bg-[#fffdfb] px-4 py-3 text-[0.8rem] font-semibold text-[#111111] shadow-[0_8px_18px_rgba(75,48,20,0.04)]">Close</button>
-              </div>
-            </section>
-          </div>
-        ) : null}
-
-        {isPhotoModalOpen ? (
-          <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#1b130c]/45 px-4 backdrop-blur-sm">
-            <section className="w-full max-w-[22rem] rounded-[1.6rem] border border-white/80 bg-[#fffdfb] p-4 text-center shadow-[0_22px_60px_rgba(42,24,8,0.22)]">
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#d40000] text-white shadow-[0_8px_18px_rgba(208,0,0,0.2)]"><CameraIcon /></div>
-              <h2 className="mt-3 text-lg font-bold tracking-[-0.04em]">Crop profile photo</h2>
-              <p className="mt-1 text-[0.68rem] leading-5 text-[#655e59]">Move and zoom the photo until it looks right inside the circle.</p>
-
-              <div className="mx-auto mt-4 h-52 w-52 overflow-hidden rounded-full border-[6px] border-[#f5ecdf] bg-[#f8f1e8] shadow-[inset_0_0_0_1px_rgba(215,188,151,0.35)]">
-                {selectedPhotoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={selectedPhotoUrl}
-                    alt=""
-                    className="block select-none"
-                    style={getCropPreviewStyle(cropImageMeta, crop)}
-                  />
-                ) : null}
-              </div>
-
-              <div className="mt-4 space-y-3 text-left">
-                <label className="block text-[0.65rem] font-semibold text-[#4b413b]">
-                  Zoom
-                  <input type="range" min="1" max="3" step="0.05" value={crop.zoom} onChange={(event) => setCrop((current) => ({ ...current, zoom: Number(event.target.value) }))} className="mt-2 w-full accent-[#d40000]" />
-                </label>
-                <label className="block text-[0.65rem] font-semibold text-[#4b413b]">
-                  Move left / right
-                  <input type="range" min="-100" max="100" step="1" value={crop.x} onChange={(event) => setCrop((current) => ({ ...current, x: Number(event.target.value) }))} className="mt-2 w-full accent-[#d40000]" />
-                </label>
-                <label className="block text-[0.65rem] font-semibold text-[#4b413b]">
-                  Move up / down
-                  <input type="range" min="-100" max="100" step="1" value={crop.y} onChange={(event) => setCrop((current) => ({ ...current, y: Number(event.target.value) }))} className="mt-2 w-full accent-[#d40000]" />
-                </label>
-              </div>
-
-              {photoError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{photoError}</p> : null}
-
-              <div className="mt-5 grid grid-cols-2 gap-2">
-                <button type="button" disabled={isUploadingPhoto} onClick={() => setIsPhotoModalOpen(false)} className="rounded-full border border-[#ead8c7] px-4 py-2 text-xs font-semibold text-[#6f625a] disabled:opacity-60">Cancel</button>
-                <button type="button" disabled={isUploadingPhoto} onClick={() => void saveProfilePhoto()} className="flex items-center justify-center rounded-full bg-[#d40000] px-4 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(208,0,0,0.18)] disabled:opacity-70">{isUploadingPhoto ? <ThemedLoader size="sm" /> : "Save photo"}</button>
               </div>
             </section>
           </div>

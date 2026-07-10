@@ -28,7 +28,7 @@ import {
   MemberFullProfile,
 } from "@/lib/api";
 
-type SecretaryDashboardView = "home" | "members" | "profile" | "documents" | "more";
+type SecretaryDashboardView = "home" | "members" | "profile" | "documents" | "more" | "dues";
 type SecretarySheetName = "activity";
 const calendarAddedStoragePrefix = "dll347-calendar-added-activity-";
 
@@ -706,6 +706,7 @@ export function DashboardScreen() {
   const [memberSummaryError, setMemberSummaryError] = useState("");
   const [activeMemberFilter, setActiveMemberFilter] = useState<MemberGroupKey>("active");
   const [memberSearch, setMemberSearch] = useState("");
+  const [duesFilter, setDuesFilter] = useState<"paid" | "unpaid" | "all">("all");
   const [memberList, setMemberList] = useState<MemberListItem[]>([]);
   const [memberListCount, setMemberListCount] = useState(0);
   const [isMemberListLoading, setIsMemberListLoading] = useState(false);
@@ -797,7 +798,7 @@ export function DashboardScreen() {
   }, [refreshDashboardSummaries, router]);
 
   useEffect(() => {
-    if (activeView !== "members" || memberSummaryGroups === null) {
+    if (activeView !== "members" && activeView !== "dues" || memberSummaryGroups === null) {
       return;
     }
 
@@ -808,7 +809,7 @@ export function DashboardScreen() {
         setMemberListError("");
         try {
           const [response] = await Promise.all([
-            getMemberList(resolvedActiveMemberFilter, memberSearch),
+            getMemberList(resolvedActiveMemberFilter, memberSearch, activeView === "dues" ? duesFilter : undefined),
             minimumLoadingDelay(),
           ]);
           if (isMounted) {
@@ -833,7 +834,7 @@ export function DashboardScreen() {
       isMounted = false;
       window.clearTimeout(debounce);
     };
-  }, [activeView, resolvedActiveMemberFilter, memberSearch, memberSummaryGroups]);
+  }, [activeView, resolvedActiveMemberFilter, memberSearch, duesFilter, memberSummaryGroups]);
 
   useEffect(() => {
     let isMounted = true;
@@ -881,6 +882,7 @@ export function DashboardScreen() {
   }
 
   function openMembersList(group: MemberGroupKey) {
+    setDuesFilter("all");
     setActiveMemberFilter(group);
     setMemberSearch("");
     setMemberList([]);
@@ -888,6 +890,16 @@ export function DashboardScreen() {
     setMemberListError("");
     setIsMembersViewClosing(false);
     setActiveView("members");
+  }
+
+  function openDuesMemberList(status: "paid" | "unpaid" | "all") {
+    setDuesFilter(status);
+    setActiveMemberFilter("active");
+    setMemberSearch("");
+    setMemberList([]);
+    setMemberListCount(0);
+    setMemberListError("");
+    setActiveView("dues");
   }
 
   function closeMembersList() {
@@ -1148,6 +1160,102 @@ export function DashboardScreen() {
     );
   }
 
+  if (activeView === "dues") {
+    const duesFilterOptions: { label: string; status: "paid" | "unpaid" | "all" }[] = [
+      { label: "Paid", status: "paid" },
+      { label: "Unpaid", status: "unpaid" },
+      { label: "All", status: "all" },
+    ];
+
+    return (
+      <main className="member-dashboard-paper h-[100svh] overflow-hidden text-[#111111] member-page-enter">
+        <div className="relative mx-auto flex h-full w-full max-w-[26rem] flex-col overflow-hidden border-x border-[#eee7dd] bg-white/20 shadow-[0_0_35px_rgba(87,55,19,0.08)]">
+          <header className="flex shrink-0 items-center border-b border-[#eee7dd]/70 bg-white/72 px-5 pb-3 pt-4 backdrop-blur-md">
+            <button type="button" onClick={() => setActiveView("home")} className="mr-3 flex h-9 w-9 items-center justify-center text-[#1f2529]" aria-label="Back to dashboard">
+              <BackIcon />
+            </button>
+            <h1 className="flex-1 text-[1.05rem] font-bold tracking-[-0.035em]">Dues Collected</h1>
+          </header>
+
+          <div className="px-3.5 pt-4">
+            <div className="flex gap-2">
+              {duesFilterOptions.map((option) => {
+                const isActive = duesFilter === option.status;
+                const activeColor = option.status === "paid" ? "bg-[#6e9a1d] text-white border-[#6e9a1d]" : option.status === "unpaid" ? "bg-[#d31313] text-white border-[#d31313]" : "bg-[#cf8c00] text-white border-[#cf8c00]";
+                const inactiveColor = option.status === "paid" ? "text-[#6e9a1d] border-[#c0d69a]" : option.status === "unpaid" ? "text-[#d31313] border-[#eabbbb]" : "text-[#cf8c00] border-[#ecd09a]";
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    onClick={() => setDuesFilter(option.status)}
+                    className={`rounded-full border px-4 py-1.5 text-[0.68rem] font-bold transition-colors ${isActive ? activeColor : `${inactiveColor} bg-white`}`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-3 rounded-[1rem] border border-[#f0e5d7] bg-white/88 px-3.5 py-2.5 shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
+              <label className="flex items-center gap-2 text-[#716a66]">
+                <SearchIcon />
+                <input
+                  type="search"
+                  value={memberSearch}
+                  onChange={(event) => setMemberSearch(event.target.value)}
+                  placeholder="Search member names"
+                  className="min-w-0 flex-1 bg-transparent text-[0.78rem] text-[#111111] outline-none placeholder:text-[#9a928b]"
+                />
+              </label>
+            </div>
+
+            <p className="mt-5 px-1 text-[1.25rem] font-bold leading-none">{isMemberListLoading ? <ThemedLoader size="sm" /> : memberListCount}</p>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-3.5 pb-[2rem] pt-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <section className="space-y-2.5">
+              {memberListError ? (
+                <p className="rounded-2xl bg-[#fff0f0] px-4 py-5 text-center text-[0.78rem] leading-5 text-[#c90000]">{memberListError}</p>
+              ) : isMemberListLoading ? (
+                <div className="flex justify-center rounded-[1rem] bg-white/88 px-4 py-8 shadow-[0_8px_20px_rgba(75,48,20,0.04)]"><ThemedLoader size="md" /></div>
+              ) : memberList.length > 0 ? (
+                memberList.map((member) => {
+                  const groupDetails = memberGroupDetailsForMember(member, memberDisplayGroups);
+                  const duesPaid = member.dues_status.startsWith("Paid");
+                  return (
+                    <button key={member.id} type="button" onClick={() => void openMemberProfile(member.id)} className="flex w-full items-center gap-2.5 rounded-[0.85rem] bg-white/90 px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)]">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
+                        {member.profile_photo_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          memberInitials(member.name)
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[0.75rem] font-bold tracking-[-0.02em] text-[#111111]">{memberListDisplayName(member.name)}</span>
+                        <span className="mt-0.5 block truncate text-[0.64rem] text-[#625b56]">GLP ID: {displayValue(member.glp_id_number)}</span>
+                        <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[0.54rem] font-semibold leading-none" style={{ color: groupDetails.color, backgroundColor: groupDetails.tint }}>
+                          <span className="flex h-3.5 w-3.5 items-center justify-center">{groupDetails.icon}</span>
+                          <span className="truncate">{groupDetails.label}</span>
+                        </span>
+                      </span>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[0.55rem] font-bold ${duesPaid ? "bg-[#eef8f0] text-[#6e9a1d]" : "bg-[#fff7f7] text-[#d31313]"}`}>
+                        {duesPaid ? "Paid" : "Unpaid"}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="rounded-2xl bg-white/88 px-4 py-8 text-center text-[0.78rem] leading-5 text-[#665d57]">No members found for this filter.</p>
+              )}
+            </section>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const healthRows = buildHealthRows(dashboardSummary);
   const overallPercent = dashboardSummary.overall_percent;
   const currentDuesYear = dashboardSummary.year;
@@ -1157,13 +1265,21 @@ export function DashboardScreen() {
   const cashOutflowDirection = trendDirection(finances.cash_outflow_trend);
   const netDirection = finances.net_direction;
   const netTrendColor = netDirection === "down" ? "text-[#cc1313]" : netDirection === "flat" ? "text-[#6f6763]" : "text-[#168234]";
-  const duesStats = [
+   const duesStats: Array<{
+      label: string;
+      value: string;
+      color: string;
+      icon: ReactNode;
+      panel: string;
+      status?: "paid" | "unpaid" | "all";
+    }> = [
     {
       label: "Paid",
       value: String(dashboardSummary.dues_collection.paid_count),
       color: "text-[#6e9a1d]",
       icon: <CheckStatusIcon />,
       panel: "bg-[#fdf9f3]",
+      status: "paid" as const,
     },
     {
       label: "Unpaid",
@@ -1171,6 +1287,7 @@ export function DashboardScreen() {
       color: "text-[#d31313]",
       icon: <AlertIcon />,
       panel: "bg-[#fff7f7]",
+      status: "unpaid" as const,
     },
     {
       label: "Total",
@@ -1178,6 +1295,7 @@ export function DashboardScreen() {
       color: "text-[#cf8c00]",
       icon: <MembersOutlineIcon />,
       panel: "bg-[#fdf9f3]",
+      status: "all" as const,
     },
     {
       label: "Rate",
@@ -1438,11 +1556,19 @@ export function DashboardScreen() {
 
             <div className="mt-4 grid grid-cols-4 gap-3">
               {duesStats.map((item) => (
-                <div key={item.label} className={`rounded-[1.15rem] px-2 py-3 text-center ${item.panel}`}>
-                  <div className={`mx-auto flex justify-center ${item.color}`}>{item.icon}</div>
-                  <div className="mt-2 text-[1.05rem] font-bold leading-none text-[#18130f]">{item.value}</div>
-                  <div className="mt-1 text-[0.7rem] leading-none text-[#18130f]">{item.label}</div>
-                </div>
+                item.status !== undefined ? (
+                  <button key={item.label} type="button" onClick={() => openDuesMemberList(item.status!)} className={`rounded-[1.15rem] px-2 py-3 text-center transition-all active:scale-95 ${item.panel} hover:shadow-[0_4px_14px_rgba(0,0,0,0.1)] cursor-pointer`}>
+                    <div className={`mx-auto flex justify-center ${item.color}`}>{item.icon}</div>
+                    <div className="mt-2 text-[1.05rem] font-bold leading-none text-[#18130f]">{item.value}</div>
+                    <div className="mt-1 text-[0.7rem] leading-none text-[#18130f]">{item.label}</div>
+                  </button>
+                ) : (
+                  <div key={item.label} className={`rounded-[1.15rem] px-2 py-3 text-center ${item.panel}`}>
+                    <div className={`mx-auto flex justify-center ${item.color}`}>{item.icon}</div>
+                    <div className="mt-2 text-[1.05rem] font-bold leading-none text-[#18130f]">{item.value}</div>
+                    <div className="mt-1 text-[0.7rem] leading-none text-[#18130f]">{item.label}</div>
+                  </div>
+                )
               ))}
             </div>
           </section>

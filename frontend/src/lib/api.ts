@@ -40,6 +40,8 @@ export type MemberDashboardProfile = {
   status: string;
   dues_status: string;
   attendance_this_year: number;
+  three_meetings_rule: boolean;
+  six_meetings_rule: boolean;
   member_since: string | null;
   profile_photo_url: string | null;
 };
@@ -113,6 +115,7 @@ export type MemberListItem = {
   group_key: string;
   group_label: string;
   status: string;
+  dues_status: string;
   profile_photo_url: string | null;
 };
 
@@ -641,6 +644,16 @@ export async function uploadMemberProfilePhoto(
   return apiPostForm<MemberProfilePhotoUploadResponse>("/members/me/profile-photo/", body);
 }
 
+export async function uploadMemberProfilePhotoById(
+  memberId: number,
+  photo: Blob,
+): Promise<MemberProfilePhotoUploadResponse> {
+  await prepareSessionCsrf();
+  const body = new FormData();
+  body.append("photo", photo, "profile-photo.jpg");
+  return apiPostForm<MemberProfilePhotoUploadResponse>(`/members/${memberId}/profile-photo/`, body);
+}
+
 export async function getMemberSummary(): Promise<MemberSummaryResponse> {
   return apiGet<MemberSummaryResponse>("/members/summary/");
 }
@@ -648,10 +661,14 @@ export async function getMemberSummary(): Promise<MemberSummaryResponse> {
 export async function getMemberList(
   group: MemberGroupKey,
   search = "",
+  duesStatus?: "paid" | "unpaid" | "all",
 ): Promise<MemberListResponse> {
   const params = new URLSearchParams({ group });
   if (search.trim()) {
     params.set("search", search.trim());
+  }
+  if (duesStatus) {
+    params.set("dues_status", duesStatus);
   }
   return apiGet<MemberListResponse>(`/members/list/?${params.toString()}`);
 }

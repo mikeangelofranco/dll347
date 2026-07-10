@@ -43,11 +43,57 @@ class MemberPositionHeldSerializer(serializers.ModelSerializer):
         )
 
 
+_MONTH_ABBREVIATIONS = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]
+
+
+def _months_attended(obj: MemberDatabaseRecord, year: str) -> set[str]:
+    return {
+        key.rsplit(" / ", 1)[-1]
+        for key, item in obj.monthly_attendance.items()
+        if key.startswith(f"{year} - ")
+        and json_cell_value(item) not in (None, "")
+    }
+
+
+def _month_has_attendance(obj: MemberDatabaseRecord, year: str, month_abbr: str) -> bool:
+    prefix = f"{year} - "
+    suffix = f" / {month_abbr}"
+    for key, item in obj.monthly_attendance.items():
+        if key.startswith(prefix) and key.endswith(suffix):
+            if json_cell_value(item) not in (None, ""):
+                return True
+    return False
+
+
+def _last_six_months(obj: MemberDatabaseRecord):
+    today = timezone.localdate()
+    year, month = today.year, today.month
+    current_abbr = _MONTH_ABBREVIATIONS[month - 1]
+    if not _month_has_attendance(obj, str(year), current_abbr):
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    result = []
+    for _ in range(6):
+        result.append((str(year), _MONTH_ABBREVIATIONS[month - 1]))
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    return result
+
+
 class MemberDashboardProfileSerializer(serializers.ModelSerializer):
     lodge_standing = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     dues_status = serializers.SerializerMethodField()
     attendance_this_year = serializers.SerializerMethodField()
+    three_meetings_rule = serializers.SerializerMethodField()
+    six_meetings_rule = serializers.SerializerMethodField()
     member_since = serializers.SerializerMethodField()
     profile_photo_url = serializers.SerializerMethodField()
 
@@ -64,6 +110,8 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
             "status",
             "dues_status",
             "attendance_this_year",
+            "three_meetings_rule",
+            "six_meetings_rule",
             "member_since",
             "profile_photo_url",
         )
@@ -95,15 +143,20 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
 
     def get_attendance_this_year(self, obj: MemberDatabaseRecord) -> int:
         current_year = str(timezone.localdate().year)
+        return len(_months_attended(obj, current_year))
+
+    def get_three_meetings_rule(self, obj: MemberDatabaseRecord) -> bool:
+        current_year = str(timezone.localdate().year)
+        return len(_months_attended(obj, current_year)) >= 3
+
+    def get_six_meetings_rule(self, obj: MemberDatabaseRecord) -> bool:
         return sum(
-            1
-            for key, item in obj.monthly_attendance.items()
-            if key.startswith(f"{current_year} -")
-            and (item.get("value") if isinstance(item, dict) else item) not in (None, "")
-        )
+            1 for year, month_abbr in _last_six_months(obj)
+            if _month_has_attendance(obj, year, month_abbr)
+        ) >= 6
 
     def get_member_since(self, obj: MemberDatabaseRecord):
-        return obj.initiation_date or obj.raising_date
+        return obj.raising_date or obj.initiation_date
 
     def get_profile_photo_url(self, obj: MemberDatabaseRecord) -> str | None:
         photo = obj.profile_photo or obj.default_profile_photo
@@ -119,6 +172,7 @@ class MemberListItemSerializer(serializers.ModelSerializer):
     group_key = serializers.SerializerMethodField()
     group_label = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
+    dues_status = serializers.SerializerMethodField()
     profile_photo_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -131,6 +185,7 @@ class MemberListItemSerializer(serializers.ModelSerializer):
             "group_key",
             "group_label",
             "status",
+            "dues_status",
             "profile_photo_url",
         )
 
@@ -142,6 +197,9 @@ class MemberListItemSerializer(serializers.ModelSerializer):
 
     def get_status(self, obj: MemberDatabaseRecord) -> str:
         return MemberDashboardProfileSerializer(context=self.context).get_status(obj)
+
+    def get_dues_status(self, obj: MemberDatabaseRecord) -> str:
+        return MemberDashboardProfileSerializer(context=self.context).get_dues_status(obj)
 
     def get_profile_photo_url(self, obj: MemberDatabaseRecord) -> str | None:
         return MemberDashboardProfileSerializer(context=self.context).get_profile_photo_url(obj)
