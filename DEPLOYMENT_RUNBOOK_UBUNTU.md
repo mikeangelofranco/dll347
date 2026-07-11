@@ -237,6 +237,7 @@ sudo rsync -a --delete \
   --exclude='run' \
   --exclude='data' \
   --exclude='media' \
+  --exclude='uploads' \
   --exclude='*.sqlite3' \
   "$TMPDIR"/ "$APP"/
 

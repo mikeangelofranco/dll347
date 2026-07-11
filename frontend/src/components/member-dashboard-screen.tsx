@@ -92,10 +92,6 @@ function PersonIcon({ group = false }: { group?: boolean }) {
   );
 }
 
-function ShieldIcon() {
-  return <Icon><path d="M12 3.5 18 6v5.4c0 4.1-2.4 7.2-6 9.1-3.6-1.9-6-5-6-9.1V6l6-2.5Z" fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" /><path d="M12 7v9" fill="none" stroke="currentColor" strokeWidth="1.5" /></Icon>;
-}
-
 function CalendarIcon({ plus = false }: { plus?: boolean }) {
   return <Icon><rect x="4" y="5.5" width="16" height="14.5" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M4 9.5h16M8 3.5v4M16 3.5v4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />{plus ? <path d="M12 12v5M9.5 14.5h5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /> : <path d="M8 13h2M13 13h2M8 16.5h2M13 16.5h2" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />}</Icon>;
 }
@@ -261,25 +257,40 @@ const appendantBodyDetails: Record<string, { name: string; subtitle: string; log
     subtitle: "York Rite",
     logoPath: "/branding/appendant-bodies/york-rite.png",
   },
+  "AAONMS (SHRINER)": {
+    name: "Shriner",
+    subtitle: "AAONMS (Shriner)",
+    logoPath: "/branding/appendant-bodies/shriner.png",
+  },
   AAONMS: {
-    name: "AAONMS",
-    subtitle: "Appendant body / club",
-    logoPath: "/branding/appendant-bodies/placeholder.svg",
+    name: "Shriner",
+    subtitle: "AAONMS",
+    logoPath: "/branding/appendant-bodies/shriner.png",
+  },
+  SHRINER: {
+    name: "Shriner",
+    subtitle: "Shriner",
+    logoPath: "/branding/appendant-bodies/shriner.png",
   },
   GGOKCS: {
     name: "GGOKCS",
     subtitle: "Appendant body / club",
-    logoPath: "/branding/appendant-bodies/placeholder.svg",
+    logoPath: "/branding/appendant-bodies/ggokcs.png",
   },
   "PAK (TURTLE)": {
     name: "PAK (Turtle)",
     subtitle: "Appendant body / club",
-    logoPath: "/branding/appendant-bodies/placeholder.svg",
+    logoPath: "/branding/appendant-bodies/pak-turtle.png",
+  },
+  "PAK (Turtle)": {
+    name: "PAK (Turtle)",
+    subtitle: "Appendant body / club",
+    logoPath: "/branding/appendant-bodies/pak-turtle.png",
   },
   OSM: {
     name: "OSM",
     subtitle: "Appendant body / club",
-    logoPath: "/branding/appendant-bodies/placeholder.svg",
+    logoPath: "/branding/appendant-bodies/osm.png",
   },
   BIRTH: {
     name: "BIRTH",
@@ -2782,44 +2793,47 @@ export function MemberDashboardScreen({
 
             <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 p-3.5 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
               <h3 className="text-[0.78rem] font-bold">Activity Summary</h3>
-              <div className="mt-3 grid grid-cols-3 divide-x divide-[#e9e1d8]">
-                <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Attendance</div><div className="mt-2 text-[1rem] font-bold">{fullProfile.attendance_this_year}</div><div className="text-[0.58rem] text-[#5f5751]">meetings this year</div></div>
-                <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Dues Status</div><div className="mt-2 text-[0.8rem] font-bold text-[#7a716b]">{fullProfile.dues_status}</div><div className="text-[0.58rem] text-[#5f5751]">status</div></div>
-                <div className="px-2"><div className="text-[0.58rem] text-[#5f5751]">Years</div><div className="mt-2 text-[1rem] font-bold">{fullProfile.years_of_membership != null && fullProfile.years_of_membership >= 25 ? "LML" : fullProfile.years_of_membership ?? "-"}</div><div className="text-[0.58rem] text-[#5f5751]">membership</div></div>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#eee7dd] pt-3">
-                <div className={`flex items-center gap-2 rounded-lg border px-2 py-2 ${fullProfile.three_meetings_rule ? "border-[#b8e3c2] bg-[#f3faf5]" : "border-[#e7e1d8] bg-[#faf7f2]"}`}>
-                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${fullProfile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+              <div className="mt-3 grid grid-cols-4 divide-x divide-[#e9e1d8]">
+                <div className="px-1.5 text-center">
+                  <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
                     {fullProfile.three_meetings_rule ? (
-                      <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                      <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
                     ) : (
-                      <span className="text-[0.55rem] font-bold">—</span>
+                      <span className="text-[0.48rem] font-bold">—</span>
                     )}
                   </span>
-                  <div className="min-w-0">
-                    <div className="text-[0.6rem] font-bold leading-tight text-[#3a342f]">3 Meeting Rule</div>
-                    <div className={`mt-0.5 text-[0.52rem] font-semibold ${fullProfile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
-                      {fullProfile.three_meetings_rule ? "Qualified" : "Not met"}
-                    </div>
+                  <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">3 Meeting Rule</div>
+                  <div className={`text-[0.46rem] font-semibold ${fullProfile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
+                    {fullProfile.three_meetings_rule ? "Qualified" : "Not met"}
                   </div>
                 </div>
-                <div className={`flex items-center gap-2 rounded-lg border px-2 py-2 ${fullProfile.six_meetings_rule ? "border-[#b8e3c2] bg-[#f3faf5]" : "border-[#e7e1d8] bg-[#faf7f2]"}`}>
-                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${fullProfile.six_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                <div className="px-1.5 text-center">
+                  <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.six_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
                     {fullProfile.six_meetings_rule ? (
-                      <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                      <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
                     ) : (
-                      <span className="text-[0.55rem] font-bold">—</span>
+                      <span className="text-[0.48rem] font-bold">—</span>
                     )}
                   </span>
-                  <div className="min-w-0">
-                    <div className="text-[0.6rem] font-bold leading-tight text-[#3a342f]">6 Meeting Rule</div>
-                    <div className="mt-0.5 flex items-baseline gap-1">
-                      <span className={`text-[0.7rem] font-bold tracking-tight ${fullProfile.six_meetings_rule ? "text-[#147622]" : "text-[#6e665d]"}`}>
-                        {fullProfile.attendance_this_year}
-                      </span>
-                      <span className="text-[0.5rem] font-semibold text-[#90887e]">{fullProfile.attendance_this_year === 1 ? "month" : "months"}</span>
-                    </div>
+                  <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">6 Meeting Rule</div>
+                  <div className="text-[0.46rem] font-semibold text-[#90887e]">{fullProfile.attendance_this_year} this year</div>
+                </div>
+                <div className="px-1.5 text-center">
+                  <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                    {fullProfile.dues_status.startsWith("Paid") ? (
+                      <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                    ) : (
+                      <span className="text-[0.48rem] font-bold">—</span>
+                    )}
+                  </span>
+                  <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Dues</div>
+                  <div className={`text-[0.48rem] font-semibold ${fullProfile.dues_status.startsWith("Paid") ? "text-[#147622]" : "text-[#938b83]"}`}>
+                    {fullProfile.dues_status}
                   </div>
+                </div>
+                <div className="px-1.5 text-center">
+                  <div className="text-[0.52rem] font-bold text-[#3a342f]">Years</div>
+                  <div className="mt-2 text-[0.8rem] font-bold text-[#3a342f]">{fullProfile.years_of_membership != null && fullProfile.years_of_membership >= 25 ? "LML" : fullProfile.years_of_membership ?? "-"}</div>
                 </div>
               </div>
             </section>
@@ -2975,45 +2989,47 @@ export function MemberDashboardScreen({
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eef8f0] text-[#168129] sm:h-10 sm:w-10"><CheckIcon /></div>
             </div>
 
-            <div className="mt-4 grid grid-cols-3 gap-1.5 sm:mt-5 sm:gap-3">
-              <div className="flex gap-1 text-[#d48a00]"><ShieldIcon /><div><div className="text-[0.62rem] text-[#282421] sm:text-[0.68rem]">Status</div><div className="mt-0.5 text-[0.6rem] font-medium text-[#08a83b] sm:text-[0.66rem]">{profile.status}</div></div></div>
-              <div className="flex gap-1 text-[#d48a00]"><CalendarIcon /><div><div className="text-[0.62rem] text-[#282421] sm:text-[0.68rem]">Dues</div><div className="mt-0.5 text-[0.6rem] font-medium text-[#7a716b] sm:text-[0.66rem]">{profile.dues_status}</div></div></div>
-              <div className="flex gap-1 text-[#d48a00]"><PersonIcon group /><div><div className="text-[0.62rem] text-[#282421] sm:text-[0.68rem]">Attendance</div><div className="mt-0.5 text-[0.6rem] leading-snug text-[#3f3935] sm:text-[0.66rem]">{profile.attendance_this_year} meetings this year</div></div></div>
-            </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className={`flex items-center gap-2 rounded-lg border px-2 py-2 ${profile.three_meetings_rule ? "border-[#b8e3c2] bg-[#f3faf5]" : "border-[#e7e1d8] bg-[#faf7f2]"}`}>
-                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${profile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+            <div className="mt-4 grid grid-cols-4 gap-1 divide-x divide-[#e9e1d8] sm:mt-5">
+              <div className="px-1.5 text-center">
+                <span className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full ${profile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
                   {profile.three_meetings_rule ? (
                     <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
                   ) : (
-                    <span className="text-[0.55rem] font-bold">—</span>
+                    <span className="text-[0.52rem] font-bold">—</span>
                   )}
                 </span>
-                <div className="min-w-0">
-                  <div className="text-[0.6rem] font-bold leading-tight text-[#3a342f]">3 Meeting Rule</div>
-                  <div className={`mt-0.5 text-[0.52rem] font-semibold ${profile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
-                    {profile.three_meetings_rule ? "Qualified" : "Not met"}
-                  </div>
+                <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">3 Meeting Rule</div>
+                <div className={`mt-0.5 text-[0.5rem] font-semibold ${profile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
+                  {profile.three_meetings_rule ? "Qualified" : "Not met"}
                 </div>
               </div>
-              <div className={`flex items-center gap-2 rounded-lg border px-2 py-2 ${profile.six_meetings_rule ? "border-[#b8e3c2] bg-[#f3faf5]" : "border-[#e7e1d8] bg-[#faf7f2]"}`}>
-                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${profile.six_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+              <div className="px-1.5 text-center">
+                <span className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full ${profile.six_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
                   {profile.six_meetings_rule ? (
                     <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
                   ) : (
-                    <span className="text-[0.55rem] font-bold">—</span>
+                    <span className="text-[0.52rem] font-bold">—</span>
                   )}
                 </span>
-                <div className="min-w-0">
-                  <div className="text-[0.6rem] font-bold leading-tight text-[#3a342f]">6 Meeting Rule</div>
-                  <div className="mt-0.5 flex items-baseline gap-1">
-                    <span className={`text-[0.7rem] font-bold tracking-tight ${profile.six_meetings_rule ? "text-[#147622]" : "text-[#6e665d]"}`}>
-                      {profile.attendance_this_year}
-                    </span>
-                    <span className="text-[0.5rem] font-semibold text-[#90887e]">{profile.attendance_this_year === 1 ? "month" : "months"}</span>
-                  </div>
+                <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">6 Meeting Rule</div>
+                <div className="mt-0.5 text-[0.52rem] font-semibold text-[#6e665d]">{profile.attendance_this_year} this year</div>
+              </div>
+              <div className="px-1.5 text-center">
+                <span className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full ${profile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                  {profile.dues_status.startsWith("Paid") ? (
+                    <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                  ) : (
+                    <span className="text-[0.52rem] font-bold">—</span>
+                  )}
+                </span>
+                <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">Dues</div>
+                <div className={`mt-0.5 text-[0.52rem] font-semibold ${profile.dues_status.startsWith("Paid") ? "text-[#147622]" : "text-[#938b83]"}`}>
+                  {profile.dues_status}
                 </div>
+              </div>
+              <div className="px-1.5 text-center">
+                <div className="text-[0.55rem] font-bold leading-tight text-[#3a342f]">Years</div>
+                <div className="mt-2 text-[0.75rem] font-bold text-[#3a342f]">{profile.years_of_membership != null && profile.years_of_membership >= 25 ? "LML" : profile.years_of_membership ?? "-"}</div>
               </div>
             </div>
 

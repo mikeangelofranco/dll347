@@ -94,6 +94,7 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
     attendance_this_year = serializers.SerializerMethodField()
     three_meetings_rule = serializers.SerializerMethodField()
     six_meetings_rule = serializers.SerializerMethodField()
+    years_of_membership = serializers.SerializerMethodField()
     member_since = serializers.SerializerMethodField()
     profile_photo_url = serializers.SerializerMethodField()
 
@@ -112,6 +113,7 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
             "attendance_this_year",
             "three_meetings_rule",
             "six_meetings_rule",
+            "years_of_membership",
             "member_since",
             "profile_photo_url",
         )
@@ -166,6 +168,16 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
         version = int(obj.updated_at.timestamp() * 1000)
         url = f"{photo.url}?{urlencode({'v': version})}"
         return request.build_absolute_uri(url) if request is not None else url
+
+    def get_years_of_membership(self, obj: MemberDatabaseRecord) -> int | None:
+        start_date = self.get_member_since(obj)
+        if start_date is None:
+            return None
+        today = timezone.localdate()
+        years = today.year - start_date.year
+        if (today.month, today.day) < (start_date.month, start_date.day):
+            years -= 1
+        return max(years, 0)
 
 
 class MemberListItemSerializer(serializers.ModelSerializer):

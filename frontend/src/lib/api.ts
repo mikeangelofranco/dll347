@@ -42,6 +42,7 @@ export type MemberDashboardProfile = {
   attendance_this_year: number;
   three_meetings_rule: boolean;
   six_meetings_rule: boolean;
+  years_of_membership: number | null;
   member_since: string | null;
   profile_photo_url: string | null;
 };
