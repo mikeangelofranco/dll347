@@ -1079,6 +1079,7 @@ def member_summary_view(request):
     groups = {}
     records = (
         MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD")
+        .filter(is_test_record=False)
         .only("section", "source_row")
         .order_by("source_row", "id")
     )
