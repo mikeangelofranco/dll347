@@ -18,7 +18,7 @@ from rest_framework.response import Response
 from .auth_tokens import build_password_reset_token, build_password_reset_url, invalidate_password_reset_tokens
 from .email_service import EmailDeliveryError, send_password_reset_email
 from .document_extraction import extract_treasurer_report
-from .excel_members import MembersWorkbookFormatError, update_existing_members_from_workbook
+from .excel_members import MembersWorkbookFormatError, build_member_name_index, find_member_for_account, resolve_member_name_match, update_existing_members_from_workbook
 from .member_groups import member_display_group_from_section
 from .models import Account, AuditLog, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
 from .permissions import IsDeveloper
@@ -609,6 +609,10 @@ def setup_password_view(request):
         is_active=True,
         is_staff=False,
     )
+    member = MemberDatabaseRecord.objects.filter(email__iexact=email).first()
+    if member and member.glp_id_number.strip():
+        account.glp_id_number = member.glp_id_number.strip()
+        account.save(update_fields=["glp_id_number"])
     preidentified_email.delete()
 
     create_audit_log(
@@ -761,7 +765,7 @@ def member_profile_photo_view(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    member = MemberDatabaseRecord.objects.filter(email__iexact=request.user.email.strip()).first()
+    member = find_member_for_account(request.user)
     if member is None:
         return Response(
             {
@@ -849,7 +853,7 @@ def _upload_profile_photo(request, member: MemberDatabaseRecord):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def member_full_profile_view(request):
-    member = MemberDatabaseRecord.objects.filter(email__iexact=request.user.email.strip()).first()
+    member = find_member_for_account(request.user)
     if member is None:
         return Response(
             {
@@ -945,7 +949,7 @@ def member_edit_profile_view(request, member_id: int):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def member_positions_held_view(request):
-    member = MemberDatabaseRecord.objects.filter(email__iexact=request.user.email.strip()).first()
+    member = find_member_for_account(request.user)
     if member is None:
         return Response(
             {
@@ -1017,9 +1021,16 @@ def member_activate_login_view(request, member_id: int):
         )
     account = Account.objects.filter(email__iexact=email).first()
     if account:
+        updated_fields = []
         if not account.is_active:
             account.is_active = True
-            account.save(update_fields=["is_active"])
+            updated_fields.append("is_active")
+        if member.glp_id_number.strip() and account.glp_id_number.strip().casefold() != member.glp_id_number.strip().casefold():
+            account.glp_id_number = member.glp_id_number.strip()
+            updated_fields.append("glp_id_number")
+        if updated_fields:
+            updated_fields.append("updated_at")
+            account.save(update_fields=updated_fields)
         return Response({"status": "activated", "message": "Member login reactivated."})
     default_password = "dll347"
     preidentified, created = PreidentifiedEmail.objects.get_or_create(

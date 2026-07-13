@@ -82,6 +82,7 @@ class Account(AbstractBaseUser, PermissionsMixin):
     ROLE_FIELD = "role"
 
     email = models.EmailField(unique=True)
+    glp_id_number = models.CharField(max_length=100, blank=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.MEMBER)
     can_manage_activities = models.BooleanField(default=False)
     can_edit_members = models.BooleanField(default=False)

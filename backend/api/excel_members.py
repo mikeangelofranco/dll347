@@ -572,6 +572,48 @@ def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDa
     }
 
 
+_MEMBER_NAME_INDEX: dict[str, list[MemberDatabaseRecord]] | None = None
+
+
+def _cached_member_name_index() -> dict[str, list[MemberDatabaseRecord]]:
+    global _MEMBER_NAME_INDEX
+    if _MEMBER_NAME_INDEX is None:
+        _MEMBER_NAME_INDEX = _rebuild_member_name_index()
+    return _MEMBER_NAME_INDEX
+
+
+def _rebuild_member_name_index() -> dict[str, list[MemberDatabaseRecord]]:
+    return build_member_name_index(MemberDatabaseRecord.objects.all())
+
+
+def invalidate_member_name_index_cache() -> None:
+    global _MEMBER_NAME_INDEX
+    _MEMBER_NAME_INDEX = None
+
+
+def find_member_for_account(account: Account) -> MemberDatabaseRecord | None:
+    account_email = account.email.strip()
+    member = MemberDatabaseRecord.objects.filter(email__iexact=account_email).first()
+    if member is not None:
+        return member
+
+    if account.glp_id_number.strip():
+        member = MemberDatabaseRecord.objects.filter(
+            glp_id_number__iexact=account.glp_id_number.strip()
+        ).first()
+        if member is not None:
+            return member
+
+    name_hint = account.email.split("@")[0].replace(".", " ").replace("_", " ").replace("-", " ")
+    if len(name_hint) >= 3:
+        name_index = _cached_member_name_index()
+        matched, match_status, _notes = resolve_member_name_match(name_hint, name_index)
+        if match_status == "matched":
+            return matched
+
+    return None
+
+
 def _sync_member_accounts(updated_records: list[MemberDatabaseRecord], old_emails: dict[int, str]) -> None:
     accounts_by_old_email: dict[str, Account] = {}
     old_emails_set = {old_email for old_email in old_emails.values() if old_email}
@@ -613,6 +655,33 @@ def _sync_member_accounts(updated_records: list[MemberDatabaseRecord], old_email
 
     if accounts_to_update:
         Account.objects.bulk_update(accounts_to_update, ["email", "is_active", "updated_at"])
+
+    _sync_account_glp_ids(updated_records)
+
+
+def _sync_account_glp_ids(updated_records: list[MemberDatabaseRecord]) -> None:
+    member_emails = {record.email.strip().casefold() for record in updated_records if record.email.strip()}
+    if not member_emails:
+        return
+    accounts = list(Account.objects.filter(email__iexact__in=member_emails))
+    account_by_email = {a.email.strip().casefold(): a for a in accounts}
+    accounts_to_update: list[Account] = []
+
+    for record in updated_records:
+        if not record.email.strip():
+            continue
+        if not record.glp_id_number.strip():
+            continue
+        account = account_by_email.get(record.email.strip().casefold())
+        if account is None:
+            continue
+        if account.glp_id_number.strip().casefold() == record.glp_id_number.strip().casefold():
+            continue
+        account.glp_id_number = record.glp_id_number.strip()
+        accounts_to_update.append(account)
+
+    if accounts_to_update:
+        Account.objects.bulk_update(accounts_to_update, ["glp_id_number", "updated_at"])
 
 
 def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUpdateResult:

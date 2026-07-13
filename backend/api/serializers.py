@@ -13,6 +13,7 @@ from .models import (
     PreidentifiedEmail,
     TreasurerReportSummary,
 )
+from .excel_members import find_member_for_account
 from .member_groups import member_display_group_from_section
 
 
@@ -509,7 +510,7 @@ class AccountSerializer(serializers.ModelSerializer):
         return obj.is_superuser
 
     def get_member_profile(self, obj: Account):
-        member = MemberDatabaseRecord.objects.filter(email__iexact=obj.email.strip()).first()
+        member = find_member_for_account(obj)
         if member is None:
             return None
         return MemberDashboardProfileSerializer(member, context=self.context).data
