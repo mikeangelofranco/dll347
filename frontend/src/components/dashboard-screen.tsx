@@ -417,7 +417,7 @@ function buildHealthRows(summary: SecretaryDashboardSummaryResponse) {
   return [
     {
       title: "Membership",
-      subtitle: `${summary.membership.active_count} / ${summary.membership.total_count} active`,
+      subtitle: `${summary.membership.active_count} / ${summary.membership.total_count} members`,
       percent: summary.membership.percent,
       color: "bg-[#cf8c00]",
       iconBg: "bg-[#cf8c00]",

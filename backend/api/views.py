@@ -1150,7 +1150,16 @@ def secretary_dashboard_summary_view(request):
         if is_progressing_member(record.name, record.section)
     )
 
-    membership_percent = percent_of(len(active_regular_members), len(regular_members))
+    dropped_working_tools_members = [
+        record
+        for record in regular_members
+        if classify_member_group(record.section) == "dropped_working_tools"
+    ]
+
+    membership_percent = percent_of(
+        len(attendance_members),
+        len(regular_members) - len(dropped_working_tools_members),
+    )
     growth_percent = percent_of(progressing_count, len(active_trestle_board_members))
     attendance_percent = percent_of(average_attendance, len(attendance_members))
     dues_paid_count = sum(
@@ -1172,8 +1181,8 @@ def secretary_dashboard_summary_view(request):
                 ]
             ),
             "membership": {
-                "active_count": len(active_regular_members),
-                "total_count": len(regular_members),
+                "active_count": len(attendance_members),
+                "total_count": len(regular_members) - len(dropped_working_tools_members),
                 "percent": membership_percent,
             },
             "growth": {
