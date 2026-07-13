@@ -132,8 +132,6 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
             return "Suspended"
         if "DEMIT" in section:
             return "Demit"
-        if "HONORARY" in section:
-            return "Honorary"
         if "INACTIVE" in section or "SNPD" in section or "NOT ACTIVE" in section:
             return "Inactive"
         return "Good Standing"
