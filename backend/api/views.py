@@ -1126,6 +1126,7 @@ def secretary_dashboard_summary_view(request):
             "id",
             "name",
             "section",
+            "lml",
             "annual_dues",
             "monthly_attendance",
         )
@@ -1147,7 +1148,12 @@ def secretary_dashboard_summary_view(request):
         if classify_member_group(record.section)
         not in {"inactive_snpd_demit", "dropped_working_tools"}
     ]
-    dues_eligible_members = attendance_members
+    dues_eligible_members = [
+        record
+        for record in attendance_members
+        if classify_member_group(record.section) != "honorary"
+        and (not record.lml.strip() or record.lml.strip().upper() == "N/A")
+    ]
 
     monthly_meeting_counts: dict[str, int] = {}
     for record in attendance_members:
@@ -1471,7 +1477,8 @@ def member_list_view(request):
             record
             for record in records
             if classify_member_group(record.section)
-            not in {"inactive_snpd_demit", "dropped_working_tools"}
+            not in {"inactive_snpd_demit", "dropped_working_tools", "honorary"}
+            and (not record.lml.strip() or record.lml.strip().upper() == "N/A")
         ]
         if not search:
             current_year = str(timezone.localdate().year)

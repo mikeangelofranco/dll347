@@ -155,6 +155,36 @@ function MembersOutlineIcon() {
   );
 }
 
+function PersonCheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+      <path d="M12 11.6a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M4.8 19.2a7.2 7.2 0 0 1 14.4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="m8 15 2.5 2.5 5.5-5.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function PersonXIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+      <path d="M12 11.6a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M4.8 19.2a7.2 7.2 0 0 1 14.4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="m9.5 15.5 5 5M14.5 15.5l-5 5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function PersonPlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+      <path d="M12 11.6a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M4.8 19.2a7.2 7.2 0 0 1 14.4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M12 15v5M9.5 17.5h5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function AwardIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6">
@@ -494,46 +524,97 @@ type MemberGroupDisplay = MemberSummaryGroup & {
   dashboardLabel: string;
 };
 
+const GROUP_ORDER: string[] = [
+  "Regular",
+  "Dual/Plural",
+  "Affiliated",
+  "Honorary",
+  "Demit",
+  "Suspended",
+  "Dropped Working Tools",
+];
+
 const fallbackMemberSummaryGroups: MemberSummaryGroup[] = [
-  { key: "active", label: "Active", section: "MASTER MASONS - ACTIVE", count: 0 },
-  { key: "dual_plural", label: "Dual / Plural", section: "MASTER MASONS (DUAL/PLURAL) - ACTIVE", count: 0 },
-  { key: "honorary", label: "Honorary", section: "MASTER MASONS (HONORARY)", count: 0 },
-  { key: "inactive_snpd_demit", label: "Inactive / SNPD / Demit", section: "MASTER MASONS - INACTIVE, SNPD, DEMIT", count: 0 },
+  { key: "regular", label: "Regular", section: "REGULAR", count: 0 },
+  { key: "dual_plural", label: "Dual/Plural", section: "DUAL/PLURAL", count: 0 },
+  { key: "affiliated", label: "Affiliated", section: "AFFILIATED", count: 0 },
+  { key: "honorary", label: "Honorary", section: "HONORARY", count: 0 },
+  { key: "demit", label: "Demit", section: "DEMIT", count: 0 },
+  { key: "suspended", label: "Suspended", section: "SUSPENDED", count: 0 },
   { key: "dropped_working_tools", label: "Dropped Working Tools", section: "DROPED THE WORKING TOOLS", count: 0 },
 ];
 
-const legacyMemberGroupPresentation: Record<string, Partial<MemberGroupDisplay>> = {
-  active: { color: "#17962a", tint: "#f2fbf4", border: "#bfe8c7", icon: <MembersOutlineIcon />, dashboardLabel: "Active", heading: "Active Members" },
-  dual_plural: { color: "#d18400", tint: "#fff8ec", border: "#f0cd94", icon: <MembersOutlineIcon />, dashboardLabel: "Dual / Plural", heading: "Dual / Plural Members" },
-  honorary: { color: "#1769ba", tint: "#f1f8ff", border: "#bcd9ef", icon: <AwardIcon />, dashboardLabel: "Honorary", heading: "Honorary Members" },
-  inactive_snpd_demit: { color: "#d00000", tint: "#fff5f5", border: "#f0b8b8", icon: <InactiveIcon />, dashboardLabel: "Inactive /\nSNPD / Demit", heading: "Inactive / SNPD / Demit" },
-  dropped_working_tools: { color: "#5f5a57", tint: "#f7f6f5", border: "#d8d2cc", icon: <WorkingToolsIcon />, dashboardLabel: "Dropped\nWorking Tools", heading: "Dropped Working Tools" },
-};
-
-const dynamicMemberGroupPalette = [
-  { color: "#0f766e", tint: "#f0fdfa", border: "#99f6e4", icon: <MembersOutlineIcon /> },
-  { color: "#7c3aed", tint: "#f5f3ff", border: "#ddd6fe", icon: <MembersOutlineIcon /> },
-  { color: "#be123c", tint: "#fff1f2", border: "#fecdd3", icon: <InactiveIcon /> },
-  { color: "#0369a1", tint: "#f0f9ff", border: "#bae6fd", icon: <AwardIcon /> },
-  { color: "#4d7c0f", tint: "#f7fee7", border: "#d9f99d", icon: <MembersOutlineIcon /> },
-  { color: "#92400e", tint: "#fffbeb", border: "#fde68a", icon: <WorkingToolsIcon /> },
-];
+function groupPresentationForLabel(label: string): {
+  color: string;
+  tint: string;
+  border: string;
+  icon: ReactNode;
+  heading: string;
+  dashboardLabel: string;
+} {
+  const key = label.toLowerCase();
+  if (key.includes("drop") || key.includes("working tools")) {
+    return {
+      color: "#5f5a57",
+      tint: "#f7f6f5",
+      border: "#d8d2cc",
+      icon: <PersonPlusIcon />,
+      heading: "Drop Working Tools",
+      dashboardLabel: "Drop\nWorking Tools",
+    };
+  }
+  if (key.includes("suspended")) {
+    return {
+      color: "#d00000",
+      tint: "#fff5f5",
+      border: "#f0b8b8",
+      icon: <PersonXIcon />,
+      heading: "Suspended",
+      dashboardLabel: "Suspended",
+    };
+  }
+  if (key.includes("demit")) {
+    return {
+      color: "#1769ba",
+      tint: "#f1f8ff",
+      border: "#bcd9ef",
+      icon: <PersonCheckIcon />,
+      heading: "Demit",
+      dashboardLabel: "Demit",
+    };
+  }
+  return {
+    color: "#17962a",
+    tint: "#f2fbf4",
+    border: "#bfe8c7",
+    icon: <PersonCheckIcon />,
+    heading: label,
+    dashboardLabel: label,
+  };
+}
 
 function buildMemberDisplayGroups(groups: MemberSummaryGroup[] | null): MemberGroupDisplay[] {
   const sourceGroups = groups && groups.length > 0 ? groups : fallbackMemberSummaryGroups;
-  return sourceGroups.map((group, index) => {
-    const legacy = legacyMemberGroupPresentation[group.key] ?? {};
-    const palette = dynamicMemberGroupPalette[index % dynamicMemberGroupPalette.length];
+  const displayGroups: MemberGroupDisplay[] = sourceGroups.map((group) => {
+    const pres = groupPresentationForLabel(group.label);
     return {
       ...group,
-      heading: legacy.heading ?? group.label,
-      color: legacy.color ?? palette.color,
-      tint: legacy.tint ?? palette.tint,
-      border: legacy.border ?? palette.border,
-      icon: legacy.icon ?? palette.icon,
-      dashboardLabel: legacy.dashboardLabel ?? group.label,
+      heading: pres.heading,
+      color: pres.color,
+      tint: pres.tint,
+      border: pres.border,
+      icon: pres.icon,
+      dashboardLabel: pres.dashboardLabel,
     };
   });
+  const orderIndex: Record<string, number> = {};
+  GROUP_ORDER.forEach((name, i) => { orderIndex[name] = i; });
+  displayGroups.sort((a, b) => {
+    const ai = orderIndex[a.label] ?? GROUP_ORDER.length;
+    const bi = orderIndex[b.label] ?? GROUP_ORDER.length;
+    return ai - bi;
+  });
+  return displayGroups;
 }
 
 function minimumLoadingDelay(ms = 250): Promise<void> {
@@ -654,16 +735,19 @@ function memberGroupFromSection(section: string): MemberGroupKey {
   if (normalized.includes("DROPED") || normalized.includes("DROPPED") || normalized.includes("WORKING TOOLS")) {
     return "dropped_working_tools";
   }
-  if (normalized.includes("INACTIVE") || normalized.includes("DEMIT") || normalized.includes("SUSPENDED") || normalized.includes("SNPD") || normalized.includes("NOT ACTIVE")) {
-    return "inactive_snpd_demit";
+  if (normalized.includes("SUSPENDED")) {
+    return "suspended";
   }
-  if (normalized.includes("DUAL") || normalized.includes("PLURAL")) {
-    return "dual_plural";
+  if (normalized.includes("DEMIT")) {
+    return "demit";
   }
-  if (normalized.includes("HONORARY") || normalized.includes("AFFILIATED")) {
+  if (normalized.includes("HONORARY")) {
     return "honorary";
   }
-  return "active";
+  if (normalized.includes("DUAL") || normalized.includes("PLURAL") || normalized.includes("AFFILIATED")) {
+    return "dual_plural";
+  }
+  return "regular";
 }
 
 function memberGroupDetails(group: MemberGroupKey, groups: MemberGroupDisplay[]) {
