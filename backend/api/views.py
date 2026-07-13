@@ -874,7 +874,7 @@ def member_full_profile_view(request):
 @permission_classes([IsAuthenticated])
 def member_detail_profile_view(request, member_id: int):
     member = (
-        MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD")
+        MemberDatabaseRecord.objects.exclude(Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER"))
         .filter(pk=member_id)
         .first()
     )
@@ -907,7 +907,7 @@ def member_edit_profile_view(request, member_id: int):
 
     record_tool_access(request, ToolAccessLog.Tool.EDIT_MEMBER)
 
-    member = MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD").filter(pk=member_id).first()
+    member = MemberDatabaseRecord.objects.exclude(Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER")).filter(pk=member_id).first()
     if member is None:
         return Response(
             {
@@ -1079,7 +1079,7 @@ def member_deactivate_login_view(request, member_id: int):
 def member_summary_view(request):
     groups = {}
     records = (
-        MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD")
+        MemberDatabaseRecord.objects.exclude(Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER"))
         .filter(is_test_record=False)
         .only("section", "source_row")
         .order_by("source_row", "id")
@@ -1423,7 +1423,7 @@ def member_list_view(request):
     requested_group = request.query_params.get("group", "").strip()
     search = request.query_params.get("search", "").strip()
     dues_filter = request.query_params.get("dues_status", "").strip()
-    records = MemberDatabaseRecord.objects.exclude(section__istartswith="TRESTLE BOARD").filter(is_test_record=False)
+    records = MemberDatabaseRecord.objects.exclude(Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER")).filter(is_test_record=False)
     available_groups = {
         member_display_group_from_section(section).key
         for section in records.values_list("section", flat=True).distinct()
