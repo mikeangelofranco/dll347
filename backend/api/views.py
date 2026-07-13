@@ -427,7 +427,8 @@ def classify_member_group(section: str) -> str:
 
 
 def is_trestle_board_member(section: str) -> bool:
-    return section.upper().startswith("TRESTLE BOARD")
+    normalized = section.upper()
+    return normalized.startswith("TRESTLE BOARD") or "PETITIONER" in normalized
 
 
 def is_active_trestle_board_member(section: str) -> bool:
