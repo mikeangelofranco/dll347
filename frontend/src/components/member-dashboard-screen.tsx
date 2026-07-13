@@ -2876,7 +2876,7 @@ export function MemberDashboardScreen({
             </section>
 
             <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 px-3.5 py-3 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
-              <h3 className="text-[0.78rem] font-bold">Lodge Involvement</h3>
+              <h3 className="text-[0.78rem] font-bold">Masonic Involvement</h3>
               <button type="button" onClick={openAppendantSheet} className="flex w-full items-center justify-between border-b border-[#e9e1d8] py-2.5 text-left">
                 <span className="flex items-center gap-2 text-[0.74rem] text-[#423c37]"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#fff4e3] text-[#d58d00]"><AwardIcon /></span>Appendant Bodies</span>
                 <span className="flex items-center gap-2 text-[0.74rem] text-[#111111]">{appendantCount}<ChevronIcon /></span>

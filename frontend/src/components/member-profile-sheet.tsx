@@ -291,7 +291,7 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
               </section>
 
               <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 px-3.5 py-3 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
-                <h3 className="text-[0.78rem] font-bold">Lodge Involvement</h3>
+                <h3 className="text-[0.78rem] font-bold">Masonic Involvement</h3>
                 <div className="border-b border-[#eadfd3] py-2.5">
                   <div className="flex items-center gap-2 text-[0.74rem] text-[#423c37]"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#fff4e3] text-[#d58d00]"><AwardIcon /></span>Appendant Bodies</div>
                   <div className="mt-2 overflow-hidden rounded-[0.9rem] border border-[#f0e7dc] bg-[#fffdfb]">
