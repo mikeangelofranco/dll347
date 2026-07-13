@@ -17,12 +17,12 @@ class MemberDisplayGroup:
 LEGACY_SECTION_GROUPS = {
     "MASTER MASONS - ACTIVE": MemberDisplayGroup(
         key="active",
-        label="Regular",
+        label="Active",
         section="MASTER MASONS - ACTIVE",
     ),
     "MASTER MASONS (DUAL/PLURAL) - ACTIVE": MemberDisplayGroup(
         key="dual_plural",
-        label="Dual/Plural",
+        label="Dual / Plural",
         section="MASTER MASONS (DUAL/PLURAL) - ACTIVE",
     ),
     "MASTER MASONS (HONORARY)": MemberDisplayGroup(
@@ -37,7 +37,7 @@ LEGACY_SECTION_GROUPS = {
     ),
     "DROPED THE WORKING TOOLS": MemberDisplayGroup(
         key="dropped_working_tools",
-        label="Drop Working Tools",
+        label="Dropped Working Tools",
         section="DROPED THE WORKING TOOLS",
     ),
 }
