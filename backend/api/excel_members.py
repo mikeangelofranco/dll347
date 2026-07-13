@@ -15,6 +15,7 @@ from xml.etree import ElementTree
 from django.db import transaction
 
 from .models import (
+    Account,
     BallotingCoinRecord,
     LodgeVisitorRecord,
     MemberDatabaseRecord,
@@ -571,13 +572,62 @@ def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDa
     }
 
 
+def _sync_member_accounts(updated_records: list[MemberDatabaseRecord], old_emails: dict[int, str]) -> None:
+    accounts_by_old_email: dict[str, Account] = {}
+    old_emails_set = {old_email for old_email in old_emails.values() if old_email}
+    if old_emails_set:
+        for account in Account.objects.filter(email__iexact__in=old_emails_set):
+            accounts_by_old_email[account.email.strip().casefold()] = account
+
+    accounts_by_new_email: dict[str, Account] = {}
+    new_emails_set = {record.email.strip().casefold() for record in updated_records if record.email.strip()}
+    if new_emails_set:
+        for account in Account.objects.filter(email__iexact__in=new_emails_set):
+            accounts_by_new_email[account.email.strip().casefold()] = account
+
+    accounts_to_update: list[Account] = []
+
+    for record in updated_records:
+        new_email = record.email.strip().casefold() if record.email else ""
+        old_email = old_emails.get(record.pk, "")
+
+        if not new_email:
+            continue
+        if new_email == old_email:
+            continue
+
+        account = accounts_by_old_email.get(old_email) if old_email else None
+
+        if account is None:
+            continue
+
+        if new_email in accounts_by_new_email:
+            if account.is_active:
+                account.is_active = False
+                accounts_to_update.append(account)
+            continue
+
+        account.email = record.email.strip()
+        accounts_to_update.append(account)
+        accounts_by_new_email[new_email] = account
+
+    if accounts_to_update:
+        Account.objects.bulk_update(accounts_to_update, ["email", "is_active", "updated_at"])
+
+
 def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUpdateResult:
     incoming_records, summaries = parsed_member_records_from_workbook(path)
     workbook_path = Path(path)
     file_sha256 = hashlib.sha256(workbook_path.read_bytes()).hexdigest()
     existing_records = list(MemberDatabaseRecord.objects.all())
+    email_counts = Counter(record.email.strip().casefold() for record in existing_records if record.email.strip())
     glp_counts = Counter(record.glp_id_number.strip().casefold() for record in existing_records if record.glp_id_number.strip())
     member_number_counts = Counter(record.member_number.strip().casefold() for record in existing_records if record.member_number.strip())
+    by_email = {
+        record.email.strip().casefold(): record
+        for record in existing_records
+        if record.email.strip() and email_counts[record.email.strip().casefold()] == 1
+    }
     by_glp = {
         record.glp_id_number.strip().casefold(): record
         for record in existing_records
@@ -619,6 +669,7 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
 
     updated_records = []
     unmatched_names = []
+    old_emails: dict[int, str] = {}
     with transaction.atomic():
         workbook_import, _created = MembersWorkbookImport.objects.update_or_create(
             file_sha256=file_sha256,
@@ -629,7 +680,9 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
         )
         for incoming in incoming_records:
             existing = None
-            if incoming.glp_id_number.strip():
+            if incoming.email.strip():
+                existing = by_email.get(incoming.email.strip().casefold())
+            if existing is None and incoming.glp_id_number.strip():
                 existing = by_glp.get(incoming.glp_id_number.strip().casefold())
             if existing is None:
                 matched_member, match_status, _notes = resolve_member_name_match(incoming.name, by_name)
@@ -642,6 +695,8 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
                 unmatched_names.append(incoming.name)
                 continue
 
+            if existing.pk not in old_emails:
+                old_emails[existing.pk] = existing.email.strip().casefold() if existing.email else ""
             existing.workbook_import = workbook_import
             for field in mutable_fields:
                 setattr(existing, field, getattr(incoming, field))
@@ -652,6 +707,8 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
                 updated_records,
                 ["workbook_import", *mutable_fields, "updated_at"],
             )
+
+        _sync_member_accounts(updated_records, old_emails)
 
     return MembersWorkbookUpdateResult(
         total_rows=len(incoming_records),
