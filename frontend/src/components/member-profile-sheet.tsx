@@ -80,56 +80,25 @@ function AwardIcon() {
   return <Icon className="h-5 w-5"><circle cx="12" cy="9" r="5.2" fill="none" stroke="currentColor" strokeWidth="1.7" /><path d="m8.5 13-1 7 4.5-2.5 4.5 2.5-1-7" fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" /></Icon>;
 }
 
-type StatusPresentation = {
-  color: string;
-  background: string;
-  kind: "active" | "inactive" | "dropped";
-};
-
 function displayValue(value: string | null | undefined): string {
-  return value && value.trim() ? value : "-";
+  return value && value.trim() ? value.trim() : "–";
 }
 
-function formatDate(value: string | null): string {
-  if (!value) {
-    return "-";
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "–";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }).format(new Date(value));
+  } catch {
+    return "–";
   }
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${value}T00:00:00Z`));
-}
-
-function profileDisplayName(fullName: string): string {
-  const cleanName = fullName.replace(/^(Mr\.|Bro\.|FCM|EAM)\s+/i, "").replace(/[+*]/g, "").trim();
-  if (!cleanName.includes(",")) {
-    return cleanName || "Member";
-  }
-  const [lastName, restName] = cleanName.split(",");
-  const firstName = restName?.trim().split(/\s+/)[0] || "Member";
-  return `${firstName} ${lastName.trim()}`;
-}
-
-function appendantBodyLabel(rawKey: string): string {
-  return rawKey.split("/").at(-1)?.trim() || rawKey.trim();
-}
-
-function appendantBodyItem(rawKey: string): { key: string; name: string; logoPath: string } {
-  const label = appendantBodyLabel(rawKey);
-  const details = appendantBodyDetails[label.toUpperCase()];
-  return {
-    key: rawKey,
-    name: details?.name ?? label,
-    logoPath: details?.logoPath ?? "/branding/appendant-bodies/placeholder.svg",
-  };
 }
 
 function appendantCellHasValue(value: unknown): boolean {
-  if (value === null || value === undefined || value === "") {
-    return false;
-  }
+  if (value === null || value === undefined || value === "") return false;
   if (typeof value === "object" && "value" in value) {
     const cellValue = (value as { value?: unknown }).value;
     return cellValue !== null && cellValue !== undefined && cellValue !== "";
@@ -137,15 +106,56 @@ function appendantCellHasValue(value: unknown): boolean {
   return true;
 }
 
-function memberStatusPresentation(status: string): StatusPresentation {
+function appendantBodyItem(key: string): { key: string; name: string; logoPath: string } {
+  const code = key.replace(/[\s_]+/g, "").toUpperCase();
+  const details: Record<string, { name: string; logoPath: string }> = {
+    YORK: { name: "York Rite", logoPath: "/branding/appendant-bodies/york.svg" },
+    SCOTTISH: { name: "Scottish Rite", logoPath: "/branding/appendant-bodies/scottish.svg" },
+    SHRINE: { name: "Shrine", logoPath: "/branding/appendant-bodies/shrine.svg" },
+    EASTERNSTAR: { name: "Order of the Eastern Star", logoPath: "/branding/appendant-bodies/oes.svg" },
+    DEMOLAY: { name: "Order of DeMolay", logoPath: "/branding/appendant-bodies/demolay.svg" },
+    RAINBOW: { name: "Rainbow for Girls", logoPath: "/branding/appendant-bodies/rainbow.svg" },
+    JOBDIE: { name: "Job's Daughters", logoPath: "/branding/appendant-bodies/jobs.svg" },
+    GROTTO: { name: "Grotto", logoPath: "/branding/appendant-bodies/grotto.svg" },
+    TALLCEDARS: { name: "Tall Cedars", logoPath: "/branding/appendant-bodies/tallcedars.svg" },
+    SHRINERS: { name: "Shriners", logoPath: "/branding/appendant-bodies/shrine.svg" },
+    KYCH: { name: "KYCH", logoPath: "/branding/appendant-bodies/kych.svg" },
+    KYGCH: { name: "KYGCH", logoPath: "/branding/appendant-bodies/kych.svg" },
+    ROSE: { name: "Order of the Rose", logoPath: "/branding/appendant-bodies/rose.svg" },
+    AMD: { name: "Allied Masonic Degrees", logoPath: "/branding/appendant-bodies/amd.svg" },
+    REDCROSS: { name: "Red Cross of Constantine", logoPath: "/branding/appendant-bodies/redcross.svg" },
+    ROSICRUCIAN: { name: "Rosicrucian", logoPath: "/branding/appendant-bodies/rosicrucian.svg" },
+    ROYALORDER: { name: "Royal Order of Scotland", logoPath: "/branding/appendant-bodies/royalorder.svg" },
+    HRAKTP: { name: "Holy Royal Arch", logoPath: "/branding/appendant-bodies/hraktp.svg" },
+    KNIGHTTEMPLAR: { name: "Knights Templar", logoPath: "/branding/appendant-bodies/templar.svg" },
+  };
+  const found = details[code] ?? { name: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), logoPath: "/branding/appendant-bodies/placeholder.svg" };
+  return { key, ...found };
+}
+
+function profileDisplayName(fullName: string): string {
+  const cleanName = fullName.replace(/^(Mr\.\s*|FCM\s+|EAM\s+)/i, "").replace(/[+*]/g, "").trim();
+  if (!cleanName.includes(",")) return cleanName || "Brother";
+  const [last, rest] = cleanName.split(",");
+  return `${rest.trim()} ${last.trim()}`;
+}
+
+type StatusPresentation = {
+  color: string;
+  background: string;
+  kind: string;
+};
+
+function memberStatusPresentation(status: string) {
   const normalized = status.trim().toLowerCase();
   if (normalized.includes("dropped") || normalized.includes("working tools")) {
     return { color: "#5f5a57", background: "#f0eeeb", kind: "dropped" };
   }
   if (
-    normalized.includes("inactive")
-    || normalized.includes("snpd")
+    normalized.includes("suspended")
     || normalized.includes("demit")
+    || normalized.includes("inactive")
+    || normalized.includes("snpd")
     || normalized.includes("not active")
   ) {
     return { color: "#c90000", background: "#fff0f0", kind: "inactive" };

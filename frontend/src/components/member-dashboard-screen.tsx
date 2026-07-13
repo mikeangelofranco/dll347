@@ -2824,7 +2824,13 @@ export function MemberDashboardScreen({
                 <div className="min-w-0 flex-1 text-left">
                   <h2 className="text-[1.38rem] font-bold leading-none tracking-[-0.05em]">{profileDisplayName(fullProfile.name)}</h2>
                   <div className="mt-2 w-fit rounded-full bg-[linear-gradient(145deg,#eba51a,#c97b00)] px-3 py-1 text-[0.68rem] font-semibold text-white shadow-[0_6px_12px_rgba(205,133,0,0.2)]">{fullProfile.lodge_standing}</div>
-                  <div className="mt-3 flex items-center gap-2 text-[0.72rem] font-medium text-[#2d2824]"><span className="h-2.5 w-2.5 rounded-full bg-[#06b834]" />{fullProfile.status}</div>
+                  {(() => {
+                    const s = fullProfile.status.toLowerCase();
+                    const dotColor = (s.includes("dropped") || s.includes("working tools")) ? "bg-[#5f5a57]" : (s.includes("suspended") || s.includes("demit") || s.includes("inactive") || s.includes("not active")) ? "bg-[#c90000]" : "bg-[#06b834]";
+                    return (
+                      <div className="mt-3 flex items-center gap-2 text-[0.72rem] font-medium text-[#2d2824]"><span className={`h-2.5 w-2.5 rounded-full ${dotColor}`} />{fullProfile.status}</div>
+                    );
+                  })()}
                   <div className="mt-1.5 flex items-center gap-2 text-[0.68rem] font-medium text-[#4c4540]"><span className="h-1.5 w-1.5 rounded-full bg-[#3c444a]" />Datu Lapu-Lapu Lodge No. 347</div>
                 </div>
               </div>
@@ -2834,7 +2840,7 @@ export function MemberDashboardScreen({
               {profileRows.map(([label, value]) => (
                 <div key={label} className="flex items-start justify-between gap-4 border-b border-[#e9e1d8] py-2.5 last:border-b-0">
                   <span className="text-[0.74rem] text-[#59524d]">{label}</span>
-                  <span className={`max-w-[58%] text-right text-[0.74rem] leading-snug ${label === "Status" ? "font-medium text-[#009622]" : "text-[#111111]"}`}>{value}</span>
+                      <span className={`max-w-[58%] text-right text-[0.74rem] leading-snug ${label === "Status" ? (() => { const s = String(value).toLowerCase(); return (s.includes("dropped") || s.includes("working tools")) ? "font-medium text-[#5f5a57]" : (s.includes("suspended") || s.includes("demit") || s.includes("inactive") || s.includes("not active")) ? "font-medium text-[#c90000]" : "font-medium text-[#009622]"; })() : "text-[#111111]"}`}>{value}</span>
                 </div>
               ))}
             </section>
