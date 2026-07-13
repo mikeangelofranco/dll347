@@ -654,13 +654,13 @@ function memberGroupFromSection(section: string): MemberGroupKey {
   if (normalized.includes("DROPED") || normalized.includes("DROPPED") || normalized.includes("WORKING TOOLS")) {
     return "dropped_working_tools";
   }
-  if (normalized.includes("INACTIVE, SNPD, DEMIT") || normalized.includes("NOT ACTIVE")) {
+  if (normalized.includes("INACTIVE") || normalized.includes("DEMIT") || normalized.includes("SUSPENDED") || normalized.includes("SNPD") || normalized.includes("NOT ACTIVE")) {
     return "inactive_snpd_demit";
   }
   if (normalized.includes("DUAL") || normalized.includes("PLURAL")) {
     return "dual_plural";
   }
-  if (normalized.includes("HONORARY")) {
+  if (normalized.includes("HONORARY") || normalized.includes("AFFILIATED")) {
     return "honorary";
   }
   return "active";

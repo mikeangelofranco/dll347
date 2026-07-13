@@ -58,6 +58,9 @@ DOCUMENT_ALLOWED_CONTENT_TYPES = {
 
 DOCUMENT_EXTENSION_FALLBACK = {
     ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 DOCUMENT_MAX_BYTES = 20 * 1024 * 1024
@@ -414,11 +417,11 @@ def classify_member_group(section: str) -> str:
     normalized = section.upper()
     if "DROPED" in normalized or "DROPPED" in normalized or "WORKING TOOLS" in normalized:
         return "dropped_working_tools"
-    if "INACTIVE, SNPD, DEMIT" in normalized or "NOT ACTIVE" in normalized:
+    if "INACTIVE" in normalized or "DEMIT" in normalized or "SUSPENDED" in normalized or "NOT ACTIVE" in normalized or "SNPD" in normalized:
         return "inactive_snpd_demit"
     if "DUAL" in normalized or "PLURAL" in normalized:
         return "dual_plural"
-    if "HONORARY" in normalized:
+    if "HONORARY" in normalized or "AFFILIATED" in normalized:
         return "honorary"
     return "active"
 

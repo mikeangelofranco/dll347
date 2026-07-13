@@ -590,7 +590,6 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
     }
     by_name = build_member_name_index(existing_records)
     mutable_fields = [
-        "source_row",
         "section",
         "member_number",
         "name",
