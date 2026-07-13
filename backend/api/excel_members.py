@@ -618,14 +618,18 @@ def _sync_member_accounts(updated_records: list[MemberDatabaseRecord], old_email
     accounts_by_old_email: dict[str, Account] = {}
     old_emails_set = {old_email for old_email in old_emails.values() if old_email}
     if old_emails_set:
-        for account in Account.objects.filter(email__iexact__in=old_emails_set):
-            accounts_by_old_email[account.email.strip().casefold()] = account
+        for account in Account.objects.all():
+            key = account.email.strip().casefold()
+            if key in old_emails_set:
+                accounts_by_old_email[key] = account
 
     accounts_by_new_email: dict[str, Account] = {}
     new_emails_set = {record.email.strip().casefold() for record in updated_records if record.email.strip()}
     if new_emails_set:
-        for account in Account.objects.filter(email__iexact__in=new_emails_set):
-            accounts_by_new_email[account.email.strip().casefold()] = account
+        for account in Account.objects.all():
+            key = account.email.strip().casefold()
+            if key in new_emails_set:
+                accounts_by_new_email[key] = account
 
     accounts_to_update: list[Account] = []
 
@@ -663,7 +667,7 @@ def _sync_account_glp_ids(updated_records: list[MemberDatabaseRecord]) -> None:
     member_emails = {record.email.strip().casefold() for record in updated_records if record.email.strip()}
     if not member_emails:
         return
-    accounts = list(Account.objects.filter(email__iexact__in=member_emails))
+    accounts = [a for a in Account.objects.all() if a.email.strip().casefold() in member_emails]
     account_by_email = {a.email.strip().casefold(): a for a in accounts}
     accounts_to_update: list[Account] = []
 
