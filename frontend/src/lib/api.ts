@@ -95,6 +95,19 @@ export type MemberProfilePhotoUploadResponse = {
   member_profile: MemberDashboardProfile;
 };
 
+export type MemberAccountStatusResponse = {
+  status: "activated" | "deactivated" | "pending" | "none" | "no_email";
+  account_exists: boolean;
+  account_is_active: boolean;
+  preidentified_exists: boolean;
+  email: string;
+};
+
+export type MemberAccountActionResponse = {
+  status: string;
+  message: string;
+};
+
 export type MemberSummaryGroup = {
   key: string;
   label: string;
@@ -653,6 +666,26 @@ export async function uploadMemberProfilePhotoById(
   const body = new FormData();
   body.append("photo", photo, "profile-photo.jpg");
   return apiPostForm<MemberProfilePhotoUploadResponse>(`/members/${memberId}/profile-photo/`, body);
+}
+
+export async function getMemberAccountStatus(
+  memberId: number,
+): Promise<MemberAccountStatusResponse> {
+  return apiGet<MemberAccountStatusResponse>(`/members/${memberId}/account-status/`);
+}
+
+export async function activateMemberLogin(
+  memberId: number,
+): Promise<MemberAccountActionResponse> {
+  await prepareSessionCsrf();
+  return apiPost<MemberAccountActionResponse>(`/members/${memberId}/activate-login/`, {});
+}
+
+export async function deactivateMemberLogin(
+  memberId: number,
+): Promise<MemberAccountActionResponse> {
+  await prepareSessionCsrf();
+  return apiPost<MemberAccountActionResponse>(`/members/${memberId}/deactivate-login/`, {});
 }
 
 export async function getMemberSummary(): Promise<MemberSummaryResponse> {

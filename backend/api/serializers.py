@@ -537,7 +537,7 @@ class LoginSerializer(serializers.Serializer):
         )
 
         if account and not account.is_active:
-            raise serializers.ValidationError("This account is inactive.")
+            raise serializers.ValidationError("Your account has been deactivated. Please contact your Lodge Secretary.")
 
         attrs["password"] = password
         attrs["email"] = email

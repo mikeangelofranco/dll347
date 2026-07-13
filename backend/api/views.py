@@ -961,6 +961,106 @@ def member_positions_held_view(request):
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
+def member_account_status_view(request, member_id: int):
+    if not user_can_edit_members(request.user):
+        return Response(
+            {"code": "MEMBER_EDIT_FORBIDDEN", "message": "You do not have permission."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    member = MemberDatabaseRecord.objects.filter(pk=member_id).first()
+    if member is None:
+        return Response(
+            {"code": "MEMBER_PROFILE_NOT_FOUND", "message": "We could not find that member profile."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    email = member.email.strip().lower() if member.email else ""
+    if not email:
+        return Response({
+            "status": "no_email", "account_exists": False,
+            "account_is_active": False, "preidentified_exists": False,
+        })
+    account = Account.objects.filter(email__iexact=email).first()
+    preidentified = PreidentifiedEmail.objects.filter(email__iexact=email).first()
+    return Response({
+        "status": "activated" if (account and account.is_active) else
+                  "deactivated" if (account and not account.is_active) else
+                  "pending" if preidentified else "none",
+        "account_exists": account is not None,
+        "account_is_active": account.is_active if account else False,
+        "preidentified_exists": preidentified is not None,
+        "email": email,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def member_activate_login_view(request, member_id: int):
+    if not user_can_edit_members(request.user):
+        return Response(
+            {"code": "MEMBER_EDIT_FORBIDDEN", "message": "You do not have permission."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    member = MemberDatabaseRecord.objects.filter(pk=member_id).first()
+    if member is None:
+        return Response(
+            {"code": "MEMBER_PROFILE_NOT_FOUND", "message": "We could not find that member profile."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    email = member.email.strip().lower() if member.email else ""
+    if not email:
+        return Response(
+            {"code": "MEMBER_HAS_NO_EMAIL", "message": "This member does not have an email address on file."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    account = Account.objects.filter(email__iexact=email).first()
+    if account:
+        if not account.is_active:
+            account.is_active = True
+            account.save(update_fields=["is_active"])
+        return Response({"status": "activated", "message": "Member login reactivated."})
+    default_password = "dll347"
+    preidentified, created = PreidentifiedEmail.objects.get_or_create(
+        email=email, defaults={"role": Account.Role.MEMBER},
+    )
+    if created:
+        preidentified.set_default_password(default_password)
+    preidentified.save()
+    return Response({
+        "status": "pending",
+        "message": "Member added to pre-identified list. They can now set up their account.",
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def member_deactivate_login_view(request, member_id: int):
+    if not user_can_edit_members(request.user):
+        return Response(
+            {"code": "MEMBER_EDIT_FORBIDDEN", "message": "You do not have permission."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    member = MemberDatabaseRecord.objects.filter(pk=member_id).first()
+    if member is None:
+        return Response(
+            {"code": "MEMBER_PROFILE_NOT_FOUND", "message": "We could not find that member profile."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    email = member.email.strip().lower() if member.email else ""
+    if not email:
+        return Response(
+            {"code": "MEMBER_HAS_NO_EMAIL", "message": "This member does not have an email address on file."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    account = Account.objects.filter(email__iexact=email).first()
+    if account:
+        account.is_active = False
+        account.save(update_fields=["is_active"])
+    PreidentifiedEmail.objects.filter(email__iexact=email).delete()
+    return Response({"status": "deactivated", "message": "Member login deactivated."})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def member_summary_view(request):
     groups = {}
     records = (

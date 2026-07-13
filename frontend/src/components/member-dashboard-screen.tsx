@@ -6,7 +6,7 @@ import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "re
 import { ThemedLoader } from "@/components/themed-loader";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
 import { timeBasedGreeting } from "@/lib/greeting";
-import { createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, updateMemberProfile, uploadMemberProfilePhotoById } from "@/lib/api";
+import { createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, updateMemberProfile, uploadMemberProfilePhotoById, getMemberAccountStatus, activateMemberLogin, deactivateMemberLogin } from "@/lib/api";
 
 type MemberDashboardScreenProps = {
   profile: MemberDashboardProfile | null;
@@ -939,6 +939,8 @@ export function MemberDashboardScreen({
   const [isActivityFormClosing, setIsActivityFormClosing] = useState(false);
   const [isMemberEditClosing, setIsMemberEditClosing] = useState(false);
   const [editReturnView, setEditReturnView] = useState<MemberDashboardView>("home");
+  const [memberAccountStatus, setMemberAccountStatus] = useState<{ status: string; account_exists: boolean; account_is_active: boolean; preidentified_exists: boolean; email: string } | null>(null);
+  const [isAccountActionLoading, setIsAccountActionLoading] = useState(false);
   const [fullProfile, setFullProfile] = useState<MemberFullProfile | null>(null);
   const [activeTab, setActiveTab] = useState<MemberDashboardTab>(initialTab);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
@@ -1407,6 +1409,7 @@ export function MemberDashboardScreen({
   }
 
   async function selectEditableMember(memberId: number) {
+    setMemberAccountStatus(null);
     setIsEditMemberLoading(true);
     setEditMemberFormError("");
     setEditMemberSuccessToast("");
@@ -1417,6 +1420,7 @@ export function MemberDashboardScreen({
       ]);
       setSelectedEditMember(profileData);
       setEditMemberForm(editableMemberForm(profileData));
+      getMemberAccountStatus(memberId).then(setMemberAccountStatus).catch(() => setMemberAccountStatus(null));
       window.setTimeout(() => {
         editMemberDetailsRef.current?.scrollIntoView({
           behavior: "smooth",
@@ -1427,6 +1431,46 @@ export function MemberDashboardScreen({
       setEditMemberFormError(error instanceof Error ? error.message : "Unable to load this member record.");
     } finally {
       setIsEditMemberLoading(false);
+    }
+  }
+
+  async function handleActivateLogin() {
+    if (!selectedEditMember) return;
+    setIsAccountActionLoading(true);
+    try {
+      const response = await activateMemberLogin(selectedEditMember.id);
+      setMemberAccountStatus({
+        status: response.status,
+        account_exists: response.status === "activated",
+        account_is_active: response.status === "activated",
+        preidentified_exists: response.status === "pending",
+        email: selectedEditMember.email ?? "",
+      });
+      setEditMemberSuccessToast(response.message);
+    } catch (error) {
+      setEditMemberFormError(error instanceof Error ? error.message : "Unable to activate member login.");
+    } finally {
+      setIsAccountActionLoading(false);
+    }
+  }
+
+  async function handleDeactivateLogin() {
+    if (!selectedEditMember) return;
+    setIsAccountActionLoading(true);
+    try {
+      const response = await deactivateMemberLogin(selectedEditMember.id);
+      setMemberAccountStatus({
+        status: response.status,
+        account_exists: false,
+        account_is_active: false,
+        preidentified_exists: false,
+        email: selectedEditMember.email ?? "",
+      });
+      setEditMemberSuccessToast(response.message);
+    } catch (error) {
+      setEditMemberFormError(error instanceof Error ? error.message : "Unable to deactivate member login.");
+    } finally {
+      setIsAccountActionLoading(false);
     }
   }
 
@@ -1980,6 +2024,52 @@ export function MemberDashboardScreen({
                         </button>
                       );
                     })}
+                  </div>
+                </div>
+
+                <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
+                  <h2 className="text-[0.78rem] font-bold">Member Login</h2>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className={`flex h-9 w-9 items-center justify-center rounded-full ${memberAccountStatus?.status === "activated" ? "bg-[#eef8f0] text-[#168129]" : memberAccountStatus?.status === "pending" ? "bg-[#fff8e6] text-[#cd8600]" : memberAccountStatus?.status === "deactivated" ? "bg-[#fff0f0] text-[#c90000]" : "bg-[#f5f0eb] text-[#938b83]"}`}>
+                        {memberAccountStatus?.status === "activated" ? (
+                          <Icon className="h-5 w-5"><path d="m5 13 4 4 9-9" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /></Icon>
+                        ) : memberAccountStatus?.status === "pending" ? (
+                          <Icon className="h-5 w-5"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M12 7v5l3 2" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" /></Icon>
+                        ) : memberAccountStatus?.status === "deactivated" ? (
+                          <Icon className="h-5 w-5"><path d="M18 6 6 18M6 6l12 12" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" /></Icon>
+                        ) : (
+                          <Icon className="h-5 w-5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" fill="none" stroke="currentColor" strokeWidth="2" /><circle cx="9" cy="7" r="4" fill="none" stroke="currentColor" strokeWidth="2" /></Icon>
+                        )}
+                      </span>
+                      <div>
+                        <div className="text-[0.68rem] font-bold text-[#3a342f]">
+                          {memberAccountStatus?.status === "activated" ? "Login Activated" :
+                           memberAccountStatus?.status === "pending" ? "Pending Setup" :
+                           memberAccountStatus?.status === "deactivated" ? "Login Deactivated" :
+                           memberAccountStatus?.status === "no_email" ? "No Email on File" :
+                           "No Login Setup"}
+                        </div>
+                        <div className="mt-0.5 text-[0.55rem] text-[#90887e]">
+                          {memberAccountStatus?.status === "activated" ? "Member can access the app." :
+                           memberAccountStatus?.status === "pending" ? "Waiting for account setup." :
+                           memberAccountStatus?.status === "deactivated" ? "Member cannot log in." :
+                           memberAccountStatus?.status === "no_email" ? "Add an email address first." :
+                           "Member has not been given login access."}
+                        </div>
+                      </div>
+                    </div>
+                    {memberAccountStatus !== null && memberAccountStatus.status !== "no_email" ? (
+                      memberAccountStatus.status === "activated" || memberAccountStatus.status === "pending" ? (
+                        <button type="button" onClick={() => void handleDeactivateLogin()} disabled={isAccountActionLoading} className="rounded-full border border-[#e8c0c0] px-3 py-1.5 text-[0.58rem] font-bold text-[#c90000] disabled:opacity-50">
+                          {isAccountActionLoading ? <ThemedLoader size="sm" /> : "Deactivate"}
+                        </button>
+                      ) : (
+                        <button type="button" onClick={() => void handleActivateLogin()} disabled={isAccountActionLoading} className="rounded-full border border-[#b8e3c2] bg-[#eef8f0] px-3 py-1.5 text-[0.58rem] font-bold text-[#138122] disabled:opacity-50">
+                          {isAccountActionLoading ? <ThemedLoader size="sm" /> : "Activate"}
+                        </button>
+                      )
+                    ) : null}
                   </div>
                 </div>
 
