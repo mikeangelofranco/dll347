@@ -20,7 +20,7 @@ from .email_service import EmailDeliveryError, send_password_reset_email
 from .document_extraction import extract_treasurer_report
 from .excel_members import MembersWorkbookFormatError, build_member_name_index, find_member_for_account, resolve_member_name_match, update_existing_members_from_workbook
 from .member_groups import member_display_group_from_section
-from .models import Account, AuditLog, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
+from .models import Account, AuditLog, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
 from .permissions import IsDeveloper
 from .serializers import (
     AccountSerializer,
@@ -1077,7 +1077,7 @@ def member_deactivate_login_view(request, member_id: int):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def member_summary_view(request):
-    groups = {}
+    groups: dict[str, dict] = {}
     records = (
         MemberDatabaseRecord.objects.exclude(Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER"))
         .filter(is_test_record=False)
@@ -1094,6 +1094,20 @@ def member_summary_view(request):
                 "count": 0,
             }
         groups[group.key]["count"] += 1
+
+    latest_import = MembersWorkbookImport.objects.order_by("-imported_at").first()
+    if latest_import and isinstance(latest_import.sheet_summaries, dict):
+        member_sheet = latest_import.sheet_summaries.get("DLL 347 Members Database", {})
+        section_names = member_sheet.get("sections", []) if isinstance(member_sheet, dict) else []
+        for section_name in section_names:
+            group = member_display_group_from_section(section_name)
+            if group.key not in groups:
+                groups[group.key] = {
+                    "key": group.key,
+                    "label": group.label,
+                    "section": group.section,
+                    "count": 0,
+                }
 
     return Response(
         {"groups": list(groups.values())},

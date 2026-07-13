@@ -568,7 +568,11 @@ def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDa
         raise MembersWorkbookFormatError(["No member rows were found in the expected member table range."])
 
     return member_records, {
-        members.name: {"records": len(member_records), "columns": len(member_columns)},
+        members.name: {
+            "records": len(member_records),
+            "columns": len(member_columns),
+            "sections": sorted({s.strip() for s in member_sections.values() if s.strip()}),
+        },
     }
 
 
