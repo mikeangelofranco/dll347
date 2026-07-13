@@ -503,11 +503,11 @@ const fallbackMemberSummaryGroups: MemberSummaryGroup[] = [
 ];
 
 const legacyMemberGroupPresentation: Record<string, Partial<MemberGroupDisplay>> = {
-  active: { color: "#17962a", tint: "#f2fbf4", border: "#bfe8c7", icon: <MembersOutlineIcon />, dashboardLabel: "Active", heading: "Active Members" },
-  dual_plural: { color: "#d18400", tint: "#fff8ec", border: "#f0cd94", icon: <MembersOutlineIcon />, dashboardLabel: "Dual / Plural", heading: "Dual / Plural Members" },
-  honorary: { color: "#1769ba", tint: "#f1f8ff", border: "#bcd9ef", icon: <AwardIcon />, dashboardLabel: "Honorary", heading: "Honorary Members" },
+  active: { color: "#17962a", tint: "#f2fbf4", border: "#bfe8c7", icon: <MembersOutlineIcon />, dashboardLabel: "Regular", heading: "Regular" },
+  dual_plural: { color: "#d18400", tint: "#fff8ec", border: "#f0cd94", icon: <MembersOutlineIcon />, dashboardLabel: "Dual/Plural", heading: "Dual/Plural" },
+  honorary: { color: "#1769ba", tint: "#f1f8ff", border: "#bcd9ef", icon: <AwardIcon />, dashboardLabel: "Honorary", heading: "Honorary" },
   inactive_snpd_demit: { color: "#d00000", tint: "#fff5f5", border: "#f0b8b8", icon: <InactiveIcon />, dashboardLabel: "Inactive /\nSNPD / Demit", heading: "Inactive / SNPD / Demit" },
-  dropped_working_tools: { color: "#5f5a57", tint: "#f7f6f5", border: "#d8d2cc", icon: <WorkingToolsIcon />, dashboardLabel: "Dropped\nWorking Tools", heading: "Dropped Working Tools" },
+  dropped_working_tools: { color: "#5f5a57", tint: "#f7f6f5", border: "#d8d2cc", icon: <WorkingToolsIcon />, dashboardLabel: "Drop\nWorking Tools", heading: "Drop Working Tools" },
 };
 
 const dynamicMemberGroupPalette = [

@@ -127,16 +127,16 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
     def get_status(self, obj: MemberDatabaseRecord) -> str:
         section = obj.section.upper()
         if "DROPED" in section or "DROPPED" in section or "WORKING TOOLS" in section:
-            return "Dropped the Working Tools"
+            return "Drop Working Tools"
         if "INACTIVE" in section or "DEMIT" in section or "SUSPENDED" in section or "SNPD" in section:
             return "Inactive / SNPD / Demit"
         if "DUAL" in section or "PLURAL" in section:
-            return "Dual / Plural"
+            return "Dual/Plural"
         if "HONORARY" in section or "AFFILIATED" in section:
             return "Honorary"
         if "NOT ACTIVE" in section:
             return "Not Active"
-        return "Active Member"
+        return "Regular"
 
     def get_dues_status(self, obj: MemberDatabaseRecord) -> str:
         current_year = timezone.localdate().year
