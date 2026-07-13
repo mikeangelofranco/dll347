@@ -417,7 +417,7 @@ def classify_member_group(section: str) -> str:
     normalized = section.upper()
     if "DROPED" in normalized or "DROPPED" in normalized or "WORKING TOOLS" in normalized:
         return "dropped_working_tools"
-    if "INACTIVE" in normalized or "DEMIT" in normalized or "SUSPENDED" in normalized or "NOT ACTIVE" in normalized or "SNPD" in normalized:
+    if "INACTIVE" in normalized or "DEMIT" in normalized or "SUSPENDED" in normalized or "NOT ACTIVE" in normalized or "SNPD" in normalized or "PETITIONER" in normalized:
         return "inactive_snpd_demit"
     if "DUAL" in normalized or "PLURAL" in normalized:
         return "dual_plural"
