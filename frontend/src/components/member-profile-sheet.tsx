@@ -106,31 +106,14 @@ function appendantCellHasValue(value: unknown): boolean {
   return true;
 }
 
+function appendantBodyCode(rawKey: string): string {
+  return rawKey.split("/").at(-1)?.trim() ?? rawKey.trim();
+}
+
 function appendantBodyItem(key: string): { key: string; name: string; logoPath: string } {
-  const code = key.replace(/[\s_]+/g, "").toUpperCase();
-  const details: Record<string, { name: string; logoPath: string }> = {
-    YORK: { name: "York Rite", logoPath: "/branding/appendant-bodies/york.svg" },
-    SCOTTISH: { name: "Scottish Rite", logoPath: "/branding/appendant-bodies/scottish.svg" },
-    SHRINE: { name: "Shrine", logoPath: "/branding/appendant-bodies/shrine.svg" },
-    EASTERNSTAR: { name: "Order of the Eastern Star", logoPath: "/branding/appendant-bodies/oes.svg" },
-    DEMOLAY: { name: "Order of DeMolay", logoPath: "/branding/appendant-bodies/demolay.svg" },
-    RAINBOW: { name: "Rainbow for Girls", logoPath: "/branding/appendant-bodies/rainbow.svg" },
-    JOBDIE: { name: "Job's Daughters", logoPath: "/branding/appendant-bodies/jobs.svg" },
-    GROTTO: { name: "Grotto", logoPath: "/branding/appendant-bodies/grotto.svg" },
-    TALLCEDARS: { name: "Tall Cedars", logoPath: "/branding/appendant-bodies/tallcedars.svg" },
-    SHRINERS: { name: "Shriners", logoPath: "/branding/appendant-bodies/shrine.svg" },
-    KYCH: { name: "KYCH", logoPath: "/branding/appendant-bodies/kych.svg" },
-    KYGCH: { name: "KYGCH", logoPath: "/branding/appendant-bodies/kych.svg" },
-    ROSE: { name: "Order of the Rose", logoPath: "/branding/appendant-bodies/rose.svg" },
-    AMD: { name: "Allied Masonic Degrees", logoPath: "/branding/appendant-bodies/amd.svg" },
-    REDCROSS: { name: "Red Cross of Constantine", logoPath: "/branding/appendant-bodies/redcross.svg" },
-    ROSICRUCIAN: { name: "Rosicrucian", logoPath: "/branding/appendant-bodies/rosicrucian.svg" },
-    ROYALORDER: { name: "Royal Order of Scotland", logoPath: "/branding/appendant-bodies/royalorder.svg" },
-    HRAKTP: { name: "Holy Royal Arch", logoPath: "/branding/appendant-bodies/hraktp.svg" },
-    KNIGHTTEMPLAR: { name: "Knights Templar", logoPath: "/branding/appendant-bodies/templar.svg" },
-  };
-  const found = details[code] ?? { name: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), logoPath: "/branding/appendant-bodies/placeholder.svg" };
-  return { key, ...found };
+  const code = appendantBodyCode(key);
+  const details = appendantBodyDetails[code.toUpperCase()] ?? { name: code, logoPath: "/branding/appendant-bodies/placeholder.svg" };
+  return { key, name: details.name, logoPath: details.logoPath };
 }
 
 function profileDisplayName(fullName: string): string {
