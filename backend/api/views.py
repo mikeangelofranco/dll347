@@ -1432,7 +1432,7 @@ def member_list_view(request):
         records = [
             record
             for record in records
-            if member_display_group_from_section(record.section).key
+            if classify_member_group(record.section)
             not in {"inactive_snpd_demit", "dropped_working_tools"}
         ]
         if not search:
