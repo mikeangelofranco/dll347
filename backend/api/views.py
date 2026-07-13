@@ -1100,6 +1100,8 @@ def member_summary_view(request):
         member_sheet = latest_import.sheet_summaries.get("DLL 347 Members Database", {})
         section_names = member_sheet.get("sections", []) if isinstance(member_sheet, dict) else []
         for section_name in section_names:
+            if is_trestle_board_member(section_name):
+                continue
             group = member_display_group_from_section(section_name)
             if group.key not in groups:
                 groups[group.key] = {
