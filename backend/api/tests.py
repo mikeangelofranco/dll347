@@ -25,7 +25,7 @@ from .excel_members import (
     sheet_columns,
     update_existing_members_from_workbook,
 )
-from .models import LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
+from .models import AuditLog, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
 
 
 class ExcelMemberImportHelpersTests(SimpleTestCase):
@@ -432,6 +432,81 @@ class AuthApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["email"], self.user.email)
+        app_open = AuditLog.objects.get(actor=self.user, action=AuditLog.Action.APP_OPEN)
+        self.assertEqual(app_open.screen, "Dashboard")
+        self.assertEqual(app_open.event_label, "Opened DLL347 app")
+
+    def test_authenticated_user_can_record_screen_view_and_action(self):
+        self.client.force_login(self.user)
+
+        screen_response = self.client.post(
+            reverse("api:user-activity"),
+            {"event_type": "screen_view", "screen": "Members"},
+            content_type="application/json",
+        )
+        action_response = self.client.post(
+            reverse("api:user-activity"),
+            {
+                "event_type": "user_action",
+                "screen": "Members",
+                "event_label": "View Member Profile",
+            },
+            content_type="application/json",
+        )
+        resume_response = self.client.post(
+            reverse("api:user-activity"),
+            {"event_type": "app_open", "screen": "Dashboard"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(screen_response.status_code, 201)
+        self.assertEqual(action_response.status_code, 201)
+        self.assertEqual(resume_response.status_code, 201)
+        self.assertTrue(
+            AuditLog.objects.filter(
+                actor=self.user,
+                action=AuditLog.Action.SCREEN_VIEW,
+                screen="Members",
+                event_label="Viewed Members",
+            ).exists()
+        )
+        self.assertTrue(
+            AuditLog.objects.filter(
+                actor=self.user,
+                action=AuditLog.Action.APP_OPEN,
+                event_label="Returned to DLL347 app",
+            ).exists()
+        )
+        self.assertTrue(
+            AuditLog.objects.filter(
+                actor=self.user,
+                action=AuditLog.Action.USER_ACTION,
+                screen="Members",
+                event_label="View Member Profile",
+            ).exists()
+        )
+
+    def test_user_activity_rejects_unknown_screen_and_action(self):
+        self.client.force_login(self.user)
+
+        unknown_screen = self.client.post(
+            reverse("api:user-activity"),
+            {"event_type": "screen_view", "screen": "Secret Screen"},
+            content_type="application/json",
+        )
+        unknown_action = self.client.post(
+            reverse("api:user-activity"),
+            {
+                "event_type": "user_action",
+                "screen": "Dashboard",
+                "event_label": "Arbitrary Event",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(unknown_screen.status_code, 400)
+        self.assertEqual(unknown_action.status_code, 400)
+        self.assertFalse(AuditLog.objects.filter(actor=self.user).exists())
 
     def test_current_account_returns_member_profile_matched_by_email(self):
         member_user = get_user_model().objects.create_user(
@@ -1652,6 +1727,7 @@ class AuthApiTests(TestCase):
         response = self.client.post(reverse("api:logout"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertTrue(AuditLog.objects.filter(actor=self.user, action=AuditLog.Action.LOGOUT).exists())
         follow_up = self.client.get(reverse("api:current-account"))
         self.assertEqual(follow_up.status_code, 403)
 
@@ -1718,6 +1794,34 @@ class PreidentifiedEmailAdminApiTests(TestCase):
         response = self.client.get(reverse("api:preidentified-emails"))
 
         self.assertEqual(response.status_code, 403)
+
+    def test_audit_log_admin_shows_usage_report(self):
+        AuditLog.objects.create(
+            actor=self.developer,
+            action=AuditLog.Action.SCREEN_VIEW,
+            screen="Documents",
+            event_label="Viewed Documents",
+        )
+        AuditLog.objects.create(
+            actor=self.developer,
+            action=AuditLog.Action.USER_ACTION,
+            screen="Members",
+            event_label="View Member Profile",
+        )
+        AuditLog.objects.create(
+            actor=self.developer,
+            action=AuditLog.Action.APP_OPEN,
+            screen="Dashboard",
+        )
+        self.client.force_login(self.developer)
+
+        response = self.client.get(reverse("admin:api_auditlog_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["app_opens"], 1)
+        self.assertEqual(response.context["active_users"], 1)
+        self.assertEqual(response.context["top_screens"][0]["screen"], "Documents")
+        self.assertEqual(response.context["top_actions"][0]["label"], "View Member Profile")
 
     def test_preidentified_emails_requires_developer_role(self):
         self.client.force_login(self.member)

@@ -76,6 +76,21 @@ export type LogoutResponse = {
   message: string;
 };
 
+export type ActivityScreen =
+  | "Dashboard"
+  | "Members"
+  | "Dues"
+  | "My Profile"
+  | "Documents"
+  | "More"
+  | "Activity Management"
+  | "Edit Member";
+
+export type UserActionLabel =
+  | "View Member Profile"
+  | "View Activity Details"
+  | "Add Activity to Calendar";
+
 export type PreidentifiedEmailRecord = {
   id: number;
   email: string;
@@ -625,6 +640,34 @@ export async function validateResetPasswordToken(
 
 export async function getCurrentAccount(): Promise<CurrentAccountResponse> {
   return apiGet<CurrentAccountResponse>("/auth/me/");
+}
+
+async function recordActivity(payload: {
+  event_type: "app_open" | "screen_view" | "user_action";
+  screen: ActivityScreen;
+  event_label?: UserActionLabel;
+}): Promise<void> {
+  try {
+    await apiPost<{ message: string }>("/activity/", payload);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 403) {
+      throw error;
+    }
+    await prepareSessionCsrf();
+    await apiPost<{ message: string }>("/activity/", payload);
+  }
+}
+
+export function trackScreenView(screen: ActivityScreen): void {
+  void recordActivity({ event_type: "screen_view", screen }).catch(() => undefined);
+}
+
+export function trackAppOpen(screen: ActivityScreen = "Dashboard"): void {
+  void recordActivity({ event_type: "app_open", screen }).catch(() => undefined);
+}
+
+export function trackUserAction(screen: ActivityScreen, eventLabel: UserActionLabel): void {
+  void recordActivity({ event_type: "user_action", screen, event_label: eventLabel }).catch(() => undefined);
 }
 
 export async function logoutCurrentSession(): Promise<LogoutResponse> {

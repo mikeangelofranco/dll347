@@ -29,6 +29,7 @@ from .views import (
     secretary_dashboard_summary_view,
     setup_password_view,
     upcoming_lodge_activities_view,
+    user_activity_view,
     validate_reset_password_token_view,
 )
 
@@ -44,6 +45,7 @@ urlpatterns = [
     path("auth/setup-password/", setup_password_view, name="setup-password"),
     path("auth/logout/", logout_view, name="logout"),
     path("auth/me/", current_account_view, name="current-account"),
+    path("activity/", user_activity_view, name="user-activity"),
     path("members/me/profile/", member_full_profile_view, name="member-full-profile"),
     path("members/<int:member_id>/profile/", member_detail_profile_view, name="member-detail-profile"),
     path("members/<int:member_id>/edit/", member_edit_profile_view, name="member-edit-profile"),

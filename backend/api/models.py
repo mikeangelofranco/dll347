@@ -211,6 +211,10 @@ class PasswordResetToken(models.Model):
 
 class AuditLog(models.Model):
     class Action(models.TextChoices):
+        APP_OPEN = "app_open", "App Opened"
+        SCREEN_VIEW = "screen_view", "Screen Viewed"
+        USER_ACTION = "user_action", "User Action"
+        LOGOUT = "logout", "Logout"
         LOGIN_SUCCESS = "login_success", "Login Success"
         LOGIN_FAILED = "login_failed", "Login Failed"
         ACCOUNT_LOCKED = "account_locked", "Account Locked"
@@ -233,6 +237,8 @@ class AuditLog(models.Model):
     action = models.CharField(max_length=40, choices=Action.choices)
     target_model = models.CharField(max_length=100, blank=True)
     target_id = models.PositiveIntegerField(null=True, blank=True)
+    screen = models.CharField(max_length=100, blank=True)
+    event_label = models.CharField(max_length=100, blank=True)
     changes = models.JSONField(default=dict)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=255, blank=True)
@@ -244,6 +250,7 @@ class AuditLog(models.Model):
         indexes = [
             models.Index(fields=["actor", "-created_at"], name="audit_actor_created_idx"),
             models.Index(fields=["action", "-created_at"], name="audit_action_created_idx"),
+            models.Index(fields=["screen", "-created_at"], name="audit_screen_created_idx"),
             models.Index(fields=["target_model", "target_id"], name="audit_target_idx"),
         ]
 

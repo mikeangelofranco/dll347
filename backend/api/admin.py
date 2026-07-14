@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.db.models import Count, OuterRef, Subquery
+from django.utils import timezone
 
 from .models import (
     Account,
@@ -20,7 +22,7 @@ from .models import (
 @admin.register(Account)
 class AccountAdmin(UserAdmin):
     ordering = ("id",)
-    list_display = ("id", "email", "role", "can_manage_activities", "can_edit_members", "is_active", "is_staff", "failed_login_attempts", "locked_until", "last_login")
+    list_display = ("id", "email", "role", "is_active", "last_login", "last_app_activity", "last_viewed_screen")
     list_filter = ("role", "can_manage_activities", "can_edit_members", "is_active", "is_staff")
     search_fields = ("email",)
     actions = ("unlock_accounts",)
@@ -48,6 +50,29 @@ class AccountAdmin(UserAdmin):
             },
         ),
     )
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        recent_activity = AuditLog.objects.filter(
+            actor=OuterRef("pk"),
+            action__in=(AuditLog.Action.APP_OPEN, AuditLog.Action.SCREEN_VIEW),
+        ).order_by("-created_at", "-id")
+        recent_screen = AuditLog.objects.filter(
+            actor=OuterRef("pk"),
+            action=AuditLog.Action.SCREEN_VIEW,
+        ).exclude(screen="").order_by("-created_at", "-id")
+        return queryset.annotate(
+            _last_app_activity=Subquery(recent_activity.values("created_at")[:1]),
+            _last_viewed_screen=Subquery(recent_screen.values("screen")[:1]),
+        )
+
+    @admin.display(description="Last app activity", ordering="_last_app_activity")
+    def last_app_activity(self, obj):
+        return obj._last_app_activity
+
+    @admin.display(description="Last screen")
+    def last_viewed_screen(self, obj):
+        return obj._last_viewed_screen or "—"
 
 
 @admin.register(PreidentifiedEmail)
@@ -142,10 +167,11 @@ class BallotingCoinRecordAdmin(admin.ModelAdmin):
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "action", "actor_email", "target_model", "target_id")
-    list_filter = ("action", "target_model")
-    search_fields = ("actor__email", "ip_address", "user_agent")
-    readonly_fields = ("actor", "action", "target_model", "target_id", "changes", "ip_address", "user_agent", "created_at")
+    change_list_template = "admin/api/auditlog/change_list.html"
+    list_display = ("created_at", "actor_email", "action", "screen", "event_label", "target_model", "target_id")
+    list_filter = ("action", "screen", "target_model")
+    search_fields = ("actor__email", "screen", "event_label", "ip_address", "user_agent")
+    readonly_fields = ("actor", "action", "screen", "event_label", "target_model", "target_id", "changes", "ip_address", "user_agent", "created_at")
     date_hierarchy = "created_at"
 
     def actor_email(self, obj):
@@ -153,6 +179,47 @@ class AuditLogAdmin(admin.ModelAdmin):
 
     actor_email.short_description = "Actor"
     actor_email.admin_order_field = "actor__email"
+
+    def changelist_view(self, request, extra_context=None):
+        since = timezone.now() - timezone.timedelta(days=30)
+        recent = AuditLog.objects.filter(created_at__gte=since, actor__isnull=False)
+        top_screens = list(
+            recent.filter(action=AuditLog.Action.SCREEN_VIEW)
+            .exclude(screen="")
+            .values("screen")
+            .annotate(count=Count("id"), users=Count("actor", distinct=True))
+            .order_by("-count", "screen")[:10]
+        )
+
+        excluded_actions = (
+            AuditLog.Action.APP_OPEN,
+            AuditLog.Action.SCREEN_VIEW,
+            AuditLog.Action.LOGIN_SUCCESS,
+            AuditLog.Action.LOGIN_FAILED,
+            AuditLog.Action.ACCOUNT_LOCKED,
+        )
+        action_counts = list(
+            recent.exclude(action__in=excluded_actions)
+            .values("action", "event_label")
+            .annotate(count=Count("id"), users=Count("actor", distinct=True))
+            .order_by("-count", "action", "event_label")[:10]
+        )
+        action_labels = dict(AuditLog.Action.choices)
+        for item in action_counts:
+            item["label"] = item["event_label"] or action_labels.get(item["action"], item["action"])
+
+        context = {
+            "report_days": 30,
+            "app_opens": recent.filter(action=AuditLog.Action.APP_OPEN).count(),
+            "active_users": recent.filter(
+                action__in=(AuditLog.Action.APP_OPEN, AuditLog.Action.SCREEN_VIEW)
+            ).values("actor").distinct().count(),
+            "top_screens": top_screens,
+            "top_actions": action_counts,
+        }
+        if extra_context:
+            context.update(extra_context)
+        return super().changelist_view(request, extra_context=context)
 
     def has_add_permission(self, request):
         return False

@@ -1,0 +1,47 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block content %}
+  <div class="module" style="margin-bottom: 20px; padding: 16px;">
+    <h2 style="margin: 0 0 14px;">DLL347 usage report — last {{ report_days }} days</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px;">
+      <div style="border: 1px solid var(--hairline-color); border-radius: 6px; padding: 12px;">
+        <div style="color: var(--body-quiet-color);">App opens</div>
+        <strong style="font-size: 24px;">{{ app_opens }}</strong>
+      </div>
+      <div style="border: 1px solid var(--hairline-color); border-radius: 6px; padding: 12px;">
+        <div style="color: var(--body-quiet-color);">Active users</div>
+        <strong style="font-size: 24px;">{{ active_users }}</strong>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+      <div>
+        <h3>Most visited screens</h3>
+        <table style="width: 100%;">
+          <thead><tr><th>Screen</th><th>Visits</th><th>Users</th></tr></thead>
+          <tbody>
+            {% for item in top_screens %}
+              <tr><td>{{ item.screen }}</td><td>{{ item.count }}</td><td>{{ item.users }}</td></tr>
+            {% empty %}
+              <tr><td colspan="3">No screen visits recorded yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Most used actions</h3>
+        <table style="width: 100%;">
+          <thead><tr><th>Action</th><th>Uses</th><th>Users</th></tr></thead>
+          <tbody>
+            {% for item in top_actions %}
+              <tr><td>{{ item.label }}</td><td>{{ item.count }}</td><td>{{ item.users }}</td></tr>
+            {% empty %}
+              <tr><td colspan="3">No user actions recorded yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {{ block.super }}
+{% endblock %}

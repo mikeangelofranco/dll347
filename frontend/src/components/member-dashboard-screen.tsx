@@ -6,7 +6,7 @@ import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "re
 import { ThemedLoader } from "@/components/themed-loader";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
 import { timeBasedGreeting } from "@/lib/greeting";
-import { createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, updateMemberProfile, uploadMemberProfilePhotoById, getMemberAccountStatus, activateMemberLogin, deactivateMemberLogin } from "@/lib/api";
+import { ActivityScreen, createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, trackScreenView, trackUserAction, updateMemberProfile, uploadMemberProfilePhotoById, getMemberAccountStatus, activateMemberLogin, deactivateMemberLogin } from "@/lib/api";
 
 type MemberDashboardScreenProps = {
   profile: MemberDashboardProfile | null;
@@ -1107,6 +1107,22 @@ export function MemberDashboardScreen({
   }, [selectedPhotoUrl]);
 
   useEffect(() => {
+    if (usesSecretaryNav) {
+      return;
+    }
+    const screenByView: Record<Exclude<MemberDashboardView, "home">, ActivityScreen> = {
+      profile: "My Profile",
+      members: "Members",
+      activity: "Activity Management",
+      "member-edit": "Edit Member",
+    };
+    const screen = activeView === "home"
+      ? (activeTab === "more" ? "More" : "Dashboard")
+      : screenByView[activeView];
+    trackScreenView(screen);
+  }, [activeTab, activeView, usesSecretaryNav]);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadMemberSummary() {
@@ -1853,6 +1869,7 @@ export function MemberDashboardScreen({
   }
 
   async function openMemberProfile(memberId: number) {
+    trackUserAction("Members", "View Member Profile");
     setSelectedMemberProfile(null);
     setSelectedMemberProfileError("");
     setIsSelectedMemberProfileLoading(true);
@@ -1914,6 +1931,7 @@ export function MemberDashboardScreen({
   }
 
   async function openActivityDetails(activity: LodgeActivity) {
+    trackUserAction("Dashboard", "View Activity Details");
     setClosingSheet(null);
     setSelectedActivity(activity);
     setIsUpcomingActivitiesOpen(false);
@@ -1935,6 +1953,7 @@ export function MemberDashboardScreen({
   }
 
   function handleAddActivityToCalendar(activity: LodgeActivity) {
+    trackUserAction("Dashboard", "Add Activity to Calendar");
     downloadLodgeActivityCalendar(activity);
     window.localStorage.setItem(calendarAddedStorageKey(activity.id), "1");
     setCalendarAddedActivityId(activity.id);

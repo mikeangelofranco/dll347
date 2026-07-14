@@ -26,6 +26,10 @@ import {
   LodgeActivity,
   MemberListItem,
   MemberFullProfile,
+  ActivityScreen,
+  trackAppOpen,
+  trackScreenView,
+  trackUserAction,
 } from "@/lib/api";
 
 type SecretaryDashboardView = "home" | "members" | "profile" | "documents" | "more" | "dues";
@@ -882,6 +886,34 @@ export function DashboardScreen() {
   }, [refreshDashboardSummaries, router]);
 
   useEffect(() => {
+    if (status !== "ready" || account === null || account.role === "member") {
+      return;
+    }
+    const screenByView: Record<SecretaryDashboardView, ActivityScreen> = {
+      home: "Dashboard",
+      members: "Members",
+      dues: "Dues",
+      profile: "My Profile",
+      documents: "Documents",
+      more: "More",
+    };
+    trackScreenView(screenByView[activeView]);
+  }, [account, activeView, status]);
+
+  useEffect(() => {
+    if (status !== "ready") {
+      return;
+    }
+    function recordForegroundReturn() {
+      if (document.visibilityState === "visible") {
+        trackAppOpen("Dashboard");
+      }
+    }
+    document.addEventListener("visibilitychange", recordForegroundReturn);
+    return () => document.removeEventListener("visibilitychange", recordForegroundReturn);
+  }, [status]);
+
+  useEffect(() => {
     if (activeView !== "members" && activeView !== "dues" || memberSummaryGroups === null) {
       return;
     }
@@ -995,6 +1027,7 @@ export function DashboardScreen() {
   }
 
   async function openMemberProfile(memberId: number) {
+    trackUserAction(activeView === "dues" ? "Dues" : "Members", "View Member Profile");
     setSelectedMemberProfile(null);
     setSelectedMemberProfileError("");
     setIsSelectedMemberProfileLoading(true);
@@ -1026,6 +1059,7 @@ export function DashboardScreen() {
   }
 
   async function openActivityDetails(activity: LodgeActivity) {
+    trackUserAction("Dashboard", "View Activity Details");
     setClosingSheet(null);
     setSelectedActivity(activity);
     setIsUpcomingActivitiesOpen(false);
@@ -1047,6 +1081,7 @@ export function DashboardScreen() {
   }
 
   function handleAddActivityToCalendar(activity: LodgeActivity) {
+    trackUserAction("Dashboard", "Add Activity to Calendar");
     downloadLodgeActivityCalendar(activity);
     window.localStorage.setItem(calendarAddedStorageKey(activity.id), "1");
     setCalendarAddedActivityId(activity.id);

@@ -66,6 +66,21 @@ DOCUMENT_EXTENSION_FALLBACK = {
 DOCUMENT_MAX_BYTES = 20 * 1024 * 1024
 MAX_FAILED_LOGIN_ATTEMPTS = 5
 LOCKOUT_DURATION_MINUTES = 15
+TRACKABLE_SCREENS = {
+    "Dashboard",
+    "Members",
+    "Dues",
+    "My Profile",
+    "Documents",
+    "More",
+    "Activity Management",
+    "Edit Member",
+}
+TRACKABLE_USER_ACTIONS = {
+    "View Member Profile",
+    "View Activity Details",
+    "Add Activity to Calendar",
+}
 DOCUMENT_EXTRACTION_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="document-extraction")
 logger = logging.getLogger(__name__)
 DOCUMENT_MONTH_NAMES = {
@@ -276,6 +291,8 @@ def create_audit_log(
     actor=None,
     target_model: str = "",
     target_id: int | None = None,
+    screen: str = "",
+    event_label: str = "",
     changes: dict | None = None,
     ip_address: str = "",
     user_agent: str = "",
@@ -285,6 +302,8 @@ def create_audit_log(
         action=action,
         target_model=target_model,
         target_id=target_id,
+        screen=screen[:100],
+        event_label=event_label[:100],
         changes=changes or {},
         ip_address=ip_address[:39] if ip_address else "",
         user_agent=user_agent[:255] if user_agent else "",
@@ -742,6 +761,12 @@ def reset_password_view(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def logout_view(request):
+    create_audit_log(
+        AuditLog.Action.LOGOUT,
+        actor=request.user,
+        screen=request.data.get("screen", "") if isinstance(request.data, dict) else "",
+        **audit_from_request(request),
+    )
     logout(request)
     return Response({"message": "Logout successful."}, status=status.HTTP_200_OK)
 
@@ -750,7 +775,51 @@ def logout_view(request):
 @permission_classes([IsAuthenticated])
 def current_account_view(request):
     request.user.ensure_reserved_developer_access(persist=True)
+    create_audit_log(
+        AuditLog.Action.APP_OPEN,
+        actor=request.user,
+        screen="Dashboard",
+        event_label="Opened DLL347 app",
+        **audit_from_request(request),
+    )
     return Response(AccountSerializer(request.user, context={"request": request}).data, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def user_activity_view(request):
+    event_type = str(request.data.get("event_type", "")).strip()
+    screen = str(request.data.get("screen", "")).strip()
+    event_label = str(request.data.get("event_label", "")).strip()
+
+    if screen not in TRACKABLE_SCREENS:
+        return Response(
+            {"code": "INVALID_SCREEN", "message": "Please provide a valid app screen."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if event_type == AuditLog.Action.APP_OPEN:
+        action = AuditLog.Action.APP_OPEN
+        event_label = "Returned to DLL347 app"
+    elif event_type == AuditLog.Action.SCREEN_VIEW:
+        action = AuditLog.Action.SCREEN_VIEW
+        event_label = event_label or f"Viewed {screen}"
+    elif event_type == AuditLog.Action.USER_ACTION and event_label in TRACKABLE_USER_ACTIONS:
+        action = AuditLog.Action.USER_ACTION
+    else:
+        return Response(
+            {"code": "INVALID_ACTIVITY", "message": "Please provide a valid activity event."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    create_audit_log(
+        action,
+        actor=request.user,
+        screen=screen,
+        event_label=event_label,
+        **audit_from_request(request),
+    )
+    return Response({"message": "Activity recorded."}, status=status.HTTP_201_CREATED)
 
 
 @api_view(["POST"])
