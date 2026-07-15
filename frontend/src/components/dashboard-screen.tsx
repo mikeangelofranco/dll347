@@ -31,6 +31,7 @@ import {
   trackScreenView,
   trackUserAction,
 } from "@/lib/api";
+import { useIdleTimeout } from "@/lib/use-idle-timeout";
 
 type SecretaryDashboardView = "home" | "members" | "profile" | "documents" | "more" | "dues";
 type SecretarySheetName = "activity";
@@ -784,6 +785,7 @@ const baseNavItems = [
 
 export function DashboardScreen() {
   const router = useRouter();
+  useIdleTimeout();
   const [activeView, setActiveView] = useState<SecretaryDashboardView>("home");
   const [isMembersViewClosing, setIsMembersViewClosing] = useState(false);
   const [status, setStatus] = useState<"loading" | "ready" | "redirecting">("loading");
