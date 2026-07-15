@@ -69,23 +69,18 @@ def _month_has_attendance(obj: MemberDatabaseRecord, year: str, month_abbr: str)
     return False
 
 
-def _last_six_months(obj: MemberDatabaseRecord):
+def _months_attended_past_twelve(obj: MemberDatabaseRecord) -> int:
     today = timezone.localdate()
-    year, month = today.year, today.month
-    current_abbr = _MONTH_ABBREVIATIONS[month - 1]
-    if not _month_has_attendance(obj, str(year), current_abbr):
-        month -= 1
-        if month == 0:
-            month = 12
+    count = 0
+    for i in range(12):
+        year = today.year
+        month = today.month - i
+        if month <= 0:
+            month += 12
             year -= 1
-    result = []
-    for _ in range(6):
-        result.append((str(year), _MONTH_ABBREVIATIONS[month - 1]))
-        month -= 1
-        if month == 0:
-            month = 12
-            year -= 1
-    return result
+        if _month_has_attendance(obj, str(year), _MONTH_ABBREVIATIONS[month - 1]):
+            count += 1
+    return count
 
 
 class MemberDashboardProfileSerializer(serializers.ModelSerializer):
@@ -95,6 +90,8 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
     attendance_this_year = serializers.SerializerMethodField()
     three_meetings_rule = serializers.SerializerMethodField()
     six_meetings_rule = serializers.SerializerMethodField()
+    six_meeting_attendance = serializers.SerializerMethodField()
+    proficiency_date = serializers.DateField()
     years_of_membership = serializers.SerializerMethodField()
     member_since = serializers.SerializerMethodField()
     profile_photo_url = serializers.SerializerMethodField()
@@ -114,6 +111,8 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
             "attendance_this_year",
             "three_meetings_rule",
             "six_meetings_rule",
+            "six_meeting_attendance",
+            "proficiency_date",
             "years_of_membership",
             "member_since",
             "profile_photo_url",
@@ -151,10 +150,10 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
         return len(_months_attended(obj, current_year)) >= 3
 
     def get_six_meetings_rule(self, obj: MemberDatabaseRecord) -> bool:
-        return sum(
-            1 for year, month_abbr in _last_six_months(obj)
-            if _month_has_attendance(obj, year, month_abbr)
-        ) >= 6
+        return _months_attended_past_twelve(obj) >= 6
+
+    def get_six_meeting_attendance(self, obj: MemberDatabaseRecord) -> int:
+        return _months_attended_past_twelve(obj)
 
     def get_member_since(self, obj: MemberDatabaseRecord):
         return obj.raising_date or obj.initiation_date

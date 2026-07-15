@@ -475,7 +475,7 @@ function buildHealthRows(summary: SecretaryDashboardSummaryResponse) {
     },
     {
       title: "Attendance",
-      subtitle: `${summary.attendance.average_count} avg per meeting`,
+      subtitle: `${summary.attendance.average_count} attended last meeting`,
       percent: summary.attendance.percent,
       color: "bg-[#cf8c00]",
       iconBg: "bg-[#cf8c00]",

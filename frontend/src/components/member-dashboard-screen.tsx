@@ -360,7 +360,7 @@ const appendantBodyDetails: Record<string, { name: string; subtitle: string; log
   BIRTH: {
     name: "BIRTH",
     subtitle: "Appendant body / club",
-    logoPath: "/branding/appendant-bodies/placeholder.svg",
+    logoPath: "/branding/appendant-bodies/birth.png",
   },
   BAGWIS: {
     name: "BAGWIS",
@@ -370,7 +370,7 @@ const appendantBodyDetails: Record<string, { name: string; subtitle: string; log
   "PNPA BEST": {
     name: "PNPA BEST",
     subtitle: "Appendant body / club",
-    logoPath: "/branding/appendant-bodies/placeholder.svg",
+    logoPath: "/branding/appendant-bodies/pnpa_best.png",
   },
 };
 
@@ -862,6 +862,29 @@ function memberGroupFromSection(section: string): MemberGroupKey {
     return "dual_plural";
   }
   return "regular";
+}
+
+function memberGroupLabel(status: string): string {
+  const normalized = status.toUpperCase();
+  if (normalized.includes("DROPED") || normalized.includes("DROPPED") || normalized.includes("WORKING TOOLS")) {
+    return "Dropped Working Tools";
+  }
+  if (normalized.includes("SUSPENDED")) {
+    return "Suspended";
+  }
+  if (normalized.includes("DEMIT")) {
+    return "Demit";
+  }
+  if (normalized.includes("HONORARY")) {
+    return "Honorary";
+  }
+  if (normalized.includes("DUAL") || normalized.includes("PLURAL")) {
+    return "Dual/Plural";
+  }
+  if (normalized.includes("AFFILIATED")) {
+    return "Affiliated";
+  }
+  return "Regular";
 }
 
 function memberGroupDetails(group: MemberGroupKey, groups: MemberGroupDisplay[]) {
@@ -2857,20 +2880,20 @@ export function MemberDashboardScreen({
 
   if (activeView === "profile" && fullProfile !== null) {
     const profileRows = [
-      ["GLP ID", displayValue(fullProfile.glp_id_number)],
+      ["GLP No.", displayValue(fullProfile.glp_id_number)],
       ["Member since", formatDate(fullProfile.member_since)],
-      ["Status", fullProfile.status],
+      ["Years", fullProfile.years_of_membership != null && fullProfile.years_of_membership >= 25 ? "LML" : String(fullProfile.years_of_membership ?? "-")],
+      ["Status", memberGroupLabel(fullProfile.section)],
       ["Lodge", "Datu Lapu-Lapu Lodge No. 347"],
       ["Grand Lodge", "Grand Lodge of the Philippines"],
-      ["Birthdate", formatDate(fullProfile.date_of_birth)],
-      ["Email", displayValue(fullProfile.email)],
-      ["Phone", displayValue(fullProfile.telephone)],
-      ["Address", displayValue(fullProfile.address)],
     ];
     const additionalRows = [
+      ["Birthday", formatDate(fullProfile.date_of_birth)],
+      ["Address", displayValue(fullProfile.address)],
+      ["Phone", displayValue(fullProfile.telephone)],
+      ["Email", displayValue(fullProfile.email)],
       ["Blood Type", displayValue(fullProfile.blood_type)],
-      ["Widow / Sister", displayValue(fullProfile.widow_or_sister)],
-      ["Proficiency", formatDate(fullProfile.proficiency_date)],
+      ["Wife", displayValue(fullProfile.widow_or_sister)],
     ];
     const appendantItems = appendantBodyItems(fullProfile.appendant_bodies ?? {});
     const appendantCount = appendantItems.length;
@@ -2951,7 +2974,7 @@ export function MemberDashboardScreen({
             </section>
 
             <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 px-3.5 py-3 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
-              <h3 className="text-[0.78rem] font-bold">Additional Information</h3>
+              <h3 className="text-[0.78rem] font-bold">Personal Information</h3>
               <div className="mt-2">
                 {additionalRows.map(([label, value]) => (
                   <div key={label} className="flex items-center justify-between gap-4 border-b border-[#e9e1d8] py-2.5 last:border-b-0">
@@ -2975,7 +2998,7 @@ export function MemberDashboardScreen({
             </section>
 
             <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 p-3.5 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
-              <h3 className="text-[0.78rem] font-bold">Activity Summary</h3>
+              <h3 className="text-[0.78rem] font-bold">Standing Summary</h3>
               <div className="mt-3 grid grid-cols-4 divide-x divide-[#e9e1d8]">
                 <div className="px-1.5 text-center">
                   <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
@@ -2987,7 +3010,7 @@ export function MemberDashboardScreen({
                   </span>
                   <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">3 Meeting Rule</div>
                   <div className={`text-[0.46rem] font-semibold ${fullProfile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
-                    {fullProfile.three_meetings_rule ? "Qualified" : "Not met"}
+                    {fullProfile.attendance_this_year} Meeting
                   </div>
                 </div>
                 <div className="px-1.5 text-center">
@@ -2999,7 +3022,7 @@ export function MemberDashboardScreen({
                     )}
                   </span>
                   <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">6 Meeting Rule</div>
-                  <div className="text-[0.46rem] font-semibold text-[#90887e]">{fullProfile.attendance_this_year} this year</div>
+                  <div className="text-[0.46rem] font-semibold text-[#90887e]">{fullProfile.six_meeting_attendance} Meeting</div>
                 </div>
                 <div className="px-1.5 text-center">
                   <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
@@ -3015,8 +3038,8 @@ export function MemberDashboardScreen({
                   </div>
                 </div>
                 <div className="px-1.5 text-center">
-                  <div className="text-[0.52rem] font-bold text-[#3a342f]">Years</div>
-                  <div className="mt-2 text-[0.8rem] font-bold text-[#3a342f]">{fullProfile.years_of_membership != null && fullProfile.years_of_membership >= 25 ? "LML" : fullProfile.years_of_membership ?? "-"}</div>
+                  <div className="text-[0.52rem] font-bold text-[#3a342f]">Proficiency</div>
+                  <div className="mt-2 text-[0.62rem] font-bold text-[#3a342f]">{formatDate(fullProfile.proficiency_date)}</div>
                 </div>
               </div>
             </section>
@@ -3183,7 +3206,7 @@ export function MemberDashboardScreen({
                 </span>
                 <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">3 Meeting Rule</div>
                 <div className={`mt-0.5 text-[0.5rem] font-semibold ${profile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
-                  {profile.three_meetings_rule ? "Qualified" : "Not met"}
+                  {profile.attendance_this_year} Meeting
                 </div>
               </div>
               <div className="px-1.5 text-center">
@@ -3195,7 +3218,7 @@ export function MemberDashboardScreen({
                   )}
                 </span>
                 <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">6 Meeting Rule</div>
-                <div className="mt-0.5 text-[0.52rem] font-semibold text-[#6e665d]">{profile.attendance_this_year} this year</div>
+                <div className="mt-0.5 text-[0.52rem] font-semibold text-[#6e665d]">{profile.six_meeting_attendance} Meeting</div>
               </div>
               <div className="px-1.5 text-center">
                 <span className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full ${profile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
@@ -3211,8 +3234,8 @@ export function MemberDashboardScreen({
                 </div>
               </div>
               <div className="px-1.5 text-center">
-                <div className="text-[0.55rem] font-bold leading-tight text-[#3a342f]">Years</div>
-                <div className="mt-2 text-[0.75rem] font-bold text-[#3a342f]">{profile.years_of_membership != null && profile.years_of_membership >= 25 ? "LML" : profile.years_of_membership ?? "-"}</div>
+                <div className="text-[0.55rem] font-bold leading-tight text-[#3a342f]">Proficiency</div>
+                <div className="mt-2 text-[0.62rem] font-bold text-[#3a342f]">{formatDate(profile.proficiency_date)}</div>
               </div>
             </div>
 

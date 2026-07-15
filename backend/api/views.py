@@ -1230,11 +1230,19 @@ def secretary_dashboard_summary_view(request):
             if key.startswith(f"{current_year} -") and json_cell_has_value(item):
                 monthly_meeting_counts[key] = monthly_meeting_counts.get(key, 0) + 1
 
-    average_attendance = (
-        round(sum(monthly_meeting_counts.values()) / len(monthly_meeting_counts))
-        if monthly_meeting_counts
-        else 0
-    )
+    month_order = {
+        "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4,
+        "May": 5, "Jun": 6, "Jul": 7, "Aug": 8,
+        "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+    }
+    latest_attendance = 0
+    latest_month_order = -1
+    for key, count in monthly_meeting_counts.items():
+        month_abbr = key.rsplit(" / ", 1)[-1].strip()
+        order = month_order.get(month_abbr, -1)
+        if order > latest_month_order:
+            latest_month_order = order
+            latest_attendance = count
 
     progressing_count = sum(
         1
@@ -1253,7 +1261,7 @@ def secretary_dashboard_summary_view(request):
         len(regular_members) - len(dropped_working_tools_members),
     )
     growth_percent = percent_of(progressing_count, len(active_trestle_board_members))
-    attendance_percent = percent_of(average_attendance, len(attendance_members))
+    attendance_percent = percent_of(latest_attendance, len(attendance_members))
     dues_paid_count = sum(
         1
         for record in dues_eligible_members
@@ -1286,7 +1294,7 @@ def secretary_dashboard_summary_view(request):
                 **financial_summary_payload(),
             },
             "attendance": {
-                "average_count": average_attendance,
+                "average_count": latest_attendance,
                 "total_count": len(attendance_members),
                 "meeting_count": len(monthly_meeting_counts),
                 "percent": attendance_percent,

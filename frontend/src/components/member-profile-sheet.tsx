@@ -50,9 +50,17 @@ const appendantBodyDetails: Record<string, { name: string; logoPath: string }> =
     name: "OSM",
     logoPath: "/branding/appendant-bodies/osm.png",
   },
+  BIRTH: {
+    name: "BIRTH",
+    logoPath: "/branding/appendant-bodies/birth.png",
+  },
   BAGWIS: {
     name: "BAGWIS",
     logoPath: "/branding/appendant-bodies/bagwis.png",
+  },
+  "PNPA BEST": {
+    name: "PNPA BEST",
+    logoPath: "/branding/appendant-bodies/pnpa_best.png",
   },
 };
 
@@ -95,6 +103,29 @@ function formatDate(value: string | null | undefined): string {
   } catch {
     return "–";
   }
+}
+
+function memberGroupLabel(status: string): string {
+  const normalized = status.toUpperCase();
+  if (normalized.includes("DROPED") || normalized.includes("DROPPED") || normalized.includes("WORKING TOOLS")) {
+    return "Dropped Working Tools";
+  }
+  if (normalized.includes("SUSPENDED")) {
+    return "Suspended";
+  }
+  if (normalized.includes("DEMIT")) {
+    return "Demit";
+  }
+  if (normalized.includes("HONORARY")) {
+    return "Honorary";
+  }
+  if (normalized.includes("DUAL") || normalized.includes("PLURAL")) {
+    return "Dual/Plural";
+  }
+  if (normalized.includes("AFFILIATED")) {
+    return "Affiliated";
+  }
+  return "Regular";
 }
 
 function appendantCellHasValue(value: unknown): boolean {
@@ -175,22 +206,22 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
   const statusPresentation = profile ? memberStatusPresentation(profile.status) : null;
   const profileRows = profile
     ? [
-        ["GLP ID", displayValue(profile.glp_id_number)],
+        ["GLP No.", displayValue(profile.glp_id_number)],
         ["Member since", formatDate(profile.member_since)],
-        ["Status", profile.status],
+        ["Years", profile.years_of_membership != null && profile.years_of_membership >= 25 ? "LML" : String(profile.years_of_membership ?? "-")],
+        ["Status", memberGroupLabel(profile.section)],
         ["Lodge", "Datu Lapu-Lapu Lodge No. 347"],
         ["Grand Lodge", "Grand Lodge of the Philippines"],
-        ["Birthdate", formatDate(profile.date_of_birth)],
-        ["Email", displayValue(profile.email)],
-        ["Phone", displayValue(profile.telephone)],
-        ["Address", displayValue(profile.address)],
       ]
     : [];
   const additionalRows = profile
     ? [
+        ["Birthday", formatDate(profile.date_of_birth)],
+        ["Address", displayValue(profile.address)],
+        ["Phone", displayValue(profile.telephone)],
+        ["Email", displayValue(profile.email)],
         ["Blood Type", displayValue(profile.blood_type)],
-        ["Widow / Sister", displayValue(profile.widow_or_sister)],
-        ["Proficiency", formatDate(profile.proficiency_date)],
+        ["Wife", displayValue(profile.widow_or_sister)],
       ]
     : [];
   const appendantItems = profile
@@ -279,7 +310,7 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
               </section>
 
               <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 px-3.5 py-3 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
-                <h3 className="text-[0.78rem] font-bold">Additional Information</h3>
+                <h3 className="text-[0.78rem] font-bold">Personal Information</h3>
                 <div className="mt-2">
                   {additionalRows.map(([label, value]) => (
                     <div key={label} className="flex items-center justify-between gap-4 border-b border-[#e9e1d8] py-2.5 last:border-b-0">
@@ -323,7 +354,7 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
               </section>
 
               <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 p-3.5 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
-                <h3 className="text-[0.78rem] font-bold">Activity Summary</h3>
+                <h3 className="text-[0.78rem] font-bold">Standing Summary</h3>
                 <div className="mt-3 grid grid-cols-4 divide-x divide-[#e9e1d8]">
                   <div className="px-1.5 text-center">
                     <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${profile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
@@ -335,7 +366,7 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                     </span>
                     <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">3 Meeting Rule</div>
                     <div className={`text-[0.46rem] font-semibold ${profile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
-                      {profile.three_meetings_rule ? "Qualified" : "Not met"}
+                      {profile.attendance_this_year} Meeting
                     </div>
                   </div>
                   <div className="px-1.5 text-center">
@@ -347,7 +378,7 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                       )}
                     </span>
                     <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">6 Meeting Rule</div>
-                    <div className="text-[0.46rem] font-semibold text-[#90887e]">{profile.attendance_this_year} this year</div>
+                    <div className="text-[0.46rem] font-semibold text-[#90887e]">{profile.six_meeting_attendance} Meeting</div>
                   </div>
                   <div className="px-1.5 text-center">
                     <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${profile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
@@ -363,8 +394,8 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                     </div>
                   </div>
                   <div className="px-1.5 text-center">
-                    <div className="text-[0.52rem] font-bold text-[#3a342f]">Years</div>
-                    <div className="mt-2 text-[0.8rem] font-bold text-[#3a342f]">{profile.years_of_membership != null && profile.years_of_membership >= 25 ? "LML" : profile.years_of_membership ?? "-"}</div>
+                    <div className="text-[0.52rem] font-bold text-[#3a342f]">Proficiency</div>
+                    <div className="mt-2 text-[0.62rem] font-bold text-[#3a342f]">{formatDate(profile.proficiency_date)}</div>
                   </div>
                 </div>
               </section>
