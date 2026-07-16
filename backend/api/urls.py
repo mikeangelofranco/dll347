@@ -31,6 +31,7 @@ from .views import (
     upcoming_lodge_activities_view,
     user_activity_view,
     validate_reset_password_token_view,
+    year_activities_view,
 )
 
 app_name = "api"
@@ -61,6 +62,7 @@ urlpatterns = [
     path("documents/", lodge_documents_view, name="lodge-documents"),
     path("documents/<int:document_id>/", lodge_document_detail_view, name="lodge-document-detail"),
     path("lodge-activities/next/", next_lodge_activity_view, name="next-lodge-activity"),
+    path("lodge-activities/year/", year_activities_view, name="year-activities"),
     path("lodge-activities/upcoming/", upcoming_lodge_activities_view, name="upcoming-lodge-activities"),
     path("lodge-activities/manage/", managed_lodge_activities_view, name="managed-lodge-activities"),
     path("lodge-activities/<int:activity_id>/", lodge_activity_detail_view, name="lodge-activity-detail"),

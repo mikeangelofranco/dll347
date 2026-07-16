@@ -22,6 +22,7 @@ import {
   getNextLodgeActivity,
   getSecretaryDashboardSummary,
   getUpcomingLodgeActivities,
+  getYearActivities,
   logoutCurrentSession,
   LodgeActivity,
   MemberListItem,
@@ -34,7 +35,7 @@ import {
 import { useIdleTimeout } from "@/lib/use-idle-timeout";
 
 type SecretaryDashboardView = "home" | "members" | "profile" | "documents" | "more" | "dues";
-type SecretarySheetName = "activity";
+type SecretarySheetName = "activity" | "eventlist";
 const calendarAddedStoragePrefix = "dll347-calendar-added-activity-";
 
 function PulseIcon() {
@@ -263,6 +264,15 @@ function CheckStatusIcon() {
   );
 }
 
+function PercentIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <text x="12" y="16.2" textAnchor="middle" fontSize="11" fontWeight="800" fill="currentColor">%</text>
+    </svg>
+  );
+}
+
 function AlertIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6">
@@ -384,13 +394,10 @@ const emptyDashboardSummary: SecretaryDashboardSummaryResponse = {
     report_period_label: null,
     source_date: null,
     cash_accountability: null,
-    cash_to_date: null,
+    previous_balance: null,
+    cash_received: null,
     cash_outflow: null,
-    remaining_cash: null,
-    cash_to_date_trend: null,
-    cash_outflow_trend: null,
-    net_trend: null,
-    net_direction: "flat",
+    cash_on_hand: null,
   },
   attendance: {
     average_count: 0,
@@ -454,9 +461,9 @@ function buildHealthRows(summary: SecretaryDashboardSummaryResponse) {
       title: "Membership",
       subtitle: `${summary.membership.active_count} / ${summary.membership.total_count} members`,
       percent: summary.membership.percent,
-      color: "bg-[#cf8c00]",
-      iconBg: "bg-[#cf8c00]",
-      icon: <CircleMembersIcon />,
+      color: "bg-[#14812a]",
+      iconBg: "bg-[#14812a]",
+      icon: <MembersOutlineIcon />,
     },
     {
       title: "Growth",
@@ -472,7 +479,7 @@ function buildHealthRows(summary: SecretaryDashboardSummaryResponse) {
       percent: summary.dues_collection.percent,
       color: "bg-[#cf8c00]",
       iconBg: "bg-[#cf8c00]",
-      icon: <MoneyCircleIcon />,
+      icon: <PercentIcon />,
     },
     {
       title: "Attendance",
@@ -816,6 +823,10 @@ export function DashboardScreen() {
   const [upcomingActivitiesError, setUpcomingActivitiesError] = useState("");
   const [closingSheet, setClosingSheet] = useState<SecretarySheetName | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
+  const [isEventListSheetOpen, setIsEventListSheetOpen] = useState(false);
+  const [eventListActivities, setEventListActivities] = useState<LodgeActivity[]>([]);
+  const [isEventListLoading, setIsEventListLoading] = useState(false);
+  const [eventListError, setEventListError] = useState("");
   const [isTightViewport, setIsTightViewport] = useState(false);
   const canAccessDocuments = account?.role === "secretary";
   const navItems = account?.role === "secretary"
@@ -1055,7 +1066,11 @@ export function DashboardScreen() {
   function closeSheet(name: SecretarySheetName) {
     setClosingSheet(name);
     window.setTimeout(() => {
-      setIsActivitySheetOpen(false);
+      if (name === "activity") {
+        setIsActivitySheetOpen(false);
+      } else if (name === "eventlist") {
+        setIsEventListSheetOpen(false);
+      }
       setClosingSheet((current) => (current === name ? null : current));
     }, 200);
   }
@@ -1079,6 +1094,23 @@ export function DashboardScreen() {
       setUpcomingActivitiesError(error instanceof Error ? error.message : "Unable to load upcoming activities.");
     } finally {
       setIsUpcomingActivitiesLoading(false);
+    }
+  }
+
+  async function openEventList() {
+    trackUserAction("Dashboard", "View Event List" as any);
+    setClosingSheet(null);
+    setIsEventListSheetOpen(true);
+    setEventListActivities([]);
+    setEventListError("");
+    setIsEventListLoading(true);
+    try {
+      const response = await getYearActivities();
+      setEventListActivities(response.activities);
+    } catch (error) {
+      setEventListError(error instanceof Error ? error.message : "Unable to load events.");
+    } finally {
+      setIsEventListLoading(false);
     }
   }
 
@@ -1382,10 +1414,6 @@ export function DashboardScreen() {
   const currentDuesYear = dashboardSummary.year;
   const greeting = timeBasedGreeting();
   const finances = dashboardSummary.finances;
-  const cashToDateDirection = trendDirection(finances.cash_to_date_trend);
-  const cashOutflowDirection = trendDirection(finances.cash_outflow_trend);
-  const netDirection = finances.net_direction;
-  const netTrendColor = netDirection === "down" ? "text-[#cc1313]" : netDirection === "flat" ? "text-[#6f6763]" : "text-[#168234]";
    const duesStats: Array<{
       label: string;
       value: string;
@@ -1422,7 +1450,7 @@ export function DashboardScreen() {
       label: "Rate",
       value: `${dashboardSummary.dues_collection.percent}%`,
       color: "text-[#cf8c00]",
-      icon: <MoneyCircleIcon />,
+      icon: <PercentIcon />,
       panel: "bg-[#fdf9f3]",
     },
   ];
@@ -1636,7 +1664,10 @@ export function DashboardScreen() {
                 </div>
                 <div className="relative z-10 mt-4 flex flex-wrap gap-2">
                   <button type="button" onClick={() => void openActivityDetails(nextActivity)} className="w-fit whitespace-nowrap rounded-[0.8rem] bg-[#d40000] px-4 py-2 text-[10px] font-semibold text-white shadow-[0_8px_18px_rgba(208,0,0,0.17)]">View Details</button>
-                  <button type="button" disabled={calendarAddedActivityId === nextActivity.id} onClick={() => handleAddActivityToCalendar(nextActivity)} className={`flex w-fit items-center justify-center gap-1 whitespace-nowrap rounded-[0.8rem] border px-4 py-2 text-[10px] font-semibold ${calendarAddedActivityId === nextActivity.id ? "border-[#cfe7d5] bg-[#f0fbf2] text-[#13802a]" : "border-[#d40000] bg-white/65 text-[#d00000]"}`}><CalendarIcon /><span>{calendarAddedActivityId === nextActivity.id ? "Added to Calendar" : "Add to Calendar"}</span></button>
+                  <button type="button" onClick={() => void openEventList()} className="flex w-fit items-center justify-center gap-1 whitespace-nowrap rounded-[0.8rem] border border-[#d40000] bg-white/65 px-4 py-2 text-[10px] font-semibold text-[#d00000]">
+                    <CalendarIcon />
+                    <span>Event List</span>
+                  </button>
                 </div>
               </>
             ) : isNextActivityLoading ? null : (
@@ -1712,47 +1743,32 @@ export function DashboardScreen() {
               </div>
             </div>
 
-            <div className="mt-5 grid grid-cols-3 rounded-[1.15rem] bg-[#fdf9f3] px-2 py-5 text-center shadow-[inset_0_0_0_1px_rgba(246,238,226,0.55)]">
-              <div className="px-1.5">
-                <div className="text-[0.68rem] font-medium leading-tight text-[#18130f]">Cash to Date</div>
-                <div className="mt-4 text-[0.9rem] font-extrabold leading-tight text-[#168234] tracking-[-0.02em]">
-                  {formatPesoAmount(finances.cash_to_date)}
-                </div>
-                <div className="mt-5 text-[0.66rem] leading-5 text-[#6f6763]">
-                  <div>vs last month</div>
-                  <div className={`flex items-center justify-center gap-1 font-extrabold ${cashToDateDirection === "down" ? "text-[#cc1313]" : cashToDateDirection === "flat" ? "text-[#6f6763]" : "text-[#168234]"}`}>
-                    <TrendArrowIcon direction={cashToDateDirection} />
-                    <span>{trendDisplay(finances.cash_to_date_trend)}</span>
-                  </div>
+            <div className="mt-5 grid grid-cols-4 rounded-[1.15rem] bg-[#fdf9f3] px-1 py-4 text-center shadow-[inset_0_0_0_1px_rgba(246,238,226,0.55)]">
+              <div className="flex flex-col items-center px-1">
+                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Previous<br/>Balance</div>
+                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#168234] tracking-[-0.02em]">
+                  {formatPesoAmount(finances.previous_balance)}
                 </div>
               </div>
 
-              <div className="border-x border-[#eadfd6] px-1.5">
-                <div className="text-[0.68rem] font-medium leading-tight text-[#18130f]">Cash Outflow</div>
-                <div className="mt-4 text-[0.9rem] font-extrabold leading-tight text-[#cc1313] tracking-[-0.02em]">
+              <div className="flex flex-col items-center border-x border-[#eadfd6] px-1">
+                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Cash<br/>Received</div>
+                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#cf8c00] tracking-[-0.02em]">
+                  {formatPesoAmount(finances.cash_received)}
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center px-1">
+                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Cash<br/>Outflow</div>
+                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#cc1313] tracking-[-0.02em]">
                   {formatPesoAmount(finances.cash_outflow)}
                 </div>
-                <div className="mt-5 text-[0.66rem] leading-5 text-[#6f6763]">
-                  <div>vs last month</div>
-                  <div className={`flex items-center justify-center gap-1 font-extrabold ${cashOutflowDirection === "down" ? "text-[#168234]" : cashOutflowDirection === "flat" ? "text-[#6f6763]" : "text-[#cc1313]"}`}>
-                    <TrendArrowIcon direction={cashOutflowDirection} />
-                    <span>{trendDisplay(finances.cash_outflow_trend)}</span>
-                  </div>
-                </div>
               </div>
 
-              <div className="px-1.5">
-                <div className="text-[0.68rem] font-medium leading-tight text-[#18130f]">Net Trend</div>
-                <div className={`mx-auto mt-4 flex w-fit items-center justify-center gap-1 rounded-full px-3 py-2 text-[0.84rem] font-extrabold ${netDirection === "down" ? "bg-[#fff0f0] text-[#cc1313]" : netDirection === "flat" ? "bg-white text-[#6f6763]" : "bg-[#e8f6eb] text-[#168234]"}`}>
-                  <TrendArrowIcon direction={netDirection} />
-                  <span>{trendDisplay(finances.net_trend)}</span>
-                </div>
-                <div className="mt-5 text-[0.66rem] leading-4 text-[#6f6763]">
-                  <div>vs last month</div>
-                  <div>Cash position is</div>
-                  <div className={`font-extrabold ${netTrendColor}`}>
-                    {netDirection === "flat" ? "flat" : netDirection}
-                  </div>
+              <div className="flex flex-col items-center border-l border-[#eadfd6] px-1">
+                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Cash On<br/>Hand</div>
+                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#168234] tracking-[-0.02em]">
+                  {formatPesoAmount(finances.cash_on_hand)}
                 </div>
               </div>
             </div>
@@ -1854,6 +1870,44 @@ export function DashboardScreen() {
                 </section>
 
                 <button type="button" onClick={() => closeSheet("activity")} className="w-full rounded-[0.9rem] border border-[#ead8c7] bg-[#fffdfb] px-4 py-3 text-[0.8rem] font-semibold text-[#111111] shadow-[0_8px_18px_rgba(75,48,20,0.04)]">Close</button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+        {isEventListSheetOpen ? (
+          <div className={`absolute inset-0 z-40 flex items-end bg-[#171717]/58 backdrop-blur-[1px] ${closingSheet === "eventlist" ? "member-sheet-backdrop-exit" : "member-sheet-backdrop-enter"}`}>
+            <section className={`max-h-[82%] w-full overflow-hidden rounded-t-[1.35rem] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.24)] ${closingSheet === "eventlist" ? "member-sheet-panel-exit" : "member-sheet-panel-enter"}`}>
+              <div className="mx-auto h-1 w-9 rounded-full bg-[#9b9b9b]" />
+              <div className="mt-5 flex items-center justify-between">
+                <button type="button" onClick={() => closeSheet("eventlist")} className="flex h-9 w-9 items-center justify-center text-[#111111]" aria-label="Close event list">
+                  <CloseIcon />
+                </button>
+                <h2 className="min-w-0 flex-1 truncate px-2 text-center text-[1.05rem] font-bold tracking-[-0.035em]">Events This Year</h2>
+                <span className="h-9 w-9" />
+              </div>
+              <div className="mt-5 max-h-[calc(82vh-8rem)] overflow-y-auto pr-1">
+                {isEventListLoading ? (
+                  <div className="flex justify-center rounded-2xl bg-[#fbf7f0] px-4 py-8"><ThemedLoader size="md" /></div>
+                ) : eventListError ? (
+                  <p className="rounded-2xl bg-[#fff0f0] px-4 py-5 text-center text-[0.78rem] leading-5 text-[#c90000]">{eventListError}</p>
+                ) : eventListActivities.length > 0 ? (
+                  <section className="space-y-2.5">
+                    {eventListActivities.map((activity) => (
+                      <article key={activity.id} className="rounded-[0.92rem] border border-white/80 bg-white/92 p-3 shadow-[0_8px_20px_rgba(75,48,20,0.05)]">
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="min-w-0">
+                            <span className="block truncate text-[0.78rem] font-bold text-[#111111]">{activity.title}</span>
+                            <span className="mt-1 flex items-center gap-1.5 text-[0.62rem] text-[#5f5751]"><CalendarIcon />{formatSheetDateTime(activity.starts_at)}</span>
+                            <span className="mt-0.5 flex items-center gap-1.5 text-[0.62rem] text-[#5f5751]"><PinIcon />{activity.place || "-"}</span>
+                          </span>
+                        </div>
+                        {activity.details ? <p className="mt-2 line-clamp-2 text-[0.64rem] leading-4 text-[#6a625e]">{activity.details}</p> : null}
+                      </article>
+                    ))}
+                  </section>
+                ) : (
+                  <p className="rounded-[1rem] bg-white/88 px-4 py-8 text-center text-[0.72rem] leading-5 text-[#665d57]">No events found for this year.</p>
+                )}
               </div>
             </section>
           </div>

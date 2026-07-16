@@ -6,7 +6,7 @@ import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "re
 import { ThemedLoader } from "@/components/themed-loader";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
 import { timeBasedGreeting } from "@/lib/greeting";
-import { ActivityScreen, createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, trackScreenView, trackUserAction, updateMemberProfile, uploadMemberProfilePhotoById, getMemberAccountStatus, activateMemberLogin, deactivateMemberLogin } from "@/lib/api";
+import { ActivityScreen, createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, trackScreenView, trackUserAction, updateMemberProfile, uploadMemberProfilePhotoById, getMemberAccountStatus, activateMemberLogin, deactivateMemberLogin } from "@/lib/api";
 
 type MemberDashboardScreenProps = {
   profile: MemberDashboardProfile | null;
@@ -22,7 +22,7 @@ type MemberDashboardScreenProps = {
 
 type MemberDashboardTab = "dashboard" | "more";
 type MemberDashboardView = "home" | "profile" | "members" | "activity" | "member-edit";
-type MemberSheetName = "appendant" | "positions" | "activity";
+type MemberSheetName = "appendant" | "positions" | "activity" | "eventlist";
 type SecretaryNavItemId = "dashboard" | "profile" | "documents" | "more";
 type ActivityTimePickerTarget = "start" | "end";
 type ActivityScreenTab = "create" | "list";
@@ -327,27 +327,12 @@ const appendantBodyDetails: Record<string, { name: string; subtitle: string; log
     subtitle: "AAONMS (Shriner)",
     logoPath: "/branding/appendant-bodies/shriner.png",
   },
-  AAONMS: {
-    name: "Shriner",
-    subtitle: "AAONMS",
-    logoPath: "/branding/appendant-bodies/shriner.png",
-  },
-  SHRINER: {
-    name: "Shriner",
-    subtitle: "Shriner",
-    logoPath: "/branding/appendant-bodies/shriner.png",
-  },
   GGOKCS: {
     name: "GGOKCS",
     subtitle: "Appendant body / club",
     logoPath: "/branding/appendant-bodies/ggokcs.png",
   },
   "PAK (TURTLE)": {
-    name: "PAK (Turtle)",
-    subtitle: "Appendant body / club",
-    logoPath: "/branding/appendant-bodies/pak-turtle.png",
-  },
-  "PAK (Turtle)": {
     name: "PAK (Turtle)",
     subtitle: "Appendant body / club",
     logoPath: "/branding/appendant-bodies/pak-turtle.png",
@@ -639,8 +624,20 @@ function displayValue(value: string | null | undefined): string {
   return value && value.trim() ? value : "-";
 }
 
+function excelSerialToDate(value: string): string {
+  const num = parseFloat(value);
+  if (!Number.isFinite(num) || num < 1 || num > 100000) return value;
+  const utc = new Date(Date.UTC(1899, 11, 30 + Math.floor(num)));
+  return `${utc.getFullYear()}-${String(utc.getMonth()+1).padStart(2,'0')}-${String(utc.getDate()).padStart(2,'0')}`;
+}
+
 function dateInputValue(value: string | null | undefined): string {
-  return value ? value.slice(0, 10) : "";
+  if (!value) return "";
+  const num = parseFloat(value);
+  if (Number.isFinite(num) && num > 36526 && num < 100000) {
+    return excelSerialToDate(value);
+  }
+  return value.slice(0, 10);
 }
 
 function nullableDate(value: string): string | null {
@@ -656,8 +653,15 @@ function workbookCellValue(cell: unknown): string {
     return "";
   }
   if (typeof cell === "object" && !Array.isArray(cell) && "value" in cell) {
-    const value = (cell as { value?: unknown }).value;
-    return value === null || value === undefined ? "" : String(value);
+    const obj = cell as { value?: unknown };
+    const value = obj.value;
+    if (value === null || value === undefined) return "";
+    const num = typeof value === "number" ? value : parseFloat(String(value));
+    if (Number.isFinite(num) && num > 36526 && num < 100000) {
+      const utc = new Date(Date.UTC(1899, 11, 30 + Math.floor(num)));
+      return `${utc.getFullYear()}-${String(utc.getMonth()+1).padStart(2,'0')}-${String(utc.getDate()).padStart(2,'0')}`;
+    }
+    return String(value);
   }
   return String(cell);
 }
@@ -686,15 +690,27 @@ function appendantKeyForCode(code: string): string {
 function appendantRows(record: Record<string, unknown>): WorkbookCellRow[] {
   const importedRows = workbookRecordToRows(record);
   const importedByCode = new Map(importedRows.map((row) => [appendantBodyCode(row.key).toUpperCase(), row]));
-  const knownRows = Object.keys(appendantBodyDetails).map((code) => {
-    const existing = importedByCode.get(code.toUpperCase());
-    return existing ?? {
-      key: appendantKeyForCode(code),
-      value: "",
-      original: createWorkbookCell(""),
-    };
+  const seen = new Set<string>();
+  const knownRows = Object.keys(appendantBodyDetails)
+    .filter((code) => {
+      const upper = code.toUpperCase();
+      if (seen.has(upper)) return false;
+      seen.add(upper);
+      return true;
+    })
+    .map((code) => {
+      const existing = importedByCode.get(code.toUpperCase());
+      return existing ?? {
+        key: appendantKeyForCode(code),
+        value: "",
+        original: createWorkbookCell(""),
+      };
+    });
+  const extraRows = importedRows.filter((row) => {
+    const code = appendantBodyCode(row.key).toUpperCase();
+    return !appendantBodyDetails[code]
+      && !appendantBodyDetails[code.replace(/^SHRINER$/, "AAONMS (SHRINER)").replace(/^AAONMS$/, "AAONMS (SHRINER)").replace(/^PAK \(TURTLE\)$/i, "PAK (TURTLE)")];
   });
-  const extraRows = importedRows.filter((row) => !appendantBodyDetails[appendantBodyCode(row.key).toUpperCase()]);
   return [...knownRows, ...extraRows];
 }
 
@@ -925,7 +941,7 @@ function WorkbookRowsEditor({
   title: string;
   rows: WorkbookCellRow[];
   emptyText: string;
-  mode?: "mark" | "text";
+  mode?: "mark" | "text" | "date";
   addLabel?: string;
   onAdd?: () => void;
   onChange: (rows: WorkbookCellRow[]) => void;
@@ -982,6 +998,13 @@ function WorkbookRowsEditor({
               >
                 {row.value.trim() ? "Marked" : "Blank"}
               </button>
+            ) : mode === "date" ? (
+              <input
+                type="date"
+                value={dateInputValue(row.value)}
+                onChange={(event) => updateRow(index, event.target.value)}
+                className="h-8 min-w-0 rounded-[0.48rem] border border-[#ded6cf] bg-[#fffdfb] px-1.5 text-[0.62rem] font-semibold text-[#111111] outline-none [color-scheme:light]"
+              />
             ) : (
               <input
                 value={row.value}
@@ -1062,6 +1085,11 @@ export function MemberDashboardScreen({
   const [isUpcomingActivitiesOpen, setIsUpcomingActivitiesOpen] = useState(false);
   const [isUpcomingActivitiesLoading, setIsUpcomingActivitiesLoading] = useState(false);
   const [upcomingActivitiesError, setUpcomingActivitiesError] = useState("");
+  const [isEventListMode, setIsEventListMode] = useState(false);
+  const [isEventListSheetOpen, setIsEventListSheetOpen] = useState(false);
+  const [eventListActivities, setEventListActivities] = useState<LodgeActivity[]>([]);
+  const [isEventListLoading, setIsEventListLoading] = useState(false);
+  const [eventListError, setEventListError] = useState("");
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [isAppendantSheetOpen, setIsAppendantSheetOpen] = useState(false);
@@ -1927,6 +1955,9 @@ export function MemberDashboardScreen({
         setIsAppendantSheetOpen(false);
       } else if (name === "activity") {
         setIsActivitySheetOpen(false);
+        setIsEventListMode(false);
+      } else if (name === "eventlist") {
+        setIsEventListSheetOpen(false);
       } else {
         setIsPositionsSheetOpen(false);
       }
@@ -1953,18 +1984,19 @@ export function MemberDashboardScreen({
     }
   }
 
-  async function openActivityDetails(activity: LodgeActivity) {
+  async function openActivityDetails(activity: LodgeActivity, eventList = false) {
     trackUserAction("Dashboard", "View Activity Details");
     setClosingSheet(null);
     setSelectedActivity(activity);
-    setIsUpcomingActivitiesOpen(false);
+    setIsUpcomingActivitiesOpen(eventList);
+    setIsEventListMode(eventList);
     setUpcomingActivities([]);
     setUpcomingActivitiesError("");
     setIsActivitySheetOpen(true);
     setIsUpcomingActivitiesLoading(true);
     try {
       const [response] = await Promise.all([
-        getUpcomingLodgeActivities(2, activity.id),
+        getUpcomingLodgeActivities(eventList ? 50 : 2, activity.id),
         minimumLoadingDelay(),
       ]);
       setUpcomingActivities(response.activities);
@@ -1972,6 +2004,23 @@ export function MemberDashboardScreen({
       setUpcomingActivitiesError(error instanceof Error ? error.message : "Unable to load upcoming activities.");
     } finally {
       setIsUpcomingActivitiesLoading(false);
+    }
+  }
+
+  async function openEventList() {
+    trackUserAction("Dashboard", "View Event List" as any);
+    setClosingSheet(null);
+    setIsEventListSheetOpen(true);
+    setEventListActivities([]);
+    setEventListError("");
+    setIsEventListLoading(true);
+    try {
+      const response = await getYearActivities();
+      setEventListActivities(response.activities);
+    } catch (error) {
+      setEventListError(error instanceof Error ? error.message : "Unable to load events.");
+    } finally {
+      setIsEventListLoading(false);
     }
   }
 
@@ -2049,21 +2098,28 @@ export function MemberDashboardScreen({
                   <span className="mt-0.5 block text-[0.64rem] leading-4 text-[#6a625e]">Choose a section, search, then edit the selected record.</span>
                 </span>
               </div>
-              <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {memberDisplayGroups.map((filter) => {
-                  const isActive = resolvedEditMemberFilter === filter.key;
-                  return (
-                    <button
-                      key={filter.key}
-                      type="button"
-                      onClick={() => setEditMemberFilter(filter.key)}
-                      className="shrink-0 rounded-full border px-3 py-1.5 text-[0.62rem] font-bold"
-                      style={{ color: filter.color, borderColor: isActive ? filter.border : `${filter.border}99`, backgroundColor: isActive ? filter.tint : "rgba(255,255,255,0.7)" }}
-                    >
-                      {filter.label}
-                    </button>
-                  );
-                })}
+              <div className="relative mt-3">
+                <div className="flex gap-2 overflow-x-scroll pb-1.5 pr-6 scrollbar-thin [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]">
+                  {memberDisplayGroups.map((filter) => {
+                    const isActive = resolvedEditMemberFilter === filter.key;
+                    return (
+                      <button
+                        key={filter.key}
+                        type="button"
+                        onClick={() => setEditMemberFilter(filter.key)}
+                        className="shrink-0 rounded-full border px-3 py-1.5 text-[0.62rem] font-bold"
+                        style={{ color: filter.color, borderColor: isActive ? filter.border : `${filter.border}99`, backgroundColor: isActive ? filter.tint : "rgba(255,255,255,0.7)" }}
+                      >
+                        {filter.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex w-8 items-center justify-end bg-gradient-to-l from-white/90 via-white/70 to-transparent pr-0.5">
+                  <svg viewBox="0 0 16 24" className="h-5 w-4 text-[#9b928b]" aria-hidden="true">
+                    <path d="m4 5 7 7-7 7" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
+                  </svg>
+                </div>
               </div>
               <label className="mt-2 flex h-10 items-center gap-2 rounded-[0.7rem] border border-[#f0e5d7] bg-white px-3 text-[#716a66]">
                 <SearchIcon />
@@ -2254,12 +2310,12 @@ export function MemberDashboardScreen({
                     <label className={labelClass}>Passed<input type="date" value={dateInputValue(editMemberForm.passing_date)} onChange={(event) => updateEditMemberField("passing_date", nullableDate(event.target.value))} className={textInputClass} /></label>
                     <label className={labelClass}>Raised<input type="date" value={dateInputValue(editMemberForm.raising_date)} onChange={(event) => updateEditMemberField("raising_date", nullableDate(event.target.value))} className={textInputClass} /></label>
                     <label className={labelClass}>Proficiency<input type="date" value={dateInputValue(editMemberForm.proficiency_date)} onChange={(event) => updateEditMemberField("proficiency_date", nullableDate(event.target.value))} className={textInputClass} /></label>
-                    <label className={labelClass}>Suspension<input value={editMemberForm.suspension} onChange={(event) => updateEditMemberField("suspension", event.target.value)} className={textInputClass} /></label>
-                    <label className={labelClass}>Restored<input value={editMemberForm.restored} onChange={(event) => updateEditMemberField("restored", event.target.value)} className={textInputClass} /></label>
-                    <label className={labelClass}>Demit<input value={editMemberForm.demit} onChange={(event) => updateEditMemberField("demit", event.target.value)} className={textInputClass} /></label>
-                    <label className={labelClass}>LML<input value={editMemberForm.lml} onChange={(event) => updateEditMemberField("lml", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>Suspension<input type="date" value={dateInputValue(editMemberForm.suspension)} onChange={(event) => updateEditMemberField("suspension", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>Restored<input type="date" value={dateInputValue(editMemberForm.restored)} onChange={(event) => updateEditMemberField("restored", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>Demit<input type="date" value={dateInputValue(editMemberForm.demit)} onChange={(event) => updateEditMemberField("demit", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>LML<input type="date" value={dateInputValue(editMemberForm.lml)} onChange={(event) => updateEditMemberField("lml", event.target.value)} className={textInputClass} /></label>
                   </div>
-                  <label className={`${labelClass} mt-2.5 block`}>Dual / Plural / Honorary Date<input value={editMemberForm.dual_plural_honorary_date} onChange={(event) => updateEditMemberField("dual_plural_honorary_date", event.target.value)} className={textInputClass} /></label>
+                  <label className={`${labelClass} mt-2.5 block`}>Dual / Plural / Honorary Date<input type="date" value={dateInputValue(editMemberForm.dual_plural_honorary_date)} onChange={(event) => updateEditMemberField("dual_plural_honorary_date", event.target.value)} className={textInputClass} /></label>
                 </div>
 
                 <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
@@ -2277,8 +2333,6 @@ export function MemberDashboardScreen({
                         <div className="mt-2 grid grid-cols-2 gap-2">
                           <input value={position.date_range} onChange={(event) => updateEditMemberPosition(index, "date_range", event.target.value)} placeholder="Date range" className={textInputClass} />
                           <input value={position.source} onChange={(event) => updateEditMemberPosition(index, "source", event.target.value)} placeholder="Source" className={textInputClass} />
-                          <input type="date" value={dateInputValue(position.start_date)} onChange={(event) => updateEditMemberPosition(index, "start_date", nullableDate(event.target.value))} className={textInputClass} />
-                          <input type="date" value={dateInputValue(position.end_date)} onChange={(event) => updateEditMemberPosition(index, "end_date", nullableDate(event.target.value))} className={textInputClass} />
                         </div>
                         <textarea value={position.notes} onChange={(event) => updateEditMemberPosition(index, "notes", event.target.value)} placeholder="Notes" className="mt-2 h-14 w-full resize-none rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 py-2 text-[0.64rem] leading-4 outline-none" />
                       </div>
@@ -2319,6 +2373,7 @@ export function MemberDashboardScreen({
                       title="Annual Dues"
                       rows={editMemberForm.annualDuesRows}
                       emptyText="No annual dues columns were imported for this member."
+                      mode="date"
                       addLabel="Add"
                       onAdd={() => openWorkbookAddSheet("dues")}
                       onChange={(rows) => updateEditMemberField("annualDuesRows", rows)}
@@ -2360,8 +2415,8 @@ export function MemberDashboardScreen({
 
                     {workbookAddSheet === "dues" ? (
                       <label className="text-[0.66rem] font-bold text-[#2f2925]">
-                        Value
-                        <input value={workbookAddValue} onChange={(event) => setWorkbookAddValue(event.target.value)} placeholder="Paid" className="mt-1.5 h-10 w-full rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[0.72rem] text-[#111111] outline-none" />
+                        Date
+                        <input type="date" value={workbookAddValue} onChange={(event) => setWorkbookAddValue(event.target.value)} className="mt-1.5 h-10 w-full rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[0.72rem] text-[#111111] outline-none [color-scheme:light]" />
                       </label>
                     ) : (
                       <label className="text-[0.66rem] font-bold text-[#2f2925]">
@@ -2941,7 +2996,6 @@ export function MemberDashboardScreen({
                       <div className="mt-3 flex items-center gap-2 text-[0.72rem] font-medium text-[#2d2824]"><span className={`h-2.5 w-2.5 rounded-full ${dotColor}`} />{fullProfile.status}</div>
                     );
                   })()}
-                  <div className="mt-1.5 flex items-center gap-2 text-[0.68rem] font-medium text-[#4c4540]"><span className="h-1.5 w-1.5 rounded-full bg-[#3c444a]" />Datu Lapu-Lapu Lodge No. 347</div>
                 </div>
               </div>
             </section>
@@ -2970,6 +3024,10 @@ export function MemberDashboardScreen({
                     <div className="mt-0.5 text-[0.62rem] leading-tight text-[#4f4843]">{formatDate(dateValue)}</div>
                   </div>
                 ))}
+              </div>
+              <div className="mt-4 border-t border-[#e9e1d8] pt-3 text-center">
+                <div className="text-[0.72rem] font-bold text-[#c77800]">Proficiency</div>
+                <div className="mt-1 text-[0.68rem] font-semibold text-[#4f4843]">{formatDate(fullProfile.proficiency_date)}</div>
               </div>
             </section>
 
@@ -3022,7 +3080,7 @@ export function MemberDashboardScreen({
                     )}
                   </span>
                   <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">6 Meeting Rule</div>
-                  <div className="text-[0.46rem] font-semibold text-[#90887e]">{fullProfile.six_meeting_attendance} Meeting</div>
+                  <div className={`text-[0.46rem] font-semibold ${fullProfile.six_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>{fullProfile.six_meeting_attendance} Meeting</div>
                 </div>
                 <div className="px-1.5 text-center">
                   <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
@@ -3038,8 +3096,14 @@ export function MemberDashboardScreen({
                   </div>
                 </div>
                 <div className="px-1.5 text-center">
-                  <div className="text-[0.52rem] font-bold text-[#3a342f]">Proficiency</div>
-                  <div className="mt-2 text-[0.62rem] font-bold text-[#3a342f]">{formatDate(fullProfile.proficiency_date)}</div>
+                  <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.proficiency_date ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                    {fullProfile.proficiency_date ? (
+                      <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                    ) : (
+                      <span className="text-[0.48rem] font-bold">—</span>
+                    )}
+                  </span>
+                  <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Proficiency</div>
                 </div>
               </div>
             </section>
@@ -3130,7 +3194,17 @@ export function MemberDashboardScreen({
                   ) : positionsError ? (
                     <p className="rounded-2xl bg-[#fff0f0] px-4 py-5 text-center text-[0.78rem] leading-5 text-[#c90000]">{positionsError}</p>
                   ) : displayedPositions.length > 0 ? (
-                    displayedPositions.map((position) => (
+                    [...displayedPositions].sort((a, b) => {
+                      const extractYear = (dateRange: string) => {
+                        const years = dateRange.match(/\d{4}/g);
+                        return years ? Number(years[years.length - 1]) : 0;
+                      };
+                      const aEnd = a.end_date ? new Date(a.end_date).getTime() : null;
+                      const bEnd = b.end_date ? new Date(b.end_date).getTime() : null;
+                      const aYear = a.date_range ? extractYear(a.date_range) : 0;
+                      const bYear = b.date_range ? extractYear(b.date_range) : 0;
+                      return (bEnd ?? bYear) - (aEnd ?? aYear);
+                    }).map((position) => (
                       <article key={position.id} className="flex items-start gap-3 border-b border-[#eadfd3] py-3 last:border-b-0">
                         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#fff4e3] text-[#d58d00]">
                           <AwardIcon />
@@ -3218,7 +3292,7 @@ export function MemberDashboardScreen({
                   )}
                 </span>
                 <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">6 Meeting Rule</div>
-                <div className="mt-0.5 text-[0.52rem] font-semibold text-[#6e665d]">{profile.six_meeting_attendance} Meeting</div>
+                <div className={`mt-0.5 text-[0.52rem] font-semibold ${profile.six_meetings_rule ? "text-[#147622]" : "text-[#6e665d]"}`}>{profile.six_meeting_attendance} Meeting</div>
               </div>
               <div className="px-1.5 text-center">
                 <span className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full ${profile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
@@ -3234,8 +3308,14 @@ export function MemberDashboardScreen({
                 </div>
               </div>
               <div className="px-1.5 text-center">
-                <div className="text-[0.55rem] font-bold leading-tight text-[#3a342f]">Proficiency</div>
-                <div className="mt-2 text-[0.62rem] font-bold text-[#3a342f]">{formatDate(profile.proficiency_date)}</div>
+                <span className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full ${profile.proficiency_date ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                  {profile.proficiency_date ? (
+                    <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                  ) : (
+                    <span className="text-[0.52rem] font-bold">—</span>
+                  )}
+                </span>
+                <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">Proficiency</div>
               </div>
             </div>
 
@@ -3265,7 +3345,7 @@ export function MemberDashboardScreen({
                 </div>
                 <div className="relative z-10 mt-4 flex flex-wrap gap-2">
                   <button type="button" onClick={() => void openActivityDetails(nextActivity)} className="w-fit whitespace-nowrap rounded-[0.8rem] bg-[#d40000] px-4 py-2 text-[10px] font-semibold text-white shadow-[0_8px_18px_rgba(208,0,0,0.17)]">View Details</button>
-                  <button type="button" disabled={calendarAddedActivityId === nextActivity.id} onClick={() => handleAddActivityToCalendar(nextActivity)} className={`flex w-fit items-center justify-center gap-1 whitespace-nowrap rounded-[0.8rem] border px-4 py-2 text-[10px] font-semibold ${calendarAddedActivityId === nextActivity.id ? "border-[#cfe7d5] bg-[#f0fbf2] text-[#13802a]" : "border-[#d40000] bg-white/65 text-[#d00000]"}`}><CalendarIcon plus /><span>{calendarAddedActivityId === nextActivity.id ? "Added to Calendar" : "Add to Calendar"}</span></button>
+                  <button type="button" onClick={() => void openEventList()} className="flex w-fit items-center justify-center gap-1 whitespace-nowrap rounded-[0.8rem] border border-[#d40000] bg-white/65 px-4 py-2 text-[10px] font-semibold text-[#d00000]"><CalendarIcon /><span>Event List</span></button>
                 </div>
               </>
             ) : isNextActivityLoading ? null : (
@@ -3386,7 +3466,7 @@ export function MemberDashboardScreen({
                 <button type="button" onClick={() => closeSheet("activity")} className="flex h-9 w-9 items-center justify-center text-[#111111]" aria-label="Close lodge activity details">
                   <Icon className="h-7 w-7"><path d="M6 6 18 18M18 6 6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" /></Icon>
                 </button>
-                <h2 className="min-w-0 flex-1 truncate px-2 text-center text-[1.05rem] font-bold tracking-[-0.035em]">{selectedActivity.title}</h2>
+                <h2 className="min-w-0 flex-1 truncate px-2 text-center text-[1.05rem] font-bold tracking-[-0.035em]">{isEventListMode ? "Events This Year" : selectedActivity.title}</h2>
                 <span className="h-9 w-9" />
               </div>
 
@@ -3443,6 +3523,44 @@ export function MemberDashboardScreen({
                 </section>
 
                 <button type="button" onClick={() => closeSheet("activity")} className="w-full rounded-[0.9rem] border border-[#ead8c7] bg-[#fffdfb] px-4 py-3 text-[0.8rem] font-semibold text-[#111111] shadow-[0_8px_18px_rgba(75,48,20,0.04)]">Close</button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+        {isEventListSheetOpen ? (
+          <div className={`absolute inset-0 z-40 flex items-end bg-[#171717]/58 backdrop-blur-[1px] ${closingSheet === "eventlist" ? "member-sheet-backdrop-exit" : "member-sheet-backdrop-enter"}`}>
+            <section className={`max-h-[82%] w-full overflow-hidden rounded-t-[1.35rem] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.24)] ${closingSheet === "eventlist" ? "member-sheet-panel-exit" : "member-sheet-panel-enter"}`}>
+              <div className="mx-auto h-1 w-9 rounded-full bg-[#9b9b9b]" />
+              <div className="mt-5 flex items-center justify-between">
+                <button type="button" onClick={() => closeSheet("eventlist")} className="flex h-9 w-9 items-center justify-center text-[#111111]" aria-label="Close event list">
+                  <Icon className="h-7 w-7"><path d="M6 6 18 18M18 6 6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" /></Icon>
+                </button>
+                <h2 className="min-w-0 flex-1 truncate px-2 text-center text-[1.05rem] font-bold tracking-[-0.035em]">Events This Year</h2>
+                <span className="h-9 w-9" />
+              </div>
+              <div className="mt-5 max-h-[calc(82vh-8rem)] overflow-y-auto pr-1">
+                {isEventListLoading ? (
+                  <div className="flex justify-center rounded-2xl bg-[#fbf7f0] px-4 py-8"><ThemedLoader size="md" /></div>
+                ) : eventListError ? (
+                  <p className="rounded-2xl bg-[#fff0f0] px-4 py-5 text-center text-[0.78rem] leading-5 text-[#c90000]">{eventListError}</p>
+                ) : eventListActivities.length > 0 ? (
+                  <section className="space-y-2.5">
+                    {eventListActivities.map((activity) => (
+                      <article key={activity.id} className="rounded-[0.92rem] border border-white/80 bg-white/92 p-3 shadow-[0_8px_20px_rgba(75,48,20,0.05)]">
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="min-w-0">
+                            <span className="block truncate text-[0.78rem] font-bold text-[#111111]">{activity.title}</span>
+                            <span className="mt-1 flex items-center gap-1.5 text-[0.62rem] text-[#5f5751]"><CalendarIcon />{formatSheetDateTime(activity.starts_at)}</span>
+                            <span className="mt-0.5 flex items-center gap-1.5 text-[0.62rem] text-[#5f5751]"><PinIcon />{activity.place || "-"}</span>
+                          </span>
+                        </div>
+                        {activity.details ? <p className="mt-2 line-clamp-2 text-[0.64rem] leading-4 text-[#6a625e]">{activity.details}</p> : null}
+                      </article>
+                    ))}
+                  </section>
+                ) : (
+                  <p className="rounded-[1rem] bg-white/88 px-4 py-8 text-center text-[0.72rem] leading-5 text-[#665d57]">No events found for this year.</p>
+                )}
               </div>
             </section>
           </div>

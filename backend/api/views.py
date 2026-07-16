@@ -202,13 +202,10 @@ def financial_summary_payload() -> dict:
             "report_period_label": None,
             "source_date": None,
             "cash_accountability": None,
-            "cash_to_date": None,
+            "previous_balance": None,
+            "cash_received": None,
             "cash_outflow": None,
-            "remaining_cash": None,
-            "cash_to_date_trend": None,
-            "cash_outflow_trend": None,
-            "net_trend": None,
-            "net_direction": "flat",
+            "cash_on_hand": None,
         }
 
     cash_position_trend = rounded_trend(percent_change(latest.remaining_cash, previous.remaining_cash if previous else None))
@@ -229,13 +226,10 @@ def financial_summary_payload() -> dict:
         "report_period_label": report_period_label(latest_month, latest_year),
         "source_date": latest.document.created_at.date().isoformat(),
         "cash_accountability": money_payload(latest.cash_to_date),
-        "cash_to_date": money_payload(latest.remaining_cash),
+        "previous_balance": money_payload(latest.cash_to_date - (latest.cash_received_month or 0) if latest.cash_to_date else None),
+        "cash_received": money_payload(latest.cash_received_month),
         "cash_outflow": money_payload(latest.cash_disbursements),
-        "remaining_cash": money_payload(latest.remaining_cash),
-        "cash_to_date_trend": cash_position_trend,
-        "cash_outflow_trend": cash_outflow_trend,
-        "net_trend": net_trend,
-        "net_direction": net_direction,
+        "cash_on_hand": money_payload(latest.remaining_cash),
     }
 
 
@@ -1255,10 +1249,18 @@ def secretary_dashboard_summary_view(request):
         for record in regular_members
         if classify_member_group(record.section) == "dropped_working_tools"
     ]
+    inactive_demit_members = [
+        record
+        for record in regular_members
+        if classify_member_group(record.section) == "inactive_snpd_demit"
+    ]
+    demit_only_members = [
+        record for record in inactive_demit_members if "DEMIT" in record.section.upper()
+    ]
 
     membership_percent = percent_of(
         len(attendance_members),
-        len(regular_members) - len(dropped_working_tools_members),
+        len(regular_members) - len(dropped_working_tools_members) - len(demit_only_members),
     )
     growth_percent = percent_of(progressing_count, len(active_trestle_board_members))
     attendance_percent = percent_of(latest_attendance, len(attendance_members))
@@ -1282,7 +1284,7 @@ def secretary_dashboard_summary_view(request):
             ),
             "membership": {
                 "active_count": len(attendance_members),
-                "total_count": len(regular_members) - len(dropped_working_tools_members),
+                "total_count": len(regular_members) - len(dropped_working_tools_members) - len(demit_only_members),
                 "percent": membership_percent,
             },
             "growth": {
@@ -1622,6 +1624,20 @@ def upcoming_lodge_activities_view(request):
         activities = activities.exclude(id=exclude_id)
 
     activities = activities.order_by("starts_at", "id")[:limit]
+    return Response(
+        {"activities": LodgeActivitySerializer(activities, many=True).data},
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def year_activities_view(request):
+    current_year = timezone.now().year
+    activities = LodgeActivity.objects.filter(
+        is_published=True,
+        starts_at__year=current_year,
+    ).order_by("starts_at", "id")
     return Response(
         {"activities": LodgeActivitySerializer(activities, many=True).data},
         status=status.HTTP_200_OK,

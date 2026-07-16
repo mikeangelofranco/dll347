@@ -369,12 +369,29 @@ def column_format(sheet: ParsedSheet, column_index: int) -> dict[str, Any]:
 
 
 def serialize_cell(cell: ParsedCell) -> dict[str, Any]:
+    value = cell.value
+    number_format = cell.number_format
+    if _is_date_format(number_format) and isinstance(value, (int, float)):
+        converted = excel_date(value)
+        if converted is not None:
+            value = converted.isoformat()
     return {
-        "value": cell.value,
+        "value": value,
         "formula": cell.formula,
         "style_id": cell.style_id,
-        "number_format": cell.number_format,
+        "number_format": number_format,
     }
+
+
+def _is_date_format(number_format: str | None) -> bool:
+    if not number_format:
+        return False
+    nf = number_format.lower()
+    date_fragments = ["m/d", "d/m", "m-d", "d-m", "yyyy", "dd mmm", "mmm dd", "mmmm", "yy"]
+    for fragment in date_fragments:
+        if fragment in nf:
+            return True
+    return False
 
 
 def raw_row(sheet: ParsedSheet, row: int, first_column: str, last_column: str) -> dict[str, Any]:

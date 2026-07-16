@@ -1160,7 +1160,7 @@ class AuthApiTests(TestCase):
         self.assertEqual(finances["report_month"], 12)
         self.assertEqual(finances["report_year"], 2025)
         self.assertEqual(finances["report_period_label"], "December 2025")
-        self.assertEqual(finances["cash_to_date"], "348304.51")
+        self.assertEqual(finances["cash_on_hand"], "348304.51")
 
     def test_next_lodge_activity_returns_nearest_upcoming_published_activity(self):
         self.client.force_login(self.user)

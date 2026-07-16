@@ -136,3 +136,17 @@ input {
 .member-page-exit {
   animation: member-page-out-to-right 230ms ease-in both;
 }
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+  -webkit-appearance: none;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: #e8e2db;
+  border-radius: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #9b928b;
+  border-radius: 8px;
+}

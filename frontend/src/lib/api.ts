@@ -302,13 +302,10 @@ export type SecretaryDashboardSummaryResponse = {
     report_period_label: string | null;
     source_date: string | null;
     cash_accountability: string | null;
-    cash_to_date: string | null;
+    previous_balance: string | null;
+    cash_received: string | null;
     cash_outflow: string | null;
-    remaining_cash: string | null;
-    cash_to_date_trend: number | null;
-    cash_outflow_trend: number | null;
-    net_trend: number | null;
-    net_direction: "up" | "down" | "flat";
+    cash_on_hand: string | null;
   };
   attendance: {
     average_count: number;
@@ -789,6 +786,10 @@ export async function getUpcomingLodgeActivities(
     params.set("exclude_id", String(excludeId));
   }
   return apiGet<UpcomingLodgeActivitiesResponse>(`/lodge-activities/upcoming/?${params.toString()}`);
+}
+
+export async function getYearActivities(): Promise<UpcomingLodgeActivitiesResponse> {
+  return apiGet<UpcomingLodgeActivitiesResponse>("/lodge-activities/year/");
 }
 
 export async function getManagedLodgeActivities(search = ""): Promise<ManagedLodgeActivitiesResponse> {

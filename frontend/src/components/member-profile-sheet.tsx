@@ -277,7 +277,6 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                       {statusPresentation ? <MemberStatusIcon presentation={statusPresentation} /> : null}
                       {profile.status}
                     </div>
-                    <div className="mt-1.5 flex items-center gap-2 text-[0.66rem] font-medium text-[#4c4540]"><span className="h-1.5 w-1.5 rounded-full bg-[#3c444a]" />Datu Lapu-Lapu Lodge No. 347</div>
                   </div>
                 </div>
               </section>
@@ -306,6 +305,10 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                       <div className="mt-0.5 text-[0.62rem] leading-tight text-[#4f4843]">{formatDate(dateValue)}</div>
                     </div>
                   ))}
+                </div>
+                <div className="mt-4 border-t border-[#e9e1d8] pt-3 text-center">
+                  <div className="text-[0.72rem] font-bold text-[#c77800]">Proficiency</div>
+                  <div className="mt-1 text-[0.68rem] font-semibold text-[#4f4843]">{formatDate(profile.proficiency_date)}</div>
                 </div>
               </section>
 
@@ -340,7 +343,17 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                 <div className="py-2.5">
                   <div className="flex items-center gap-2 text-[0.74rem] text-[#423c37]"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#fff4e3] text-[#d58d00]"><AwardIcon /></span>Positions Held</div>
                   <div className="mt-2 overflow-hidden rounded-[0.9rem] border border-[#f0e7dc] bg-[#fffdfb]">
-                    {profile.positions_held.length > 0 ? profile.positions_held.map((position) => (
+                    {profile.positions_held.length > 0 ? [...profile.positions_held].sort((a, b) => {
+                      const extractYear = (dateRange: string) => {
+                        const years = dateRange.match(/\d{4}/g);
+                        return years ? Number(years[years.length - 1]) : 0;
+                      };
+                      const aEnd = a.end_date ? new Date(a.end_date).getTime() : null;
+                      const bEnd = b.end_date ? new Date(b.end_date).getTime() : null;
+                      const aYear = a.date_range ? extractYear(a.date_range) : 0;
+                      const bYear = b.date_range ? extractYear(b.date_range) : 0;
+                      return (bEnd ?? bYear) - (aEnd ?? aYear);
+                    }).map((position) => (
                       <div key={position.id} className="flex items-start justify-between gap-3 border-b border-[#eee4d8] px-3 py-2.5 last:border-b-0">
                         <span className="min-w-0">
                           <span className="block text-[0.74rem] font-semibold tracking-[-0.015em] text-[#111111]">{position.title}</span>
@@ -378,7 +391,7 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                       )}
                     </span>
                     <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">6 Meeting Rule</div>
-                    <div className="text-[0.46rem] font-semibold text-[#90887e]">{profile.six_meeting_attendance} Meeting</div>
+                    <div className={`text-[0.46rem] font-semibold ${profile.six_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>{profile.six_meeting_attendance} Meeting</div>
                   </div>
                   <div className="px-1.5 text-center">
                     <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${profile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
@@ -394,8 +407,14 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                     </div>
                   </div>
                   <div className="px-1.5 text-center">
-                    <div className="text-[0.52rem] font-bold text-[#3a342f]">Proficiency</div>
-                    <div className="mt-2 text-[0.62rem] font-bold text-[#3a342f]">{formatDate(profile.proficiency_date)}</div>
+                    <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${profile.proficiency_date ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
+                      {profile.proficiency_date ? (
+                        <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
+                      ) : (
+                        <span className="text-[0.48rem] font-bold">—</span>
+                      )}
+                    </span>
+                    <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Proficiency</div>
                   </div>
                 </div>
               </section>
