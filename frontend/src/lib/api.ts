@@ -469,6 +469,12 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   const payload = isJson ? ((await response.json()) as T | ApiErrorResponse) : null;
 
   if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== "undefined") {
+        window.location.replace("/");
+      }
+      throw new ApiError(401, "Session expired. Please log in again.", "SESSION_EXPIRED");
+    }
     if (response.status === 413) {
       throw new ApiError(
         413,

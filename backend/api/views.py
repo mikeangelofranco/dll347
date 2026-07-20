@@ -992,13 +992,49 @@ def member_edit_profile_view(request, member_id: int):
         partial=request.method == "PATCH",
     )
     serializer.is_valid(raise_exception=True)
+
+    tracked_fields = (
+        "section", "member_number", "name", "glp_id_number",
+        "date_of_birth", "initiation_date", "passing_date", "raising_date",
+        "proficiency_date", "suspension", "restored", "demit", "lml",
+        "dual_plural_honorary_date", "address", "telephone", "email",
+        "blood_type", "widow_or_sister", "widow_or_sister_date_of_birth",
+    )
+    changes = {}
+    for field_name in tracked_fields:
+        if field_name in serializer.validated_data:
+            old_value = getattr(member, field_name)
+            new_value = serializer.validated_data[field_name]
+            if old_value != new_value:
+                changes[field_name] = {"old": str(old_value) if old_value else None, "new": str(new_value) if new_value else None}
+
+    if "appendant_bodies" in serializer.validated_data:
+        old_ab = member.appendant_bodies or {}
+        new_ab = serializer.validated_data["appendant_bodies"]
+        changed_keys = []
+        for key in set(list(old_ab.keys()) + list(new_ab.keys())):
+            if old_ab.get(key) != new_ab.get(key):
+                changed_keys.append(key)
+        if changed_keys:
+            changes["appendant_bodies"] = {"updated_keys": changed_keys}
+
+    if "annual_dues" in serializer.validated_data:
+        old_ad = member.annual_dues or {}
+        new_ad = serializer.validated_data["annual_dues"]
+        changed_ad = []
+        for key in set(list(old_ad.keys()) + list(new_ad.keys())):
+            if old_ad.get(key) != new_ad.get(key):
+                changed_ad.append(key)
+        if changed_ad:
+            changes["annual_dues"] = {"updated_keys": changed_ad}
+
     updated_member = serializer.save()
     create_audit_log(
         AuditLog.Action.MEMBER_UPDATED,
         actor=request.user,
         target_model="MemberDatabaseRecord",
         target_id=updated_member.pk,
-        changes={"updated_fields": list(serializer.validated_data.keys())},
+        changes=changes,
         **audit_from_request(request),
     )
     return Response(
@@ -1531,15 +1567,6 @@ def member_list_view(request):
     }
     if not requested_group:
         requested_group = "active" if "active" in available_groups else next(iter(sorted(available_groups)), "")
-
-    if requested_group and requested_group not in available_groups and not search:
-        return Response(
-            {
-                "code": "INVALID_MEMBER_GROUP",
-                "message": "Please choose a valid member group.",
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
 
     if search:
         records = records.filter(name__icontains=search)

@@ -265,7 +265,7 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                   <div className="relative flex h-[5.9rem] w-[5.9rem] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#f8efe3] text-[#d58d00] shadow-[0_10px_24px_rgba(74,48,19,0.12)] ring-4 ring-white/75">
                     {profile.profile_photo_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={profile.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                      <img src={profile.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                     ) : (
                       <PersonIcon />
                     )}
@@ -327,13 +327,13 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
               <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 px-3.5 py-3 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
                 <h3 className="text-[0.78rem] font-bold">Masonic Involvement</h3>
                 <div className="border-b border-[#eadfd3] py-2.5">
-                  <div className="flex items-center gap-2 text-[0.74rem] text-[#423c37]"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#fff4e3] text-[#d58d00]"><AwardIcon /></span>Appendant Bodies</div>
+                  <div className="flex items-center gap-2 text-[0.74rem] text-[#423c37]"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#fff4e3] text-[#d58d00]"><AwardIcon /></span>Appendant Bodies & Club</div>
                   <div className="mt-2 overflow-hidden rounded-[0.9rem] border border-[#f0e7dc] bg-[#fffdfb]">
                     {appendantItems.length > 0 ? appendantItems.map((item) => (
                       <div key={item.key} className="flex items-center gap-3 border-b border-[#eee4d8] px-3 py-2.5 text-[0.74rem] text-[#111111] last:border-b-0">
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#fbf7f0] shadow-[inset_0_0_0_1px_rgba(213,141,0,0.08)]">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={item.logoPath} alt="" className="h-full w-full object-contain" />
+                          <img src={item.logoPath} alt="" className="h-full w-full object-contain" loading="lazy" decoding="async" />
                         </span>
                         <span className="font-semibold tracking-[-0.015em]">{item.name}</span>
                       </div>

@@ -6,7 +6,8 @@ import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "re
 import { ThemedLoader } from "@/components/themed-loader";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
 import { timeBasedGreeting } from "@/lib/greeting";
-import { ActivityScreen, createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, trackScreenView, trackUserAction, updateMemberProfile, uploadMemberProfilePhotoById, getMemberAccountStatus, activateMemberLogin, deactivateMemberLogin } from "@/lib/api";
+import { useIdleTimeout } from "@/lib/use-idle-timeout";
+import { ActivityScreen, createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getSecretaryDashboardSummary, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, SecretaryDashboardSummaryResponse, trackScreenView, trackUserAction, updateMemberProfile, uploadMemberProfilePhotoById, getMemberAccountStatus, activateMemberLogin, deactivateMemberLogin } from "@/lib/api";
 
 type MemberDashboardScreenProps = {
   profile: MemberDashboardProfile | null;
@@ -20,9 +21,9 @@ type MemberDashboardScreenProps = {
   canEditMembers?: boolean;
 };
 
-type MemberDashboardTab = "dashboard" | "more";
-type MemberDashboardView = "home" | "profile" | "members" | "activity" | "member-edit";
-type MemberSheetName = "appendant" | "positions" | "activity" | "eventlist";
+type MemberDashboardTab = "dashboard" | "profile" | "more";
+type MemberDashboardView = "home" | "profile" | "members" | "activity" | "member-edit" | "dues";
+type MemberSheetName = "appendant" | "positions" | "activity" | "eventlist" | "payment";
 type SecretaryNavItemId = "dashboard" | "profile" | "documents" | "more";
 type ActivityTimePickerTarget = "start" | "end";
 type ActivityScreenTab = "create" | "list";
@@ -170,6 +171,86 @@ function PersonPlusIcon() {
   );
 }
 
+function PulseIcon() {
+  return (
+    <Icon className="h-6 w-6">
+      <path
+        d="M2.5 12h4l2.1-5.2L12 17l2.2-5h7.3"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2.2"
+      />
+    </Icon>
+  );
+}
+
+function MembersOutlineIcon() {
+  return (
+    <Icon className="h-7 w-7">
+      <path d="M12 11.6a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M4.8 19.2a7.2 7.2 0 0 1 14.4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </Icon>
+  );
+}
+
+function GrowthIcon() {
+  return (
+    <Icon className="h-6 w-6">
+      <path d="m4.5 15.5 5-5 3.5 3.5 6-6" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d="M14.5 8h4.5v4.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+    </Icon>
+  );
+}
+
+function WalletIcon() {
+  return (
+    <Icon className="h-6 w-6">
+      <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18a2 2 0 0 1 2 2v2.5H14a2.5 2.5 0 0 0 0 5h6V17a2 2 0 0 1-2 2H6.5A2.5 2.5 0 0 1 4 16.5v-9Z" fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      <path d="M14 9.5h6v5h-6a2.5 2.5 0 0 1 0-5Z" fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      <circle cx="16.8" cy="12" r="0.8" fill="currentColor" />
+    </Icon>
+  );
+}
+
+function MoneyCircleIcon() {
+  return (
+    <Icon className="h-7 w-7">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <text x="12" y="16" fill="currentColor" fontFamily="Arial, Helvetica, sans-serif" fontSize="12" fontWeight="800" textAnchor="middle">₱</text>
+    </Icon>
+  );
+}
+
+function CheckStatusIcon() {
+  return (
+    <Icon className="h-6 w-6">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="m8.3 12.2 2.3 2.4 5-5.3" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </Icon>
+  );
+}
+
+function PercentIcon() {
+  return (
+    <Icon className="h-6 w-6">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <text x="12" y="16.2" textAnchor="middle" fontSize="11" fontWeight="800" fill="currentColor">%</text>
+    </Icon>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <Icon className="h-6 w-6">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 7.5v5.2" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <circle cx="12" cy="16.4" r="1" fill="currentColor" />
+    </Icon>
+  );
+}
+
 function HomeIcon() {
   return <Icon className="h-5.5 w-5.5"><path d="m4 10.5 8-6.5 8 6.5v9a1.5 1.5 0 0 1-1.5 1.5h-4.2v-6.3H9.7V21H5.5A1.5 1.5 0 0 1 4 19.5v-9Z" fill="currentColor" /></Icon>;
 }
@@ -188,7 +269,7 @@ function SearchIcon() {
 
 function LodgeWatermark() {
   return (
-    <svg viewBox="0 0 300 220" aria-hidden="true" className="absolute bottom-7 right-1 h-34 w-44 text-[#d58d00] opacity-[0.12] sm:h-40 sm:w-52">
+    <svg viewBox="0 0 300 220" aria-hidden="true" className="pointer-events-none absolute bottom-7 right-1 h-36 w-44 text-[#d58d00] opacity-[0.12] sm:h-40 sm:w-52">
       <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
         <path strokeWidth="4" d="M60 190h180M78 178h144M92 166h116" />
         <g strokeWidth="2.7">
@@ -299,9 +380,150 @@ function buildMemberDisplayGroups(groups: MemberSummaryGroup[] | null): MemberGr
   return displayGroups;
 }
 
+const emptyDashboardSummary: SecretaryDashboardSummaryResponse = {
+  year: new Date().getFullYear(),
+  overall_percent: 0,
+  membership: {
+    active_count: 0,
+    total_count: 0,
+    percent: 0,
+  },
+  growth: {
+    progressing_count: 0,
+    total_count: 0,
+    percent: 0,
+  },
+  finances: {
+    percent: 0,
+    status: "No Treasurer report yet",
+    has_data: false,
+    report_month: null,
+    report_year: null,
+    report_period_label: null,
+    source_date: null,
+    cash_accountability: null,
+    previous_balance: null,
+    cash_received: null,
+    cash_outflow: null,
+    cash_on_hand: null,
+  },
+  attendance: {
+    average_count: 0,
+    total_count: 0,
+    meeting_count: 0,
+    percent: 0,
+  },
+  dues_collection: {
+    paid_count: 0,
+    unpaid_count: 0,
+    total_count: 0,
+    percent: 0,
+  },
+};
+
+function normalizeDashboardSummary(
+  summary: Partial<SecretaryDashboardSummaryResponse>,
+): SecretaryDashboardSummaryResponse {
+  return {
+    ...emptyDashboardSummary,
+    ...summary,
+    membership: {
+      ...emptyDashboardSummary.membership,
+      ...summary.membership,
+    },
+    growth: {
+      ...emptyDashboardSummary.growth,
+      ...summary.growth,
+    },
+    finances: {
+      ...emptyDashboardSummary.finances,
+      ...summary.finances,
+    },
+    attendance: {
+      ...emptyDashboardSummary.attendance,
+      ...summary.attendance,
+    },
+    dues_collection: {
+      ...emptyDashboardSummary.dues_collection,
+      ...summary.dues_collection,
+    },
+  };
+}
+
+function healthLabel(percent: number) {
+  if (percent >= 80) {
+    return "Excellent";
+  }
+  if (percent >= 60) {
+    return "Healthy";
+  }
+  if (percent >= 40) {
+    return "Needs attention";
+  }
+  return "Building";
+}
+
+function buildHealthRows(summary: SecretaryDashboardSummaryResponse) {
+  return [
+    {
+      title: "Membership",
+      subtitle: `${summary.membership.active_count} / ${summary.membership.total_count} members`,
+      percent: summary.membership.percent,
+      color: "bg-[#14812a]",
+      iconBg: "bg-[#14812a]",
+      icon: <MembersOutlineIcon />,
+    },
+    {
+      title: "Growth",
+      subtitle: `${summary.growth.progressing_count} / ${summary.growth.total_count} EAM/FCM`,
+      percent: summary.growth.percent,
+      color: "bg-[#cc1313]",
+      iconBg: "bg-[#cc1313]",
+      icon: <GrowthIcon />,
+    },
+    {
+      title: "Dues Collected",
+      subtitle: `${summary.dues_collection.paid_count} / ${summary.dues_collection.total_count} paid`,
+      percent: summary.dues_collection.percent,
+      color: "bg-[#cf8c00]",
+      iconBg: "bg-[#cf8c00]",
+      icon: <PercentIcon />,
+    },
+    {
+      title: "Attendance",
+      subtitle: `${summary.attendance.average_count} attended last meeting`,
+      percent: summary.attendance.percent,
+      color: "bg-[#cf8c00]",
+      iconBg: "bg-[#cf8c00]",
+      icon: <CalendarIcon />,
+    },
+  ];
+}
+
+function formatPesoAmount(value: string | null): string {
+  const amount = Number(value ?? 0);
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function formatSourceDate(value: string | null): string {
+  if (!value) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
+}
+
 const navItems = [
   { id: "dashboard" as const, label: "Dashboard", icon: <HomeIcon /> },
-  { id: "more" as const, label: "More", icon: <DotsIcon /> },
+  { id: "profile" as const, label: "My Profile", icon: <PersonIcon /> },
 ];
 
 const secretaryNavItems: { id: SecretaryNavItemId; label: string; icon: ReactNode }[] = [
@@ -1033,6 +1255,8 @@ export function MemberDashboardScreen({
   canManageActivities = false,
   canEditMembers = false,
 }: MemberDashboardScreenProps) {
+  useIdleTimeout();
+
   const isProfileOnly = initialView === "profile";
   const usesSecretaryNav = onDashboardClose !== undefined || onProfileClose !== undefined;
   const contextualNavItems = usesSecretaryNav
@@ -1068,6 +1292,7 @@ export function MemberDashboardScreen({
   const [memberSummaryError, setMemberSummaryError] = useState("");
   const [activeMemberFilter, setActiveMemberFilter] = useState<MemberGroupKey>("active");
   const [memberSearch, setMemberSearch] = useState("");
+  const [duesFilter, setDuesFilter] = useState<"paid" | "unpaid" | "all">("all");
   const [memberList, setMemberList] = useState<MemberListItem[]>([]);
   const [memberListCount, setMemberListCount] = useState(0);
   const [isMemberListLoading, setIsMemberListLoading] = useState(false);
@@ -1093,6 +1318,7 @@ export function MemberDashboardScreen({
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [isAppendantSheetOpen, setIsAppendantSheetOpen] = useState(false);
+  const [isPaymentSheetOpen, setIsPaymentSheetOpen] = useState(false);
   const [isPositionsSheetOpen, setIsPositionsSheetOpen] = useState(false);
   const [closingSheet, setClosingSheet] = useState<MemberSheetName | null>(null);
   const [positionsHeld, setPositionsHeld] = useState<MemberPositionHeld[] | null>(null);
@@ -1137,6 +1363,8 @@ export function MemberDashboardScreen({
   const [workbookAddPeriod, setWorkbookAddPeriod] = useState(monthOptions[new Date().getMonth()]);
   const [workbookAddValue, setWorkbookAddValue] = useState("a");
   const [workbookAddError, setWorkbookAddError] = useState("");
+  const [dashboardSummary, setDashboardSummary] =
+    useState<SecretaryDashboardSummaryResponse>(emptyDashboardSummary);
 
   const memberDisplayGroups = useMemo(
     () => buildMemberDisplayGroups(memberSummaryGroups),
@@ -1166,9 +1394,10 @@ export function MemberDashboardScreen({
       members: "Members",
       activity: "Activity Management",
       "member-edit": "Edit Member",
+      dues: "Dues",
     };
     const screen = activeView === "home"
-      ? (activeTab === "more" ? "More" : "Dashboard")
+      ? (activeTab === "profile" ? "My Profile" : "Dashboard")
       : screenByView[activeView];
     trackScreenView(screen);
   }, [activeTab, activeView, usesSecretaryNav]);
@@ -1206,6 +1435,29 @@ export function MemberDashboardScreen({
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    async function loadDashboardSummary() {
+      try {
+        const summary = await getSecretaryDashboardSummary();
+        if (isMounted) {
+          setDashboardSummary(normalizeDashboardSummary(summary));
+        }
+      } catch {
+        if (isMounted) {
+          setDashboardSummary(normalizeDashboardSummary({}));
+        }
+      }
+    }
+
+    void loadDashboardSummary();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isProfileOnly || profile === null || fullProfile !== null || isProfileLoading) {
       return;
     }
@@ -1214,7 +1466,7 @@ export function MemberDashboardScreen({
   }, [profile, fullProfile, isProfileLoading, isProfileOnly]);
 
   useEffect(() => {
-    if (activeView !== "members" || memberSummaryGroups === null) {
+    if ((activeView !== "members" && activeView !== "dues") || memberSummaryGroups === null) {
       return;
     }
 
@@ -1225,7 +1477,7 @@ export function MemberDashboardScreen({
         setMemberListError("");
         try {
           const [response] = await Promise.all([
-            getMemberList(resolvedActiveMemberFilter, memberSearch),
+            getMemberList(resolvedActiveMemberFilter, memberSearch, activeView === "dues" ? duesFilter : undefined),
             minimumLoadingDelay(),
           ]);
           if (isMounted) {
@@ -1250,7 +1502,7 @@ export function MemberDashboardScreen({
       isMounted = false;
       window.clearTimeout(debounce);
     };
-  }, [activeView, resolvedActiveMemberFilter, memberSearch, memberSummaryGroups]);
+  }, [activeView, resolvedActiveMemberFilter, memberSearch, duesFilter, memberSummaryGroups]);
 
   useEffect(() => {
     if (activeView !== "member-edit" || !canEditMembers || memberSummaryGroups === null) {
@@ -1436,14 +1688,15 @@ export function MemberDashboardScreen({
   async function openFullProfile() {
     setIsProfileLoading(true);
     setProfileError("");
+    setFullProfile(null);
+    setIsProfileViewClosing(false);
+    setActiveView("profile");
     try {
       const [profileData] = await Promise.all([
         getMyMemberProfile(),
-        minimumLoadingDelay(),
+        minimumLoadingDelay(150),
       ]);
       setFullProfile(profileData);
-      setIsProfileViewClosing(false);
-      setActiveView("profile");
     } catch (error) {
       setProfileError(error instanceof Error ? error.message : "Unable to load your member profile.");
     } finally {
@@ -1488,6 +1741,16 @@ export function MemberDashboardScreen({
     }, 230);
   }
 
+  function openDuesMemberList(status: "paid" | "unpaid" | "all") {
+    setDuesFilter(status);
+    setActiveMemberFilter("active");
+    setMemberSearch("");
+    setMemberList([]);
+    setMemberListCount(0);
+    setMemberListError("");
+    setActiveView("dues");
+  }
+
   function openActivityForm() {
     resetActivityForm();
     setActivityFormError("");
@@ -1504,7 +1767,7 @@ export function MemberDashboardScreen({
     setIsActivityFormClosing(true);
     window.setTimeout(() => {
       setActiveView("home");
-      setActiveTab("more");
+      setActiveTab("dashboard");
       setIsActivityFormClosing(false);
     }, 230);
   }
@@ -1526,7 +1789,7 @@ export function MemberDashboardScreen({
       const returnView = editReturnView;
       setActiveView(returnView);
       if (returnView === "home") {
-        setActiveTab("more");
+        setActiveTab("dashboard");
       }
       setIsMemberEditClosing(false);
     }, 230);
@@ -1958,6 +2221,8 @@ export function MemberDashboardScreen({
         setIsEventListMode(false);
       } else if (name === "eventlist") {
         setIsEventListSheetOpen(false);
+      } else if (name === "payment") {
+        setIsPaymentSheetOpen(false);
       } else {
         setIsPositionsSheetOpen(false);
       }
@@ -2143,7 +2408,7 @@ export function MemberDashboardScreen({
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.68rem] font-bold text-white">
                           {member.profile_photo_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                            <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                           ) : memberInitials(member.name)}
                         </span>
                         <span className="min-w-0 flex-1">
@@ -2263,7 +2528,7 @@ export function MemberDashboardScreen({
                       <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#f7efe5] text-[#d58d00] shadow-[inset_0_0_0_1px_rgba(220,171,91,0.18)]">
                         {selectedEditMember.profile_photo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={selectedEditMember.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                          <img src={selectedEditMember.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                         ) : (
                           <CameraIcon />
                         )}
@@ -2345,7 +2610,7 @@ export function MemberDashboardScreen({
                   <h2 className="text-[0.78rem] font-bold">Workbook Data</h2>
                   <div className="mt-3 space-y-2.5">
                     <WorkbookRowsEditor
-                      title="Appendant Bodies"
+                      title="Appendant Bodies & Club"
                       rows={editMemberForm.appendantBodiesRows}
                       emptyText="No appendant body columns were imported for this member."
                       mode="mark"
@@ -2508,7 +2773,7 @@ export function MemberDashboardScreen({
             </div>
           ) : null}
           <header className="flex h-[4.4rem] shrink-0 items-center justify-between border-b border-[#eee7dd]/70 bg-white/72 px-4 backdrop-blur-md">
-            <button type="button" onClick={closeActivityForm} className="flex h-9 w-9 items-center justify-center text-[#1f2529]" aria-label="Back to more">
+            <button type="button" onClick={closeActivityForm} className="flex h-9 w-9 items-center justify-center text-[#1f2529]" aria-label="Back">
               <Icon className="h-6 w-6"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /></Icon>
             </button>
             <h1 className="text-[1.02rem] font-bold tracking-[-0.04em]">Activity</h1>
@@ -2704,11 +2969,11 @@ export function MemberDashboardScreen({
                       closeActivityForm();
                     }
                   }}
-                  className={`flex flex-col items-center gap-1 ${item.id === "more" ? "text-[#d00000]" : "text-[#716a66]"}`}
+                  className={`flex flex-col items-center gap-1 ${item.id === "dashboard" ? "text-[#d00000]" : "text-[#716a66]"}`}
                 >
                   {item.icon}
                   <span className="text-[0.55rem] font-medium sm:text-[0.62rem]">{item.label}</span>
-                  <span className={`h-[0.12rem] w-8 rounded-full ${item.id === "more" ? "bg-[#d00000]" : "bg-transparent"}`} />
+                  <span className={`h-[0.12rem] w-8 rounded-full ${item.id === "dashboard" ? "bg-[#d00000]" : "bg-transparent"}`} />
                 </button>
               ))}
             </div>
@@ -2799,7 +3064,7 @@ export function MemberDashboardScreen({
                   <button
                     key={filter.key}
                     type="button"
-                    onClick={() => setActiveMemberFilter(filter.key)}
+                    onClick={() => { setActiveMemberFilter(filter.key); setMemberList([]); setMemberListCount(0); setMemberListError(""); }}
                     className="rounded-full border px-3.5 py-1.5 text-[0.68rem] font-semibold transition-colors"
                     style={{
                       color: filter.color,
@@ -2849,7 +3114,7 @@ export function MemberDashboardScreen({
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
                         {member.profile_photo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                          <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                         ) : (
                           memberInitials(member.name)
                         )}
@@ -2908,7 +3173,12 @@ export function MemberDashboardScreen({
                         }
                         return;
                       }
-                      closeMembersList(item.id === "more" ? "more" : "dashboard");
+                      if (item.id === "profile") {
+                        setActiveView("home");
+                        void openFullProfile();
+                        return;
+                      }
+                      closeMembersList("dashboard");
                     }}
                     className={`flex flex-col items-center gap-1 ${isActive ? "text-[#d00000]" : "text-[#716a66]"}`}
                   >
@@ -2928,6 +3198,101 @@ export function MemberDashboardScreen({
               onEdit={(memberId) => { void openEditMemberFor(memberId); }}
             />
           ) : null}
+        </div>
+      </main>
+    );
+  }
+
+  if (activeView === "dues") {
+    const duesFilterOptions: { label: string; status: "paid" | "unpaid" | "all" }[] = [
+      { label: "Paid", status: "paid" },
+      { label: "Unpaid", status: "unpaid" },
+      { label: "All", status: "all" },
+    ];
+
+    return (
+      <main className="member-dashboard-paper h-[100svh] overflow-hidden text-[#111111] member-page-enter">
+        <div className="relative mx-auto flex h-full w-full max-w-[26rem] flex-col overflow-hidden border-x border-[#eee7dd] bg-white/20 shadow-[0_0_35px_rgba(87,55,19,0.08)]">
+          <header className="flex shrink-0 items-center border-b border-[#eee7dd]/70 bg-white/72 px-5 pb-3 pt-4 backdrop-blur-md">
+            <button type="button" onClick={() => setActiveView("home")} className="mr-3 flex h-9 w-9 items-center justify-center text-[#1f2529]" aria-label="Back to dashboard">
+              <Icon className="h-6 w-6"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /></Icon>
+            </button>
+            <h1 className="flex-1 text-[1.05rem] font-bold tracking-[-0.035em]">Dues Collected</h1>
+          </header>
+
+          <div className="px-3.5 pt-4">
+            <div className="flex gap-2">
+              {duesFilterOptions.map((option) => {
+                const isActive = duesFilter === option.status;
+                const activeColor = option.status === "paid" ? "bg-[#6e9a1d] text-white border-[#6e9a1d]" : option.status === "unpaid" ? "bg-[#d31313] text-white border-[#d31313]" : "bg-[#cf8c00] text-white border-[#cf8c00]";
+                const inactiveColor = option.status === "paid" ? "text-[#6e9a1d] border-[#c0d69a]" : option.status === "unpaid" ? "text-[#d31313] border-[#eabbbb]" : "text-[#cf8c00] border-[#ecd09a]";
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    onClick={() => setDuesFilter(option.status)}
+                    className={`rounded-full border px-4 py-1.5 text-[0.68rem] font-bold transition-colors ${isActive ? activeColor : `${inactiveColor} bg-white`}`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-3 rounded-[1rem] border border-[#f0e5d7] bg-white/88 px-3.5 py-2.5 shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
+              <label className="flex items-center gap-2 text-[#716a66]">
+                <SearchIcon />
+                <input
+                  type="search"
+                  value={memberSearch}
+                  onChange={(event) => setMemberSearch(event.target.value)}
+                  placeholder="Search member names"
+                  className="min-w-0 flex-1 bg-transparent text-[0.78rem] text-[#111111] outline-none placeholder:text-[#9a928b]"
+                />
+              </label>
+            </div>
+
+            <p className="mt-5 px-1 text-[1.25rem] font-bold leading-none">{isMemberListLoading ? <ThemedLoader size="sm" /> : memberListCount}</p>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-3.5 pb-[2rem] pt-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <section className="space-y-2.5">
+              {memberListError ? (
+                <p className="rounded-2xl bg-[#fff0f0] px-4 py-5 text-center text-[0.78rem] leading-5 text-[#c90000]">{memberListError}</p>
+              ) : isMemberListLoading ? (
+                <div className="flex justify-center rounded-[1rem] bg-white/88 px-4 py-8 shadow-[0_8px_20px_rgba(75,48,20,0.04)]"><ThemedLoader size="md" /></div>
+              ) : memberList.length > 0 ? (
+                memberList.map((member) => {
+                  const groupDetails = memberGroupDetailsForMember(member, memberDisplayGroups);
+                  const duesPaid = member.dues_status.startsWith("Paid");
+                  return (
+                    <div key={member.id} role="button" tabIndex={0} onClick={() => void openMemberProfile(member.id)} onKeyDown={(e) => { if (e.key === "Enter") { void openMemberProfile(member.id); } }} className="flex w-full items-center gap-2.5 rounded-[0.85rem] bg-white/90 px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] cursor-pointer">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
+                        {member.profile_photo_url ? (
+                          <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
+                        ) : (
+                          memberInitials(member.name)
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[0.75rem] font-bold tracking-[-0.02em] text-[#111111]">{memberListDisplayName(member.name)}</span>
+                        <span className="mt-0.5 block truncate text-[0.64rem] text-[#625b56]">GLP ID: {displayValue(member.glp_id_number)}</span>
+                        <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[0.54rem] font-semibold leading-none" style={{ color: groupDetails.color, backgroundColor: groupDetails.tint }}>
+                          <span className="flex h-3.5 w-3.5 items-center justify-center">{groupDetails.icon}</span>
+                          <span className="truncate">{groupDetails.label}</span>
+                        </span>
+                      </span>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[0.55rem] font-bold ${duesPaid ? "bg-[#eef8f0] text-[#6e9a1d]" : "bg-[#fff7f7] text-[#d31313]"}`}>
+                        {duesPaid ? "Paid" : "Unpaid"}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="rounded-2xl bg-white/88 px-4 py-8 text-center text-[0.78rem] leading-5 text-[#665d57]">No members found for this filter.</p>
+              )}
+            </section>
+          </div>
         </div>
       </main>
     );
@@ -2956,7 +3321,7 @@ export function MemberDashboardScreen({
     const positionsCount = displayedPositions.length;
 
     return (
-      <main className={`member-dashboard-paper h-[100svh] overflow-hidden text-[#111111] ${isProfileViewClosing ? "member-page-exit" : "member-page-enter"}`}>
+      <main className="member-dashboard-paper h-[100svh] overflow-hidden text-[#111111]">
         <div className="relative mx-auto flex h-full w-full max-w-[26rem] flex-col overflow-hidden border-x border-[#eee7dd] bg-white/20 shadow-[0_0_35px_rgba(87,55,19,0.08)]">
           <header className="flex h-[4.4rem] shrink-0 items-center justify-between border-b border-[#eee7dd]/70 bg-white/72 px-5 backdrop-blur-md">
             <button type="button" onClick={() => closeFullProfile()} className="flex h-9 w-9 items-center justify-center text-[#1f2529]" aria-label="Back to dashboard">
@@ -2966,7 +3331,7 @@ export function MemberDashboardScreen({
             <span className="h-9 w-9" />
           </header>
 
-          <div className="flex-1 overflow-y-auto px-3.5 pb-[5.6rem] pt-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className={`flex-1 overflow-y-auto px-3.5 pb-[5.6rem] pt-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isProfileViewClosing ? "member-page-exit" : "member-page-enter"}`}>
             <section className="relative overflow-hidden rounded-b-[1.4rem] px-1 py-4">
               <svg viewBox="0 0 220 170" aria-hidden="true" className="pointer-events-none absolute -right-12 bottom-0 h-40 w-52 text-[#d58d00] opacity-[0.12]">
                 <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
@@ -2981,7 +3346,7 @@ export function MemberDashboardScreen({
                 <div className="relative flex h-[6.6rem] w-[6.6rem] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#f8efe3] text-[#d58d00] shadow-[0_10px_24px_rgba(74,48,19,0.12)] ring-4 ring-white/75">
                   {fullProfile.profile_photo_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={fullProfile.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                    <img src={fullProfile.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                   ) : (
                     <PersonIcon />
                   )}
@@ -3046,7 +3411,7 @@ export function MemberDashboardScreen({
             <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 px-3.5 py-3 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
               <h3 className="text-[0.78rem] font-bold">Masonic Involvement</h3>
               <button type="button" onClick={openAppendantSheet} className="flex w-full items-center justify-between border-b border-[#e9e1d8] py-2.5 text-left">
-                <span className="flex items-center gap-2 text-[0.74rem] text-[#423c37]"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#fff4e3] text-[#d58d00]"><AwardIcon /></span>Appendant Bodies</span>
+                <span className="flex items-center gap-2 text-[0.74rem] text-[#423c37]"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#fff4e3] text-[#d58d00]"><AwardIcon /></span>Appendant Bodies & Club</span>
                 <span className="flex items-center gap-2 text-[0.74rem] text-[#111111]">{appendantCount}<ChevronIcon /></span>
               </button>
               <button type="button" onClick={() => void openPositionsSheet()} className="flex w-full items-center justify-between py-2.5 text-left">
@@ -3112,7 +3477,7 @@ export function MemberDashboardScreen({
           <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
             <div className={`grid gap-1 ${contextualNavGridClass}`}>
               {contextualNavItems.map((item) => {
-                const isActive = usesSecretaryNav ? item.id === "profile" : activeTab === item.id;
+                const isActive = usesSecretaryNav ? item.id === "profile" : item.id === "profile";
                 return (
                   <button
                     key={item.label}
@@ -3131,7 +3496,10 @@ export function MemberDashboardScreen({
                         }
                         return;
                       }
-                      closeFullProfile(item.id === "more" ? "more" : "dashboard");
+                      if (item.id === "profile") {
+                        return;
+                      }
+                      closeFullProfile("dashboard");
                     }}
                     className={`flex flex-col items-center gap-1 ${isActive ? "text-[#d00000]" : "text-[#716a66]"}`}
                   >
@@ -3152,7 +3520,7 @@ export function MemberDashboardScreen({
                   <button type="button" onClick={() => closeSheet("appendant")} className="flex h-9 w-9 items-center justify-center text-[#111111]" aria-label="Close appendant bodies">
                     <Icon className="h-7 w-7"><path d="M6 6 18 18M18 6 6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" /></Icon>
                   </button>
-                  <h2 className="text-[1.05rem] font-bold tracking-[-0.035em]">Appendant Bodies / Club</h2>
+                  <h2 className="text-[1.05rem] font-bold tracking-[-0.035em]">Appendant Bodies & Club</h2>
                   <span className="h-9 w-9" />
                 </div>
                 <div className="mt-4 max-h-[calc(72svh-6rem)] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -3161,7 +3529,7 @@ export function MemberDashboardScreen({
                       <button key={item.key} type="button" className="flex w-full items-center gap-3 border-b border-[#eadfd3] py-3 text-left last:border-b-0">
                         <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#fbf7f0]">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={item.logoPath} alt="" className="h-full w-full object-contain" />
+                          <img src={item.logoPath} alt="" className="h-full w-full object-contain" loading="lazy" decoding="async" />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block text-[0.92rem] font-bold leading-tight tracking-[-0.025em] text-[#111111]">{item.name}</span>
@@ -3248,81 +3616,107 @@ export function MemberDashboardScreen({
         </header>
 
         <div className="mt-3.5 flex-1 space-y-3 overflow-y-auto pb-[5.6rem] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mt-4 sm:space-y-3.5">
-          {activeTab === "dashboard" ? (
-            <>
-          <section className="rounded-[1.25rem] border border-white/80 bg-white/88 p-3.5 shadow-[0_12px_30px_rgba(74,48,19,0.08)] sm:rounded-[1.45rem] sm:p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#eda600,#c77900)] text-white shadow-[0_8px_20px_rgba(205,133,0,0.22)] sm:h-12 sm:w-12">
+          {usesSecretaryNav && activeTab === "more" ? (
+            <section className="rounded-[1.25rem] border border-white/80 bg-white/90 p-4 shadow-[0_12px_30px_rgba(74,48,19,0.08)] sm:rounded-[1.45rem] sm:p-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#f7efe5] text-[#d58d00] shadow-[inset_0_0_0_1px_rgba(220,171,91,0.18)]">
                   {profile.profile_photo_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={profile.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                    <img src={profile.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                   ) : (
-                    <PersonIcon />
+                    <CameraIcon />
                   )}
                 </div>
-                <div>
-                  <div className="text-[0.68rem] font-semibold text-[#cc8300] sm:text-xs">My Lodge Standing</div>
-                  <h2 className="mt-1 text-[1.1rem] font-bold leading-none tracking-[-0.04em] sm:text-[1.25rem]">{profile.lodge_standing}</h2>
+                <div className="min-w-0">
+                  <h2 className="text-base font-bold tracking-[-0.03em] text-[#111111]">Tools</h2>
+                  <p className="mt-0.5 text-[0.68rem] leading-snug text-[#655e59] sm:text-xs">Access profile photo, lodge activities, and member record tools.</p>
                 </div>
               </div>
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eef8f0] text-[#168129] sm:h-10 sm:w-10"><CheckIcon /></div>
-            </div>
 
-            <div className="mt-4 grid grid-cols-4 gap-1 divide-x divide-[#e9e1d8] sm:mt-5">
-              <div className="px-1.5 text-center">
-                <span className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full ${profile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                  {profile.three_meetings_rule ? (
-                    <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                  ) : (
-                    <span className="text-[0.52rem] font-bold">—</span>
-                  )}
-                </span>
-                <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">3 Meeting Rule</div>
-                <div className={`mt-0.5 text-[0.5rem] font-semibold ${profile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
-                  {profile.attendance_this_year} Meeting
+              {canManageActivities ? (
+                <button type="button" onClick={openActivityForm} className="mt-3 flex w-full items-center justify-between rounded-[1rem] border border-[#f0e5d7] bg-[#fffdfb] p-3 text-left shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
+                  <span className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[linear-gradient(145deg,#eda600,#c77900)] text-white"><CalendarIcon /></span>
+                    <span>
+                      <span className="block text-xs font-semibold text-[#111111]">Activity</span>
+                      <span className="mt-0.5 block text-[0.62rem] text-[#706760]">Create and publish lodge activities.</span>
+                    </span>
+                  </span>
+                  <span className="text-[#77716d]"><ChevronIcon /></span>
+                </button>
+              ) : null}
+
+              {canEditMembers ? (
+                <button type="button" onClick={openMemberEdit} className="mt-3 flex w-full items-center justify-between rounded-[1rem] border border-[#f0e5d7] bg-[#fffdfb] p-3 text-left shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-white"><PersonIcon /></span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-semibold text-[#111111]">Edit Member</span>
+                      <span className="mt-0.5 block truncate text-[0.62rem] text-[#706760]">Select and update member records.</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[#77716d]"><ChevronIcon /></span>
+                </button>
+              ) : null}
+            </section>
+          ) : (
+            <>
+          <section className="rounded-[1.25rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px] sm:rounded-[1.45rem]">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="text-[#cf8c00]">
+                  <PulseIcon />
                 </div>
+                <h2 className="text-[0.92rem] font-extrabold tracking-[-0.04em] text-[#18130f]">
+                  Lodge Health Indicator
+                </h2>
               </div>
-              <div className="px-1.5 text-center">
-                <span className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full ${profile.six_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                  {profile.six_meetings_rule ? (
-                    <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                  ) : (
-                    <span className="text-[0.52rem] font-bold">—</span>
-                  )}
-                </span>
-                <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">6 Meeting Rule</div>
-                <div className={`mt-0.5 text-[0.52rem] font-semibold ${profile.six_meetings_rule ? "text-[#147622]" : "text-[#6e665d]"}`}>{profile.six_meeting_attendance} Meeting</div>
-              </div>
-              <div className="px-1.5 text-center">
-                <span className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full ${profile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                  {profile.dues_status.startsWith("Paid") ? (
-                    <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                  ) : (
-                    <span className="text-[0.52rem] font-bold">—</span>
-                  )}
-                </span>
-                <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">Dues</div>
-                <div className={`mt-0.5 text-[0.52rem] font-semibold ${profile.dues_status.startsWith("Paid") ? "text-[#147622]" : "text-[#938b83]"}`}>
-                  {profile.dues_status}
+              <div className="text-right leading-none">
+                <div className="text-[2.1rem] font-black tracking-[-0.06em] text-[#cf8c00]">
+                  {dashboardSummary.overall_percent}%
                 </div>
-              </div>
-              <div className="px-1.5 text-center">
-                <span className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full ${profile.proficiency_date ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                  {profile.proficiency_date ? (
-                    <Icon className="h-3.5 w-3.5"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                  ) : (
-                    <span className="text-[0.52rem] font-bold">—</span>
-                  )}
-                </span>
-                <div className="mt-1 text-[0.55rem] font-bold leading-tight text-[#3a342f]">Proficiency</div>
+                <div className="mt-1 text-[0.72rem] font-bold text-[#62980d]">
+                  {healthLabel(dashboardSummary.overall_percent)}
+                </div>
               </div>
             </div>
 
-            <button type="button" disabled={isProfileLoading} onClick={() => void openFullProfile()} className="mt-4 flex w-full items-center justify-between rounded-[0.9rem] bg-[#fbf8f3] px-3.5 py-2.5 text-left text-[0.68rem] font-medium shadow-[inset_0_0_0_1px_rgba(238,228,214,0.35)] disabled:opacity-75 sm:mt-5 sm:px-4 sm:py-3 sm:text-xs">
-              <span>{formatMemberSince(profile.member_since)}</span><span className="text-[#67615d]">{isProfileLoading ? <ThemedLoader size="sm" /> : <ChevronIcon />}</span>
-            </button>
-            {profileError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{profileError}</p> : null}
+            <div className="mt-4 space-y-4">
+              {buildHealthRows(dashboardSummary).map((row) => (
+                <div
+                  key={row.title}
+                  className="grid grid-cols-[8.6rem_minmax(0,1fr)] items-center gap-x-3"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white" style={{ backgroundColor: row.iconBg === "bg-[#14812a]" ? "#14812a" : row.iconBg === "bg-[#cc1313]" ? "#cc1313" : "#cf8c00" }}>
+                      {row.icon}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[0.88rem] font-extrabold leading-none tracking-[-0.04em] text-[#18130f]">
+                        {row.title}
+                      </div>
+                      <div className="mt-1 text-[0.72rem] leading-[1.08] text-[#23201d]">
+                        {row.subtitle}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-3">
+                      <div className="h-[0.36rem] flex-1 overflow-hidden rounded-full bg-[#f5eaea]">
+                        <div
+                          className={`h-full rounded-full ${row.color}`}
+                          style={{ width: `${row.percent}%` }}
+                        />
+                      </div>
+                      <span className={`w-10 shrink-0 text-right text-[0.72rem] font-bold ${row.title === "Growth" ? "text-[#cc1313]" : "text-[#cf8c00]"}`}>
+                        {row.percent}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </section>
 
           <section className="relative overflow-hidden rounded-[1.25rem] border border-white/80 bg-white/88 p-3.5 shadow-[0_12px_30px_rgba(74,48,19,0.08)] sm:rounded-[1.45rem] sm:p-4">
@@ -3376,50 +3770,129 @@ export function MemberDashboardScreen({
             </div>
             {memberSummaryError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{memberSummaryError}</p> : null}
           </section>
-            </>
-          ) : (
-            <section className="rounded-[1.25rem] border border-white/80 bg-white/90 p-4 shadow-[0_12px_30px_rgba(74,48,19,0.08)] sm:rounded-[1.45rem] sm:p-5">
+
+          <section className="rounded-[1.25rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px] sm:rounded-[1.45rem] sm:p-4">
+            <div className="flex items-center gap-3">
+              <div className="rounded-full bg-[#fff7f7] p-1.5 text-[#d31313]">
+                <MoneyCircleIcon />
+              </div>
+              <h2 className="text-[0.92rem] font-extrabold tracking-[-0.04em] text-[#18130f]">
+                {dashboardSummary.year} Dues Collection
+              </h2>
+            </div>
+
+            <div className="mt-4 flex items-end justify-between gap-3">
+              <div>
+                <div className="text-[0.76rem] text-[#5f5854]">Collected</div>
+              </div>
+              <div className="text-[0.84rem] text-[#18130f]">
+                {dashboardSummary.dues_collection.paid_count} / {dashboardSummary.dues_collection.total_count} members
+              </div>
+            </div>
+
+            <div className="mt-2 h-[0.38rem] overflow-hidden rounded-full bg-[#f5eaea]">
+              <div
+                className="h-full rounded-full bg-[#cb1414]"
+                style={{ width: `${dashboardSummary.dues_collection.percent}%` }}
+              />
+            </div>
+
+            <div className="mt-2 text-right text-[0.72rem] text-[#6f6763]">
+              {dashboardSummary.dues_collection.percent}% collected
+            </div>
+
+            <div className="mt-4 grid grid-cols-4 gap-3">
+              {([
+                { label: "Paid", value: String(dashboardSummary.dues_collection.paid_count), color: "text-[#6e9a1d]", icon: <CheckStatusIcon />, panel: "bg-[#fdf9f3]", status: "paid" as const },
+                { label: "Unpaid", value: String(dashboardSummary.dues_collection.unpaid_count), color: "text-[#d31313]", icon: <AlertIcon />, panel: "bg-[#fff7f7]", status: "unpaid" as const },
+                { label: "Total", value: String(dashboardSummary.dues_collection.total_count), color: "text-[#cf8c00]", icon: <MembersOutlineIcon />, panel: "bg-[#fdf9f3]", status: "all" as const },
+                { label: "Rate", value: `${dashboardSummary.dues_collection.percent}%`, color: "text-[#cf8c00]", icon: <PercentIcon />, panel: "bg-[#fdf9f3]" },
+              ] as const).map((item) => (
+                "status" in item ? (
+                  <button key={item.label} type="button" onClick={() => openDuesMemberList(item.status!)} className={`rounded-[1.15rem] px-2 py-3 text-center transition-all active:scale-95 ${item.panel} hover:shadow-[0_4px_14px_rgba(0,0,0,0.1)] cursor-pointer`}>
+                    <div className={`mx-auto flex justify-center ${item.color}`}>{item.icon}</div>
+                    <div className="mt-2 text-[0.7rem] leading-none text-[#18130f]">{item.label}</div>
+                    <div className="mt-1.5 flex items-center justify-center">
+                      <span className="relative text-[1.05rem] font-bold leading-none text-[#18130f]">
+                        {item.value}
+                        <span className="absolute left-full top-1/2 -translate-y-1/2 text-[#77716d]"><Icon className="h-3.5 w-3.5"><path d="m9 5.5 6 6.5-6 6.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /></Icon></span>
+                      </span>
+                    </div>
+                  </button>
+                ) : (
+                  <div key={item.label} className={`rounded-[1.15rem] px-2 py-3 text-center ${item.panel}`}>
+                    <div className={`mx-auto flex justify-center ${item.color}`}>{item.icon}</div>
+                    <div className="mt-2 text-[0.7rem] leading-none text-[#18130f]">{item.label}</div>
+                    <div className="mt-1.5 text-[1.05rem] font-bold leading-none text-[#18130f]">{item.value}</div>
+                  </div>
+                )
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => { setClosingSheet(null); setIsPaymentSheetOpen(true); }}
+              className="mt-4 flex w-full items-center justify-between rounded-[1.05rem] bg-[linear-gradient(145deg,#1c4b8f,#123763)] px-4 py-3 text-left shadow-[0_10px_22px_rgba(18,55,99,0.22)] transition-all active:scale-[0.98]"
+            >
+              <span className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white">
+                  <WalletIcon />
+                </span>
+                <span>
+                  <span className="block text-[0.78rem] font-bold text-white">Payment Details</span>
+                  <span className="mt-0.5 block text-[0.62rem] text-white/70">View bank account for dues payment</span>
+                </span>
+              </span>
+              <span className="text-white/80"><ChevronIcon /></span>
+            </button>
+          </section>
+
+          <section className="rounded-[1.25rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px] sm:rounded-[1.45rem] sm:p-4">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#f7efe5] text-[#d58d00] shadow-[inset_0_0_0_1px_rgba(220,171,91,0.18)]">
-                  {profile.profile_photo_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={profile.profile_photo_url} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <CameraIcon />
-                  )}
+                <div className="text-[#cf8c00]">
+                  <WalletIcon />
                 </div>
-                <div className="min-w-0">
-                  <h2 className="text-base font-bold tracking-[-0.03em] text-[#111111]">Tools</h2>
-                  <p className="mt-0.5 text-[0.68rem] leading-snug text-[#655e59] sm:text-xs">Access profile photo, lodge activities, and member record tools.</p>
+                <h2 className="text-[0.92rem] font-extrabold tracking-[-0.04em] text-[#18130f]">
+                  Financial Summary
+                </h2>
+              </div>
+              <div className="text-right text-[0.58rem] leading-4 text-[#766d67]">
+                <div className="font-semibold text-[#18130f]">
+                  {dashboardSummary.finances.report_period_label ? `As of ${dashboardSummary.finances.report_period_label}` : "No report yet"}
+                </div>
+                {dashboardSummary.finances.source_date ? <div>Uploaded {formatSourceDate(dashboardSummary.finances.source_date)}</div> : null}
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-4 rounded-[1.15rem] bg-[#fdf9f3] px-1 py-4 text-center shadow-[inset_0_0_0_1px_rgba(246,238,226,0.55)]">
+              <div className="flex flex-col items-center px-1">
+                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Previous<br/>Balance</div>
+                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#168234] tracking-[-0.02em]">
+                  {formatPesoAmount(dashboardSummary.finances.previous_balance)}
                 </div>
               </div>
-
-              {canManageActivities ? (
-                <button type="button" onClick={openActivityForm} className="mt-3 flex w-full items-center justify-between rounded-[1rem] border border-[#f0e5d7] bg-[#fffdfb] p-3 text-left shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
-                  <span className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[linear-gradient(145deg,#eda600,#c77900)] text-white"><CalendarIcon /></span>
-                    <span>
-                      <span className="block text-xs font-semibold text-[#111111]">Activity</span>
-                      <span className="mt-0.5 block text-[0.62rem] text-[#706760]">Create and publish lodge activities.</span>
-                    </span>
-                  </span>
-                  <span className="text-[#77716d]"><ChevronIcon /></span>
-                </button>
-              ) : null}
-
-              {canEditMembers ? (
-                <button type="button" onClick={openMemberEdit} className="mt-3 flex w-full items-center justify-between rounded-[1rem] border border-[#f0e5d7] bg-[#fffdfb] p-3 text-left shadow-[0_8px_20px_rgba(75,48,20,0.04)]">
-                  <span className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-white"><PersonIcon /></span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-semibold text-[#111111]">Edit Member</span>
-                      <span className="mt-0.5 block truncate text-[0.62rem] text-[#706760]">Select and update member records.</span>
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-[#77716d]"><ChevronIcon /></span>
-                </button>
-              ) : null}
-            </section>
+              <div className="flex flex-col items-center border-x border-[#eadfd6] px-1">
+                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Cash<br/>Received</div>
+                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#cf8c00] tracking-[-0.02em]">
+                  {formatPesoAmount(dashboardSummary.finances.cash_received)}
+                </div>
+              </div>
+              <div className="flex flex-col items-center px-1">
+                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Cash<br/>Outflow</div>
+                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#cc1313] tracking-[-0.02em]">
+                  {formatPesoAmount(dashboardSummary.finances.cash_outflow)}
+                </div>
+              </div>
+              <div className="flex flex-col items-center border-l border-[#eadfd6] px-1">
+                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Cash On<br/>Hand</div>
+                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#168234] tracking-[-0.02em]">
+                  {formatPesoAmount(dashboardSummary.finances.cash_on_hand)}
+                </div>
+              </div>
+            </div>
+          </section>
+            </>
           )}
         </div>
 
@@ -3445,7 +3918,11 @@ export function MemberDashboardScreen({
                       }
                       return;
                     }
-                    setActiveTab(item.id === "more" ? "more" : "dashboard");
+                    if (item.id === "profile") {
+                      void openFullProfile();
+                      return;
+                    }
+                    setActiveTab("dashboard");
                   }}
                   className={`flex flex-col items-center gap-1 ${isActive ? "text-[#d00000]" : "text-[#716a66]"}`}
                 >
@@ -3529,16 +4006,16 @@ export function MemberDashboardScreen({
         ) : null}
         {isEventListSheetOpen ? (
           <div className={`absolute inset-0 z-40 flex items-end bg-[#171717]/58 backdrop-blur-[1px] ${closingSheet === "eventlist" ? "member-sheet-backdrop-exit" : "member-sheet-backdrop-enter"}`}>
-            <section className={`max-h-[82%] w-full overflow-hidden rounded-t-[1.35rem] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.24)] ${closingSheet === "eventlist" ? "member-sheet-panel-exit" : "member-sheet-panel-enter"}`}>
-              <div className="mx-auto h-1 w-9 rounded-full bg-[#9b9b9b]" />
-              <div className="mt-5 flex items-center justify-between">
+            <section className={`flex max-h-[82%] w-full flex-col overflow-hidden rounded-t-[1.35rem] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.24)] ${closingSheet === "eventlist" ? "member-sheet-panel-exit" : "member-sheet-panel-enter"}`}>
+              <div className="mx-auto h-1 w-9 shrink-0 rounded-full bg-[#9b9b9b]" />
+              <div className="mt-5 flex shrink-0 items-center justify-between">
                 <button type="button" onClick={() => closeSheet("eventlist")} className="flex h-9 w-9 items-center justify-center text-[#111111]" aria-label="Close event list">
                   <Icon className="h-7 w-7"><path d="M6 6 18 18M18 6 6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" /></Icon>
                 </button>
                 <h2 className="min-w-0 flex-1 truncate px-2 text-center text-[1.05rem] font-bold tracking-[-0.035em]">Events This Year</h2>
                 <span className="h-9 w-9" />
               </div>
-              <div className="mt-5 max-h-[calc(82vh-8rem)] overflow-y-auto pr-1">
+              <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
                 {isEventListLoading ? (
                   <div className="flex justify-center rounded-2xl bg-[#fbf7f0] px-4 py-8"><ThemedLoader size="md" /></div>
                 ) : eventListError ? (
@@ -3561,6 +4038,61 @@ export function MemberDashboardScreen({
                 ) : (
                   <p className="rounded-[1rem] bg-white/88 px-4 py-8 text-center text-[0.72rem] leading-5 text-[#665d57]">No events found for this year.</p>
                 )}
+              </div>
+              <div className="shrink-0 pt-3">
+                <button type="button" onClick={() => closeSheet("eventlist")} className="w-full rounded-[0.9rem] border border-[#ead8c7] bg-[#fffdfb] px-4 py-3 text-[0.8rem] font-semibold text-[#111111] shadow-[0_8px_18px_rgba(75,48,20,0.04)]">Close</button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+        {isPaymentSheetOpen ? (
+          <div className={`absolute inset-0 z-40 flex items-end bg-[#171717]/58 backdrop-blur-[1px] ${closingSheet === "payment" ? "member-sheet-backdrop-exit" : "member-sheet-backdrop-enter"}`}>
+            <section className={`max-h-[82%] w-full overflow-hidden rounded-t-[1.35rem] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.24)] ${closingSheet === "payment" ? "member-sheet-panel-exit" : "member-sheet-panel-enter"}`}>
+              <div className="mx-auto h-1 w-9 rounded-full bg-[#9b9b9b]" />
+              <div className="mt-5 flex items-center justify-between">
+                <button type="button" onClick={() => closeSheet("payment")} className="flex h-9 w-9 items-center justify-center text-[#111111]" aria-label="Close payment details">
+                  <Icon className="h-7 w-7"><path d="M6 6 18 18M18 6 6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" /></Icon>
+                </button>
+                <h2 className="min-w-0 flex-1 truncate px-2 text-center text-[1.05rem] font-bold tracking-[-0.035em]">Payment Details</h2>
+                <span className="h-9 w-9" />
+              </div>
+
+              <div className="mt-5 max-h-[calc(82svh-7rem)] space-y-4 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <section className="overflow-hidden rounded-[1.15rem] bg-[linear-gradient(145deg,#1c4b8f,#123763)] p-5 shadow-[0_14px_30px_rgba(18,55,99,0.28)]">
+                  <div className="flex items-center justify-between">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white">
+                      <WalletIcon />
+                    </span>
+                    <span className="rounded-full bg-white/15 px-3 py-1 text-[0.62rem] font-bold uppercase tracking-[0.14em] text-white">Bank Transfer</span>
+                  </div>
+                  <div className="mt-5 text-[1.05rem] font-extrabold tracking-[-0.02em] text-white">Metrobank</div>
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <div className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-white/60">Account Name</div>
+                      <div className="mt-1 text-[0.8rem] font-bold leading-snug text-white">DATU LAPU-LAPU LODGE NO. 347 INC.</div>
+                    </div>
+                    <div>
+                      <div className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-white/60">Account Number</div>
+                      <div className="mt-1 font-mono text-[1.05rem] font-bold tracking-[0.08em] text-white">331-733-151-7956</div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-[1.05rem] border border-[#f2dfae] bg-[#fffaf0] px-4 py-4 shadow-[0_8px_20px_rgba(160,120,30,0.07)]">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#fff1d4] text-[#c98200]">
+                      <Icon className="h-5 w-5"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M12 7.5v5.2" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /><circle cx="12" cy="16.4" r="1" fill="currentColor" /></Icon>
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="text-[0.78rem] font-bold text-[#8a5d12]">Important Notice</h3>
+                      <p className="mt-1.5 text-[0.72rem] leading-5 text-[#6f5a33]">
+                        After paying your annual lodge dues, please send a copy of your payment receipt or proof of payment to the Lodge Secretary for proper recording. Thank you.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <button type="button" onClick={() => closeSheet("payment")} className="w-full rounded-[0.9rem] border border-[#ead8c7] bg-[#fffdfb] px-4 py-3 text-[0.8rem] font-semibold text-[#111111] shadow-[0_8px_18px_rgba(75,48,20,0.04)]">Close</button>
               </div>
             </section>
           </div>

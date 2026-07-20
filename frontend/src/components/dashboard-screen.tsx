@@ -35,7 +35,7 @@ import {
 import { useIdleTimeout } from "@/lib/use-idle-timeout";
 
 type SecretaryDashboardView = "home" | "members" | "profile" | "documents" | "more" | "dues";
-type SecretarySheetName = "activity" | "eventlist";
+type SecretarySheetName = "activity" | "eventlist" | "payment";
 const calendarAddedStoragePrefix = "dll347-calendar-added-activity-";
 
 function PulseIcon() {
@@ -368,6 +368,33 @@ function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="h-7 w-7">
       <path d="M6 6 18 18M18 6 6 18" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
+    </svg>
+  );
+}
+
+function LodgeWatermark() {
+  return (
+    <svg viewBox="0 0 300 220" aria-hidden="true" className="pointer-events-none absolute bottom-7 right-1 h-36 w-44 text-[#d58d00] opacity-[0.12] sm:h-40 sm:w-52">
+      <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+        <path strokeWidth="4" d="M60 190h180M78 178h144M92 166h116" />
+        <g strokeWidth="2.7">
+          <path d="M66 166V76M49 166h34M49 76h34M56 66h20M56 56h20M62 46h8" />
+          <path d="M234 166V76M217 166h34M217 76h34M224 66h20M224 56h20M230 46h8" />
+          <path d="M58 86c16-8 14 8 0 4M226 86c16-8 14 8 0 4" />
+        </g>
+        <g strokeWidth="5">
+          <path d="M92 170 150 56l58 114" />
+          <path d="M88 112 150 174l62-62" />
+          <path d="M107 101 150 144l43-43" />
+        </g>
+        <g strokeWidth="3">
+          <path d="M112 170h76M125 148h50M134 126h32" />
+          <circle cx="150" cy="62" r="20" />
+          <path d="M150 36v52M132 62h36" />
+          <path d="M142 28h16M138 20h24" />
+        </g>
+      </g>
+      <text x="150" y="132" textAnchor="middle" fill="currentColor" fontSize="48" fontWeight="700" fontFamily="Georgia, serif">G</text>
     </svg>
   );
 }
@@ -824,6 +851,7 @@ export function DashboardScreen() {
   const [closingSheet, setClosingSheet] = useState<SecretarySheetName | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [isEventListSheetOpen, setIsEventListSheetOpen] = useState(false);
+  const [isPaymentSheetOpen, setIsPaymentSheetOpen] = useState(false);
   const [eventListActivities, setEventListActivities] = useState<LodgeActivity[]>([]);
   const [isEventListLoading, setIsEventListLoading] = useState(false);
   const [eventListError, setEventListError] = useState("");
@@ -1070,6 +1098,8 @@ export function DashboardScreen() {
         setIsActivitySheetOpen(false);
       } else if (name === "eventlist") {
         setIsEventListSheetOpen(false);
+      } else if (name === "payment") {
+        setIsPaymentSheetOpen(false);
       }
       setClosingSheet((current) => (current === name ? null : current));
     }, 200);
@@ -1198,7 +1228,7 @@ export function DashboardScreen() {
                   <button
                     key={filter.key}
                     type="button"
-                    onClick={() => setActiveMemberFilter(filter.key)}
+                    onClick={() => { setActiveMemberFilter(filter.key); setMemberList([]); setMemberListCount(0); setMemberListError(""); }}
                     className="rounded-full border px-3.5 py-1.5 text-[0.68rem] font-semibold transition-colors"
                     style={{
                       color: filter.color,
@@ -1248,7 +1278,7 @@ export function DashboardScreen() {
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
                         {member.profile_photo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                          <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                         ) : (
                           memberInitials(member.name)
                         )}
@@ -1380,7 +1410,7 @@ export function DashboardScreen() {
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
                         {member.profile_photo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" />
+                          <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                         ) : (
                           memberInitials(member.name)
                         )}
@@ -1629,8 +1659,9 @@ export function DashboardScreen() {
                     >
                       {group.dashboardLabel}
                     </span>
-                    <span className="mt-auto text-base font-bold text-[#18130f]">
-                      {value}
+                    <span className="mt-auto flex items-center gap-0.5 text-base font-bold text-[#18130f]">
+                      <span>{value}</span>
+                      <span className="text-[#77716d]"><ChevronIcon /></span>
                     </span>
                   </button>
                 );
@@ -1644,6 +1675,7 @@ export function DashboardScreen() {
           </section>
 
           <section className="relative mt-4 overflow-hidden rounded-[1.85rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px]">
+            <LodgeWatermark />
             <div className="relative z-10 flex items-start gap-2.5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#e30909,#bd0000)] text-white shadow-[0_8px_20px_rgba(194,0,0,0.2)]">
                 <CalendarIcon />
@@ -1711,18 +1743,40 @@ export function DashboardScreen() {
                 item.status !== undefined ? (
                   <button key={item.label} type="button" onClick={() => openDuesMemberList(item.status!)} className={`rounded-[1.15rem] px-2 py-3 text-center transition-all active:scale-95 ${item.panel} hover:shadow-[0_4px_14px_rgba(0,0,0,0.1)] cursor-pointer`}>
                     <div className={`mx-auto flex justify-center ${item.color}`}>{item.icon}</div>
-                    <div className="mt-2 text-[1.05rem] font-bold leading-none text-[#18130f]">{item.value}</div>
-                    <div className="mt-1 text-[0.7rem] leading-none text-[#18130f]">{item.label}</div>
+                    <div className="mt-2 text-[0.7rem] leading-none text-[#18130f]">{item.label}</div>
+                    <div className="mt-1.5 flex items-center justify-center">
+                      <span className="relative text-[1.05rem] font-bold leading-none text-[#18130f]">
+                        {item.value}
+                        <span className="absolute left-full top-1/2 -translate-y-1/2 text-[#77716d]"><svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5"><path d="m9 5.5 6 6.5-6 6.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /></svg></span>
+                      </span>
+                    </div>
                   </button>
                 ) : (
                   <div key={item.label} className={`rounded-[1.15rem] px-2 py-3 text-center ${item.panel}`}>
                     <div className={`mx-auto flex justify-center ${item.color}`}>{item.icon}</div>
-                    <div className="mt-2 text-[1.05rem] font-bold leading-none text-[#18130f]">{item.value}</div>
-                    <div className="mt-1 text-[0.7rem] leading-none text-[#18130f]">{item.label}</div>
+                    <div className="mt-2 text-[0.7rem] leading-none text-[#18130f]">{item.label}</div>
+                    <div className="mt-1.5 text-[1.05rem] font-bold leading-none text-[#18130f]">{item.value}</div>
                   </div>
                 )
               ))}
             </div>
+
+            <button
+              type="button"
+              onClick={() => { setClosingSheet(null); setIsPaymentSheetOpen(true); }}
+              className="mt-4 flex w-full items-center justify-between rounded-[1.05rem] bg-[linear-gradient(145deg,#1c4b8f,#123763)] px-4 py-3 text-left shadow-[0_10px_22px_rgba(18,55,99,0.22)] transition-all active:scale-[0.98]"
+            >
+              <span className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white">
+                  <WalletIcon />
+                </span>
+                <span>
+                  <span className="block text-[0.78rem] font-bold text-white">Payment Details</span>
+                  <span className="mt-0.5 block text-[0.62rem] text-white/70">View bank account for dues payment</span>
+                </span>
+              </span>
+              <span className="text-white/80"><ChevronIcon /></span>
+            </button>
           </section>
 
           <section className="mt-4 rounded-[1.85rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px]">
@@ -1876,16 +1930,16 @@ export function DashboardScreen() {
         ) : null}
         {isEventListSheetOpen ? (
           <div className={`absolute inset-0 z-40 flex items-end bg-[#171717]/58 backdrop-blur-[1px] ${closingSheet === "eventlist" ? "member-sheet-backdrop-exit" : "member-sheet-backdrop-enter"}`}>
-            <section className={`max-h-[82%] w-full overflow-hidden rounded-t-[1.35rem] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.24)] ${closingSheet === "eventlist" ? "member-sheet-panel-exit" : "member-sheet-panel-enter"}`}>
-              <div className="mx-auto h-1 w-9 rounded-full bg-[#9b9b9b]" />
-              <div className="mt-5 flex items-center justify-between">
+            <section className={`flex max-h-[82%] w-full flex-col overflow-hidden rounded-t-[1.35rem] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.24)] ${closingSheet === "eventlist" ? "member-sheet-panel-exit" : "member-sheet-panel-enter"}`}>
+              <div className="mx-auto h-1 w-9 shrink-0 rounded-full bg-[#9b9b9b]" />
+              <div className="mt-5 flex shrink-0 items-center justify-between">
                 <button type="button" onClick={() => closeSheet("eventlist")} className="flex h-9 w-9 items-center justify-center text-[#111111]" aria-label="Close event list">
                   <CloseIcon />
                 </button>
                 <h2 className="min-w-0 flex-1 truncate px-2 text-center text-[1.05rem] font-bold tracking-[-0.035em]">Events This Year</h2>
                 <span className="h-9 w-9" />
               </div>
-              <div className="mt-5 max-h-[calc(82vh-8rem)] overflow-y-auto pr-1">
+              <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
                 {isEventListLoading ? (
                   <div className="flex justify-center rounded-2xl bg-[#fbf7f0] px-4 py-8"><ThemedLoader size="md" /></div>
                 ) : eventListError ? (
@@ -1908,6 +1962,61 @@ export function DashboardScreen() {
                 ) : (
                   <p className="rounded-[1rem] bg-white/88 px-4 py-8 text-center text-[0.72rem] leading-5 text-[#665d57]">No events found for this year.</p>
                 )}
+              </div>
+              <div className="shrink-0 pt-3">
+                <button type="button" onClick={() => closeSheet("eventlist")} className="w-full rounded-[0.9rem] border border-[#ead8c7] bg-[#fffdfb] px-4 py-3 text-[0.8rem] font-semibold text-[#111111] shadow-[0_8px_18px_rgba(75,48,20,0.04)]">Close</button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+        {isPaymentSheetOpen ? (
+          <div className={`absolute inset-0 z-40 flex items-end bg-[#171717]/58 backdrop-blur-[1px] ${closingSheet === "payment" ? "member-sheet-backdrop-exit" : "member-sheet-backdrop-enter"}`}>
+            <section className={`max-h-[82%] w-full overflow-hidden rounded-t-[1.35rem] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.24)] ${closingSheet === "payment" ? "member-sheet-panel-exit" : "member-sheet-panel-enter"}`}>
+              <div className="mx-auto h-1 w-9 rounded-full bg-[#9b9b9b]" />
+              <div className="mt-5 flex items-center justify-between">
+                <button type="button" onClick={() => closeSheet("payment")} className="flex h-9 w-9 items-center justify-center text-[#111111]" aria-label="Close payment details">
+                  <CloseIcon />
+                </button>
+                <h2 className="min-w-0 flex-1 truncate px-2 text-center text-[1.05rem] font-bold tracking-[-0.035em]">Payment Details</h2>
+                <span className="h-9 w-9" />
+              </div>
+
+              <div className="mt-5 max-h-[calc(82svh-7rem)] space-y-4 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <section className="overflow-hidden rounded-[1.15rem] bg-[linear-gradient(145deg,#1c4b8f,#123763)] p-5 shadow-[0_14px_30px_rgba(18,55,99,0.28)]">
+                  <div className="flex items-center justify-between">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white">
+                      <WalletIcon />
+                    </span>
+                    <span className="rounded-full bg-white/15 px-3 py-1 text-[0.62rem] font-bold uppercase tracking-[0.14em] text-white">Bank Transfer</span>
+                  </div>
+                  <div className="mt-5 text-[1.05rem] font-extrabold tracking-[-0.02em] text-white">Metrobank</div>
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <div className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-white/60">Account Name</div>
+                      <div className="mt-1 text-[0.8rem] font-bold leading-snug text-white">DATU LAPU-LAPU LODGE NO. 347 INC.</div>
+                    </div>
+                    <div>
+                      <div className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-white/60">Account Number</div>
+                      <div className="mt-1 font-mono text-[1.05rem] font-bold tracking-[0.08em] text-white">331-733-151-7956</div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-[1.05rem] border border-[#f2dfae] bg-[#fffaf0] px-4 py-4 shadow-[0_8px_20px_rgba(160,120,30,0.07)]">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#fff1d4] text-[#c98200]">
+                      <AlertIcon />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="text-[0.78rem] font-bold text-[#8a5d12]">Important Notice</h3>
+                      <p className="mt-1.5 text-[0.72rem] leading-5 text-[#6f5a33]">
+                        After paying your annual lodge dues, please send a copy of your payment receipt or proof of payment to the Lodge Secretary for proper recording. Thank you.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <button type="button" onClick={() => closeSheet("payment")} className="w-full rounded-[0.9rem] border border-[#ead8c7] bg-[#fffdfb] px-4 py-3 text-[0.8rem] font-semibold text-[#111111] shadow-[0_8px_18px_rgba(75,48,20,0.04)]">Close</button>
               </div>
             </section>
           </div>

@@ -168,17 +168,95 @@ class BallotingCoinRecordAdmin(admin.ModelAdmin):
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
     change_list_template = "admin/api/auditlog/change_list.html"
-    list_display = ("created_at", "actor_email", "action", "screen", "event_label", "target_model", "target_id")
-    list_filter = ("action", "screen", "target_model")
+    list_display = ("actor_email", "created_at", "action", "screen", "event_label", "target_model", "target_id")
+    list_display_links = ("actor_email", "created_at")
+    list_filter = ("actor", "action", "screen", "target_model")
     search_fields = ("actor__email", "screen", "event_label", "ip_address", "user_agent")
-    readonly_fields = ("actor", "action", "screen", "event_label", "target_model", "target_id", "changes", "ip_address", "user_agent", "created_at")
+    readonly_fields = ("created_at", "actor_link", "action_badge", "target_link", "changes_display", "ip_address", "user_agent")
     date_hierarchy = "created_at"
 
+    fieldsets = (
+        (None, {
+            "fields": ("created_at", "actor_link", "action_badge", "screen", "event_label", "target_link", "changes_display")
+        }),
+        ("Request", {
+            "fields": ("ip_address", "user_agent"),
+            "classes": ("collapse",),
+        }),
+    )
+
+    @admin.display(description="Actor")
     def actor_email(self, obj):
-        return obj.actor.email if obj.actor else ""
+        return obj.actor.email if obj.actor else "System"
 
     actor_email.short_description = "Actor"
     actor_email.admin_order_field = "actor__email"
+
+    @admin.display(description="Actor")
+    def actor_link(self, obj):
+        if obj.actor:
+            from django.urls import reverse
+            from django.utils.html import format_html
+            url = reverse("admin:api_account_change", args=[obj.actor.pk])
+            return format_html('<a href="{}">{}</a>', url, obj.actor.email)
+        return "System"
+
+    @admin.display(description="Action")
+    def action_badge(self, obj):
+        return obj.get_action_display()
+
+    @admin.display(description="Target")
+    def target_link(self, obj):
+        if obj.target_model == "MemberDatabaseRecord" and obj.target_id:
+            from django.urls import reverse
+            from django.utils.html import format_html
+            url = reverse("admin:api_memberdatabaserecord_change", args=[obj.target_id])
+            return format_html('<a href="{}">Member #{} </a>', url, obj.target_id)
+        if obj.target_model and obj.target_id:
+            return f"{obj.target_model} #{obj.target_id}"
+        return "—"
+
+    @admin.display(description="Changes")
+    def changes_display(self, obj):
+        if not obj.changes:
+            return "No changes recorded."
+
+        from django.utils.html import format_html
+
+        rows = []
+        updates = obj.changes.get("updated_fields", [])
+        if isinstance(updates, list):
+            for field in updates:
+                rows.append(format_html(
+                    '<div style="padding:4px 0;border-bottom:1px solid #eee">'
+                    '<strong>{}</strong>'
+                    '</div>',
+                    field,
+                ))
+            return format_html("".join(rows)) if rows else "No field-level changes recorded."
+
+        if isinstance(obj.changes, dict):
+            for field, change in obj.changes.items():
+                if isinstance(change, dict) and "old" in change and "new" in change:
+                    rows.append(format_html(
+                        '<div style="padding:4px 0;border-bottom:1px solid #eee">'
+                        '<strong>{}</strong>: '
+                        '<span style="color:#c00;text-decoration:line-through">{}</span>'
+                        ' &rarr; '
+                        '<span style="color:#060">{}</span>'
+                        '</div>',
+                        field, str(change["old"]), str(change["new"]),
+                    ))
+                else:
+                    rows.append(format_html(
+                        '<div style="padding:4px 0;border-bottom:1px solid #eee">'
+                        '<strong>{}</strong>: <code>{}</code>'
+                        '</div>',
+                        field, str(change),
+                    ))
+            return format_html("".join(rows)) if rows else "No changes recorded."
+
+        return str(obj.changes)
 
     def changelist_view(self, request, extra_context=None):
         since = timezone.now() - timezone.timedelta(days=30)

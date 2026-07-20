@@ -11,6 +11,16 @@ const withPWA = withPWAInit({
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   allowedDevOrigins: ["192.168.31.28", "127.0.0.1", "localhost"],
+  images: {
+    formats: ["image/webp"],
+    minimumCacheTTL: 86400,
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "dll347.org",
+      },
+    ],
+  },
 };
 
 export default withPWA(nextConfig);
