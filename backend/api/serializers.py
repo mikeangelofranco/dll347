@@ -216,6 +216,14 @@ class MemberListItemSerializer(serializers.ModelSerializer):
         return MemberDashboardProfileSerializer(context=self.context).get_profile_photo_url(obj)
 
 
+class PetitionerListItemSerializer(MemberListItemSerializer):
+    class Meta(MemberListItemSerializer.Meta):
+        fields = tuple(
+            field for field in MemberListItemSerializer.Meta.fields
+            if field != "glp_id_number"
+        )
+
+
 class MemberFullProfileSerializer(MemberDashboardProfileSerializer):
     date_of_birth = serializers.DateField()
     initiation_date = serializers.DateField()
@@ -256,6 +264,14 @@ class MemberFullProfileSerializer(MemberDashboardProfileSerializer):
         return max(years, 0)
 
 
+class PetitionerFullProfileSerializer(MemberFullProfileSerializer):
+    class Meta(MemberFullProfileSerializer.Meta):
+        fields = tuple(
+            field for field in MemberFullProfileSerializer.Meta.fields
+            if field != "glp_id_number"
+        )
+
+
 class MemberEditableProfileSerializer(MemberFullProfileSerializer):
     class Meta(MemberFullProfileSerializer.Meta):
         fields = MemberFullProfileSerializer.Meta.fields + (
@@ -268,6 +284,14 @@ class MemberEditableProfileSerializer(MemberFullProfileSerializer):
             "meeting_attendance",
             "monthly_attendance",
             "annual_dues",
+        )
+
+
+class PetitionerEditableProfileSerializer(MemberEditableProfileSerializer):
+    class Meta(MemberEditableProfileSerializer.Meta):
+        fields = tuple(
+            field for field in MemberEditableProfileSerializer.Meta.fields
+            if field != "glp_id_number"
         )
 
 

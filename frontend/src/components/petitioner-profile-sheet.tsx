@@ -1,10 +1,10 @@
 "use client";
 
 import { ThemedLoader } from "@/components/themed-loader";
-import type { MemberFullProfile, PetitionerStage } from "@/lib/api";
+import type { PetitionerFullProfile, PetitionerStage } from "@/lib/api";
 
 type PetitionerProfileSheetProps = {
-  profile: MemberFullProfile | null;
+  profile: PetitionerFullProfile | null;
   stage: PetitionerStage | null;
   isLoading: boolean;
   error: string;

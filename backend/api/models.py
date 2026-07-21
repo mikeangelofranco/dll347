@@ -420,6 +420,12 @@ class MemberDatabaseRecord(models.Model):
     def __str__(self) -> str:
         return self.name
 
+    def save(self, *args, **kwargs):
+        normalized_section = self.section.strip().upper()
+        if normalized_section.startswith("TRESTLE BOARD") or "PETITIONER" in normalized_section:
+            self.glp_id_number = ""
+        return super().save(*args, **kwargs)
+
 
 class LodgeVisitorRecord(models.Model):
     workbook_import = models.ForeignKey(

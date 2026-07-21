@@ -20,6 +20,7 @@ from .excel_members import (
     column_number,
     excel_date,
     is_numbered_record,
+    is_petitioner_section,
     member_name_match_key,
     normalize_member_name,
     sheet_columns,
@@ -29,6 +30,11 @@ from .models import AuditLog, DashboardCardVisibility, LodgeActivity, LodgeDocum
 
 
 class ExcelMemberImportHelpersTests(SimpleTestCase):
+    def test_petitioner_sections_do_not_use_member_glp_columns(self):
+        self.assertTrue(is_petitioner_section("TRESTLE BOARD - ACTIVE"))
+        self.assertTrue(is_petitioner_section("PETITIONER - EAM"))
+        self.assertFalse(is_petitioner_section("MASTER MASONS - ACTIVE"))
+
     def test_excel_column_names_round_trip(self):
         for name in ("B", "Z", "AA", "GZ"):
             self.assertEqual(column_name(column_number(name)), name)
@@ -1013,6 +1019,7 @@ class AuthApiTests(TestCase):
             source_row=12601,
             name="FCM Filtered Petitioner",
             section="TRESTLE BOARD - ACTIVE",
+            glp_id_number="SHOULD-NOT-PERSIST",
         )
         circulated = MemberDatabaseRecord.objects.create(
             workbook_import=workbook_import,
@@ -1037,12 +1044,16 @@ class AuthApiTests(TestCase):
         self.assertEqual(filtered_response.json()["count"], 1)
         self.assertEqual(filtered_response.json()["petitioners"][0]["id"], fcm.id)
         self.assertEqual(filtered_response.json()["petitioners"][0]["petitioner_stage"], "fcm")
+        self.assertNotIn("glp_id_number", filtered_response.json()["petitioners"][0])
         self.assertEqual(search_response.status_code, 200)
         self.assertEqual(search_response.json()["count"], 1)
         self.assertEqual(search_response.json()["petitioners"][0]["id"], circulated.id)
         self.assertEqual(search_response.json()["petitioners"][0]["petitioner_stage"], "circulated")
         self.assertEqual(profile_response.status_code, 200)
         self.assertEqual(profile_response.json()["id"], circulated.id)
+        self.assertNotIn("glp_id_number", profile_response.json())
+        fcm.refresh_from_db()
+        self.assertEqual(fcm.glp_id_number, "")
 
     def test_member_summary_and_list_include_dynamic_excel_sections(self):
         self.client.force_login(self.user)
@@ -1926,22 +1937,35 @@ class AuthApiTests(TestCase):
             password=self.password,
             can_edit_petitioners=True,
         )
+        petitioner_account = get_user_model().objects.create_user(
+            email="petitioner@dll347.org",
+            password=self.password,
+            glp_id_number="INVALID-PETITIONER-GLP",
+            is_active=False,
+        )
         self.client.force_login(editor)
 
         response = self.client.patch(
             reverse("api:petitioner-edit-profile", args=[petitioner.id]),
-            {"name": "FCM Updated Petitioner", "section": "PETITIONER - EAM"},
+            {"name": "FCM Updated Petitioner", "section": "PETITIONER - EAM", "glp_id_number": "FORBIDDEN"},
             content_type="application/json",
         )
         member_response = self.client.get(reverse("api:petitioner-edit-profile", args=[member.id]))
+        activate_response = self.client.post(reverse("api:petitioner-activate-login", args=[petitioner.id]))
 
         self.assertEqual(response.status_code, 200)
         petitioner.refresh_from_db()
         self.assertEqual(petitioner.name, "FCM Updated Petitioner")
         self.assertEqual(petitioner.section, "PETITIONER - EAM")
+        self.assertEqual(petitioner.glp_id_number, "")
+        self.assertNotIn("glp_id_number", response.json()["member"])
         stage_response = self.client.get(reverse("api:petitioner-list"), {"stage": "eam"})
         self.assertEqual([item["id"] for item in stage_response.json()["petitioners"]], [petitioner.id])
         self.assertEqual(member_response.status_code, 404)
+        self.assertEqual(activate_response.status_code, 200)
+        petitioner_account.refresh_from_db()
+        self.assertTrue(petitioner_account.is_active)
+        self.assertEqual(petitioner_account.glp_id_number, "")
         self.assertTrue(AuditLog.objects.filter(
             actor=editor,
             action=AuditLog.Action.PETITIONER_UPDATED,

@@ -180,7 +180,7 @@ export type MemberListResponse = {
 
 export type PetitionerStage = "fcm" | "eam" | "balloted" | "re_apply" | "circulated" | "inactive";
 
-export type PetitionerListItem = MemberListItem & {
+export type PetitionerListItem = Omit<MemberListItem, "glp_id_number"> & {
   petitioner_stage: PetitionerStage;
 };
 
@@ -227,6 +227,9 @@ export type MemberEditableProfile = MemberFullProfile & {
   annual_dues: Record<string, unknown>;
 };
 
+export type PetitionerFullProfile = Omit<MemberFullProfile, "glp_id_number">;
+export type PetitionerEditableProfile = Omit<MemberEditableProfile, "glp_id_number">;
+
 export type MemberPositionHeldPayload = {
   title: string;
   date_range: string;
@@ -264,9 +267,16 @@ export type MemberProfileUpdatePayload = {
   positions_held: MemberPositionHeldPayload[];
 };
 
+export type PetitionerProfileUpdatePayload = Omit<MemberProfileUpdatePayload, "glp_id_number">;
+
 export type MemberProfileUpdateResponse = {
   message: string;
   member: MemberEditableProfile;
+};
+
+export type PetitionerProfileUpdateResponse = {
+  message: string;
+  member: PetitionerEditableProfile;
 };
 
 export type MemberPositionsHeldResponse = {
@@ -838,8 +848,8 @@ export async function getPetitionerList(
   return apiGet<PetitionerListResponse>(`/petitioners/list/?${params.toString()}`);
 }
 
-export async function getPetitionerProfile(petitionerId: number): Promise<MemberFullProfile> {
-  return apiGet<MemberFullProfile>(`/petitioners/${petitionerId}/profile/`);
+export async function getPetitionerProfile(petitionerId: number): Promise<PetitionerFullProfile> {
+  return apiGet<PetitionerFullProfile>(`/petitioners/${petitionerId}/profile/`);
 }
 
 export async function getMyMemberProfile(): Promise<MemberFullProfile> {
@@ -862,16 +872,16 @@ export async function updateMemberProfile(
   return apiPost<MemberProfileUpdateResponse>(`/members/${memberId}/edit/`, payload, "PATCH");
 }
 
-export async function getEditablePetitionerProfile(petitionerId: number): Promise<MemberEditableProfile> {
-  return apiGet<MemberEditableProfile>(`/petitioners/${petitionerId}/edit/`);
+export async function getEditablePetitionerProfile(petitionerId: number): Promise<PetitionerEditableProfile> {
+  return apiGet<PetitionerEditableProfile>(`/petitioners/${petitionerId}/edit/`);
 }
 
 export async function updatePetitionerProfile(
   petitionerId: number,
-  payload: MemberProfileUpdatePayload,
-): Promise<MemberProfileUpdateResponse> {
+  payload: PetitionerProfileUpdatePayload,
+): Promise<PetitionerProfileUpdateResponse> {
   await prepareSessionCsrf();
-  return apiPost<MemberProfileUpdateResponse>(`/petitioners/${petitionerId}/edit/`, payload, "PATCH");
+  return apiPost<PetitionerProfileUpdateResponse>(`/petitioners/${petitionerId}/edit/`, payload, "PATCH");
 }
 
 export async function getMyPositionsHeld(): Promise<MemberPositionsHeldResponse> {

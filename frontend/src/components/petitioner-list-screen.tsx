@@ -7,7 +7,7 @@ import { ThemedLoader } from "@/components/themed-loader";
 import {
   getPetitionerList,
   getPetitionerProfile,
-  type MemberFullProfile,
+  type PetitionerFullProfile,
   type PetitionerListItem,
   type PetitionerStage,
 } from "@/lib/api";
@@ -55,10 +55,6 @@ function petitionerDisplayName(name: string): string {
   return name.replace(/^(Mr\.|FCM|EAM)\s+/i, "").replace(/[+*]/g, "").trim();
 }
 
-function displayValue(value: string | null | undefined): string {
-  return value && value.trim() ? value.trim() : "–";
-}
-
 export function PetitionerListScreen({ initialStage, navigationItems, onBack, onNavigate }: PetitionerListScreenProps) {
   const [activeStage, setActiveStage] = useState<PetitionerStage>(initialStage);
   const [search, setSearch] = useState("");
@@ -67,7 +63,7 @@ export function PetitionerListScreen({ initialStage, navigationItems, onBack, on
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [isClosing, setIsClosing] = useState(false);
-  const [selectedProfile, setSelectedProfile] = useState<MemberFullProfile | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<PetitionerFullProfile | null>(null);
   const [selectedProfileStage, setSelectedProfileStage] = useState<PetitionerStage | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -185,7 +181,6 @@ export function PetitionerListScreen({ initialStage, navigationItems, onBack, on
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[0.75rem] font-bold tracking-[-0.02em] text-[#111111]">{petitionerDisplayName(petitioner.name)}</span>
-                      <span className="mt-0.5 block truncate text-[0.64rem] text-[#625b56]">GLP ID: {displayValue(petitioner.glp_id_number)}</span>
                       <span className="mt-1 inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[0.54rem] font-semibold leading-none" style={{ color: stage.color, backgroundColor: stage.tint }}>{stage.label}</span>
                     </span>
                     <span className="text-[#315f9e]"><ChevronIcon /></span>

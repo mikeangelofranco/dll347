@@ -452,6 +452,11 @@ def current_section(sections: dict[int, str], row: int) -> str:
     return sections[max(applicable_rows)] if applicable_rows else ""
 
 
+def is_petitioner_section(section: str) -> bool:
+    normalized = section.strip().upper()
+    return normalized.startswith("TRESTLE BOARD") or "PETITIONER" in normalized
+
+
 def find_member_sheet_layout(sheet: ParsedSheet) -> MemberSheetLayout:
     required_headers = {
         "B": "NO",
@@ -542,13 +547,14 @@ def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDa
         if not is_numbered_record(members, row, "B", "C"):
             continue
         name = text_value(members.value(f"C{row}"))
+        section = current_section(member_sections, row)
         member_records.append(
             MemberDatabaseRecord(
                 source_row=row,
-                section=current_section(member_sections, row),
+                section=section,
                 member_number=text_value(members.value(f"B{row}")),
                 name=name,
-                glp_id_number=text_value(members.value(f"D{row}")),
+                glp_id_number="" if is_petitioner_section(section) else text_value(members.value(f"D{row}")),
                 date_of_birth=excel_date(members.value(f"E{row}")),
                 initiation_date=excel_date(members.value(f"F{row}")),
                 passing_date=excel_date(members.value(f"G{row}")),
@@ -836,13 +842,14 @@ def import_members_workbook(path: str | Path) -> MembersWorkbookImport:
         if not is_numbered_record(members, row, "B", "C"):
             continue
         name = text_value(members.value(f"C{row}"))
+        section = current_section(member_sections, row)
         member_records.append(
             MemberDatabaseRecord(
                 source_row=row,
-                section=current_section(member_sections, row),
+                section=section,
                 member_number=text_value(members.value(f"B{row}")),
                 name=name,
-                glp_id_number=text_value(members.value(f"D{row}")),
+                glp_id_number="" if is_petitioner_section(section) else text_value(members.value(f"D{row}")),
                 date_of_birth=excel_date(members.value(f"E{row}")),
                 initiation_date=excel_date(members.value(f"F{row}")),
                 passing_date=excel_date(members.value(f"G{row}")),

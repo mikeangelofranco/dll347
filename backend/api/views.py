@@ -29,9 +29,12 @@ from .serializers import (
     LodgeActivitySerializer,
     LodgeDocumentSerializer,
     MemberListItemSerializer,
+    PetitionerListItemSerializer,
     MemberDashboardProfileSerializer,
     MemberEditableProfileSerializer,
+    PetitionerEditableProfileSerializer,
     MemberFullProfileSerializer,
+    PetitionerFullProfileSerializer,
     MemberPositionHeldSerializer,
     MemberProfileUpdateSerializer,
     PasswordSetupSerializer,
@@ -1017,7 +1020,7 @@ def member_full_profile_view(request):
         )
 
     return Response(
-        MemberFullProfileSerializer(member, context={"request": request}).data,
+        PetitionerFullProfileSerializer(member, context={"request": request}).data,
         status=status.HTTP_200_OK,
     )
 
@@ -1065,7 +1068,7 @@ def petitioner_detail_profile_view(request, member_id: int):
         )
 
     return Response(
-        MemberFullProfileSerializer(member, context={"request": request}).data,
+        PetitionerFullProfileSerializer(member, context={"request": request}).data,
         status=status.HTTP_200_OK,
     )
 
@@ -1185,13 +1188,15 @@ def petitioner_edit_profile_view(request, member_id: int):
 
     if request.method == "GET":
         return Response(
-            MemberEditableProfileSerializer(petitioner, context={"request": request}).data,
+            PetitionerEditableProfileSerializer(petitioner, context={"request": request}).data,
             status=status.HTTP_200_OK,
         )
 
+    petitioner_data = request.data.copy()
+    petitioner_data.pop("glp_id_number", None)
     serializer = MemberProfileUpdateSerializer(
         petitioner,
-        data=request.data,
+        data=petitioner_data,
         partial=request.method == "PATCH",
     )
     serializer.is_valid(raise_exception=True)
@@ -1206,7 +1211,7 @@ def petitioner_edit_profile_view(request, member_id: int):
         )
 
     tracked_fields = (
-        "section", "member_number", "name", "glp_id_number",
+        "section", "member_number", "name",
         "date_of_birth", "initiation_date", "passing_date", "raising_date",
         "proficiency_date", "suspension", "restored", "demit", "lml",
         "dual_plural_honorary_date", "address", "telephone", "email",
@@ -1246,7 +1251,7 @@ def petitioner_edit_profile_view(request, member_id: int):
     return Response(
         {
             "message": "Petitioner record updated successfully.",
-            "member": MemberEditableProfileSerializer(updated_petitioner, context={"request": request}).data,
+            "member": PetitionerEditableProfileSerializer(updated_petitioner, context={"request": request}).data,
         },
         status=status.HTTP_200_OK,
     )
@@ -1440,8 +1445,8 @@ def petitioner_activate_login_view(request, member_id: int):
         if not account.is_active:
             account.is_active = True
             updated_fields.append("is_active")
-        if petitioner.glp_id_number.strip() and account.glp_id_number.strip().casefold() != petitioner.glp_id_number.strip().casefold():
-            account.glp_id_number = petitioner.glp_id_number.strip()
+        if account.glp_id_number:
+            account.glp_id_number = ""
             updated_fields.append("glp_id_number")
         if updated_fields:
             updated_fields.append("updated_at")
@@ -1955,7 +1960,7 @@ def petitioner_list_view(request):
         ]
 
     records.sort(key=lambda record: record.name.casefold())
-    serialized_records = MemberListItemSerializer(
+    serialized_records = PetitionerListItemSerializer(
         records,
         many=True,
         context={"request": request},

@@ -9,7 +9,7 @@ import { PetitionerDashboardCard } from "@/components/petitioner-dashboard-card"
 import { PetitionerListScreen } from "@/components/petitioner-list-screen";
 import { timeBasedGreeting } from "@/lib/greeting";
 import { useIdleTimeout } from "@/lib/use-idle-timeout";
-import { ActivityScreen, activateMemberLogin, activatePetitionerLogin, createLodgeActivity, DashboardCardVisibility, defaultDashboardCardVisibility, deactivateMemberLogin, deactivatePetitionerLogin, deleteLodgeActivity, getEditableMemberProfile, getEditablePetitionerProfile, getManagedLodgeActivities, getMemberAccountStatus, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getPetitionerAccountStatus, getPetitionerList, getSecretaryDashboardSummary, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, PetitionerStage, SecretaryDashboardSummaryResponse, trackScreenView, trackUserAction, updateMemberProfile, updatePetitionerProfile, uploadMemberProfilePhotoById, uploadPetitionerProfilePhotoById } from "@/lib/api";
+import { ActivityScreen, activateMemberLogin, activatePetitionerLogin, createLodgeActivity, DashboardCardVisibility, defaultDashboardCardVisibility, deactivateMemberLogin, deactivatePetitionerLogin, deleteLodgeActivity, getEditableMemberProfile, getEditablePetitionerProfile, getManagedLodgeActivities, getMemberAccountStatus, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getPetitionerAccountStatus, getPetitionerList, getSecretaryDashboardSummary, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, PetitionerEditableProfile, PetitionerListItem, PetitionerProfileUpdatePayload, PetitionerStage, SecretaryDashboardSummaryResponse, trackScreenView, trackUserAction, updateMemberProfile, updatePetitionerProfile, uploadMemberProfilePhotoById, uploadPetitionerProfilePhotoById } from "@/lib/api";
 
 type MemberDashboardScreenProps = {
   profile: MemberDashboardProfile | null;
@@ -1003,7 +1003,7 @@ function workbookRowsToRecord(rows: WorkbookCellRow[]): Record<string, unknown> 
   }, {});
 }
 
-function editableMemberForm(profile: MemberEditableProfile): EditableMemberForm {
+function editableMemberForm(profile: MemberEditableProfile | PetitionerEditableProfile): EditableMemberForm {
   const positions = profile.positions_held.map((position) => ({
     title: position.title,
     date_range: position.date_range,
@@ -1016,7 +1016,7 @@ function editableMemberForm(profile: MemberEditableProfile): EditableMemberForm 
     section: profile.section,
     member_number: profile.member_number,
     name: profile.name,
-    glp_id_number: profile.glp_id_number,
+    glp_id_number: "glp_id_number" in profile ? profile.glp_id_number : "",
     date_of_birth: profile.date_of_birth,
     initiation_date: profile.initiation_date,
     passing_date: profile.passing_date,
@@ -1154,7 +1154,7 @@ function memberGroupDetails(group: MemberGroupKey, groups: MemberGroupDisplay[])
   return groups.find((filter) => filter.key === group) ?? groups[0] ?? buildMemberDisplayGroups(null)[0];
 }
 
-function memberGroupDetailsForMember(member: MemberListItem, groups: MemberGroupDisplay[]) {
+function memberGroupDetailsForMember(member: MemberListItem | PetitionerListItem, groups: MemberGroupDisplay[]) {
   const fallbackGroup = memberGroupFromSection(member.section);
   const groupKey = member.group_key || fallbackGroup;
   const existing = groups.find((filter) => filter.key === groupKey);
@@ -1396,11 +1396,11 @@ export function MemberDashboardScreen({
   const [editMemberSearch, setEditMemberSearch] = useState("");
   const [editMemberFilter, setEditMemberFilter] = useState<MemberGroupKey>("active");
   const [editPetitionerStage, setEditPetitionerStage] = useState<PetitionerStage>("circulated");
-  const [editMemberList, setEditMemberList] = useState<MemberListItem[]>([]);
+  const [editMemberList, setEditMemberList] = useState<Array<MemberListItem | PetitionerListItem>>([]);
   const [editMemberListCount, setEditMemberListCount] = useState(0);
   const [isEditMemberListLoading, setIsEditMemberListLoading] = useState(false);
   const [editMemberListError, setEditMemberListError] = useState("");
-  const [selectedEditMember, setSelectedEditMember] = useState<MemberEditableProfile | null>(null);
+  const [selectedEditMember, setSelectedEditMember] = useState<MemberEditableProfile | PetitionerEditableProfile | null>(null);
   const [editMemberForm, setEditMemberForm] = useState<EditableMemberForm | null>(null);
   const [isEditMemberLoading, setIsEditMemberLoading] = useState(false);
   const [editMemberFormError, setEditMemberFormError] = useState("");
@@ -2078,11 +2078,10 @@ export function MemberDashboardScreen({
       return;
     }
 
-    const payload: MemberProfileUpdatePayload = {
+    const petitionerPayload: PetitionerProfileUpdatePayload = {
       section: editMemberForm.section,
       member_number: editMemberForm.member_number,
       name: editMemberForm.name.trim(),
-      glp_id_number: editMemberForm.glp_id_number,
       date_of_birth: editMemberForm.date_of_birth,
       initiation_date: editMemberForm.initiation_date,
       passing_date: editMemberForm.passing_date,
@@ -2105,6 +2104,10 @@ export function MemberDashboardScreen({
       annual_dues: workbookRowsToRecord(editMemberForm.annualDuesRows),
       positions_held: editMemberForm.positions_held,
     };
+    const memberPayload: MemberProfileUpdatePayload = {
+      ...petitionerPayload,
+      glp_id_number: editMemberForm.glp_id_number,
+    };
 
     setIsSavingMemberEdit(true);
     setEditMemberFormError("");
@@ -2112,8 +2115,8 @@ export function MemberDashboardScreen({
     try {
       const [response] = await Promise.all([
         isPetitionerEdit
-          ? updatePetitionerProfile(selectedEditMember.id, payload)
-          : updateMemberProfile(selectedEditMember.id, payload),
+          ? updatePetitionerProfile(selectedEditMember.id, petitionerPayload)
+          : updateMemberProfile(selectedEditMember.id, memberPayload),
         minimumLoadingDelay(),
       ]);
       setSelectedEditMember(response.member);
@@ -2506,7 +2509,9 @@ export function MemberDashboardScreen({
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[0.7rem] font-bold text-[#111111]">{memberListDisplayName(member.name)}</span>
-                          <span className="mt-0.5 block truncate text-[0.58rem] text-[#625b56]">GLP ID: {displayValue(member.glp_id_number)}</span>
+                          {!isPetitionerEdit && "glp_id_number" in member ? (
+                            <span className="mt-0.5 block truncate text-[0.58rem] text-[#625b56]">GLP ID: {displayValue(member.glp_id_number)}</span>
+                          ) : null}
                         </span>
                         <span className="shrink-0 rounded-full px-2 py-0.5 text-[0.52rem] font-semibold" style={{ color: groupDetails.color, backgroundColor: groupDetails.tint }}>{groupDetails.label}</span>
                       </button>
@@ -2603,7 +2608,7 @@ export function MemberDashboardScreen({
                   <h2 className="text-[0.78rem] font-bold">{isPetitionerEdit ? "Petitioner" : "Member"} Identity</h2>
                   <div className="mt-3 grid grid-cols-2 gap-2.5">
                     <label className={labelClass}>Name<input value={editMemberForm.name} onChange={(event) => updateEditMemberField("name", event.target.value)} className={textInputClass} /></label>
-                    <label className={labelClass}>GLP ID<input value={editMemberForm.glp_id_number} onChange={(event) => updateEditMemberField("glp_id_number", event.target.value)} className={textInputClass} /></label>
+                    {!isPetitionerEdit ? <label className={labelClass}>GLP ID<input value={editMemberForm.glp_id_number} onChange={(event) => updateEditMemberField("glp_id_number", event.target.value)} className={textInputClass} /></label> : null}
                     <label className={labelClass}>{isPetitionerEdit ? "Petitioner" : "Member"} No.<input value={editMemberForm.member_number} onChange={(event) => updateEditMemberField("member_number", event.target.value)} className={textInputClass} /></label>
                     <label className={labelClass}>Section<select value={editMemberForm.section} onChange={(event) => updateEditMemberField("section", event.target.value)} className={textInputClass}>
                       {editGroups.filter((g) => isPetitionerEdit || !g.key.startsWith("trestle_board")).map((group) => (
