@@ -8,6 +8,8 @@ import { ThemedLoader } from "@/components/themed-loader";
 import { DocumentsScreen } from "@/components/documents-screen";
 import { MemberDashboardScreen } from "@/components/member-dashboard-screen";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
+import { PetitionerDashboardCard } from "@/components/petitioner-dashboard-card";
+import { PetitionerListScreen } from "@/components/petitioner-list-screen";
 import { timeBasedGreeting } from "@/lib/greeting";
 import {
   ApiError,
@@ -31,10 +33,12 @@ import {
   trackAppOpen,
   trackScreenView,
   trackUserAction,
+  defaultDashboardCardVisibility,
+  PetitionerStage,
 } from "@/lib/api";
 import { useIdleTimeout } from "@/lib/use-idle-timeout";
 
-type SecretaryDashboardView = "home" | "members" | "profile" | "documents" | "more" | "dues";
+type SecretaryDashboardView = "home" | "members" | "petitioners" | "profile" | "documents" | "more" | "dues";
 type SecretarySheetName = "activity" | "eventlist" | "payment";
 const calendarAddedStoragePrefix = "dll347-calendar-added-activity-";
 
@@ -412,6 +416,14 @@ const emptyDashboardSummary: SecretaryDashboardSummaryResponse = {
     total_count: 0,
     percent: 0,
   },
+  petitioner: {
+    fcm: 0,
+    eam: 0,
+    balloted: 0,
+    re_apply: 0,
+    circulated: 0,
+    inactive: 0,
+  },
   finances: {
     percent: 0,
     status: "No Treasurer report yet",
@@ -453,6 +465,10 @@ function normalizeDashboardSummary(
     growth: {
       ...emptyDashboardSummary.growth,
       ...summary.growth,
+    },
+    petitioner: {
+      ...emptyDashboardSummary.petitioner,
+      ...summary.petitioner,
     },
     finances: {
       ...emptyDashboardSummary.finances,
@@ -831,6 +847,7 @@ export function DashboardScreen() {
   const [activeMemberFilter, setActiveMemberFilter] = useState<MemberGroupKey>("active");
   const [memberSearch, setMemberSearch] = useState("");
   const [duesFilter, setDuesFilter] = useState<"paid" | "unpaid" | "all">("all");
+  const [activePetitionerStage, setActivePetitionerStage] = useState<PetitionerStage>("circulated");
   const [memberList, setMemberList] = useState<MemberListItem[]>([]);
   const [memberListCount, setMemberListCount] = useState(0);
   const [isMemberListLoading, setIsMemberListLoading] = useState(false);
@@ -860,6 +877,7 @@ export function DashboardScreen() {
   const navItems = account?.role === "secretary"
     ? baseNavItems
     : baseNavItems.filter((item) => item.id !== "documents");
+  const dashboardCardVisibility = account?.dashboard_card_visibility ?? defaultDashboardCardVisibility;
   const memberDisplayGroups = useMemo(
     () => buildMemberDisplayGroups(memberSummaryGroups),
     [memberSummaryGroups],
@@ -933,6 +951,7 @@ export function DashboardScreen() {
     const screenByView: Record<SecretaryDashboardView, ActivityScreen> = {
       home: "Dashboard",
       members: "Members",
+      petitioners: "Petitioners",
       dues: "Dues",
       profile: "My Profile",
       documents: "Documents",
@@ -1049,6 +1068,11 @@ export function DashboardScreen() {
     setActiveView("members");
   }
 
+  function openPetitionerList(stage: PetitionerStage) {
+    setActivePetitionerStage(stage);
+    setActiveView("petitioners");
+  }
+
   function openDuesMemberList(status: "paid" | "unpaid" | "all") {
     setDuesFilter(status);
     setActiveMemberFilter("active");
@@ -1160,7 +1184,7 @@ export function DashboardScreen() {
   }
 
   if (account?.role === "member") {
-    return <MemberDashboardScreen profile={account.member_profile} onLogout={handleLogout} canManageActivities={account.can_manage_activities} canEditMembers={account.can_edit_members} />;
+    return <MemberDashboardScreen profile={account.member_profile} onLogout={handleLogout} canManageActivities={account.can_manage_activities} canEditMembers={account.can_edit_members} canEditPetitioners={account.can_edit_petitioners} dashboardCardVisibility={account.dashboard_card_visibility} />;
   }
 
   if (activeView === "profile") {
@@ -1174,6 +1198,8 @@ export function DashboardScreen() {
         onDocumentsOpen={canAccessDocuments ? () => setActiveView("documents") : undefined}
         canManageActivities={account?.can_manage_activities ?? false}
         canEditMembers={account?.can_edit_members ?? false}
+        canEditPetitioners={account?.can_edit_petitioners ?? false}
+        dashboardCardVisibility={dashboardCardVisibility}
       />
     );
   }
@@ -1189,6 +1215,8 @@ export function DashboardScreen() {
         onDocumentsOpen={canAccessDocuments ? () => setActiveView("documents") : undefined}
         canManageActivities={account?.can_manage_activities ?? false}
         canEditMembers={account?.can_edit_members ?? false}
+        canEditPetitioners={account?.can_edit_petitioners ?? false}
+        dashboardCardVisibility={dashboardCardVisibility}
       />
     );
   }
@@ -1199,6 +1227,22 @@ export function DashboardScreen() {
         onLogout={handleLogout}
         onNavigate={(view) => setActiveView(view)}
         onMembersDataUploaded={refreshDashboardSummaries}
+      />
+    );
+  }
+
+  if (activeView === "petitioners") {
+    return (
+      <PetitionerListScreen
+        initialStage={activePetitionerStage}
+        navigationItems={navItems}
+        onBack={() => setActiveView("home")}
+        onNavigate={(itemId) => {
+          if (itemId === "profile") setActiveView("profile");
+          else if (itemId === "documents") setActiveView("documents");
+          else if (itemId === "more") setActiveView("more");
+          else setActiveView("home");
+        }}
       />
     );
   }
@@ -1531,6 +1575,7 @@ export function DashboardScreen() {
         </section>
 
         <div className="mt-4 flex-1 overflow-y-auto pb-[6.6rem] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {dashboardCardVisibility.lodge_health_indicator ? (
           <section className="rounded-[1.85rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px]">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -1626,7 +1671,9 @@ export function DashboardScreen() {
               ))}
             </div>
           </section>
+          ) : null}
 
+          {dashboardCardVisibility.members ? (
           <section className="mt-4 rounded-[1.85rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px]">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[linear-gradient(145deg,#eda600,#c77900)] text-white shadow-[0_8px_20px_rgba(205,133,0,0.2)]">
@@ -1673,7 +1720,15 @@ export function DashboardScreen() {
               </p>
             ) : null}
           </section>
+          ) : null}
 
+          {dashboardCardVisibility.petitioner ? (
+            <div className="mt-4">
+              <PetitionerDashboardCard summary={dashboardSummary.petitioner} onSelect={openPetitionerList} />
+            </div>
+          ) : null}
+
+          {dashboardCardVisibility.next_lodge_activity ? (
           <section className="relative mt-4 overflow-hidden rounded-[1.85rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px]">
             <LodgeWatermark />
             <div className="relative z-10 flex items-start gap-2.5">
@@ -1707,7 +1762,9 @@ export function DashboardScreen() {
             )}
             {nextActivityError ? <p className="relative z-10 mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{nextActivityError}</p> : null}
           </section>
+          ) : null}
 
+          {dashboardCardVisibility.dues_collection ? (
           <section className="mt-4 rounded-[1.85rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px]">
             <div className="flex items-center gap-3">
               <div className="rounded-full bg-[#fff7f7] p-1.5 text-[#d31313]">
@@ -1778,7 +1835,9 @@ export function DashboardScreen() {
               <span className="text-white/80"><ChevronIcon /></span>
             </button>
           </section>
+          ) : null}
 
+          {dashboardCardVisibility.financial_summary ? (
           <section className="mt-4 rounded-[1.85rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1827,6 +1886,7 @@ export function DashboardScreen() {
               </div>
             </div>
           </section>
+          ) : null}
         </div>
 
         <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">

@@ -5,9 +5,11 @@ import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "re
 
 import { ThemedLoader } from "@/components/themed-loader";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
+import { PetitionerDashboardCard } from "@/components/petitioner-dashboard-card";
+import { PetitionerListScreen } from "@/components/petitioner-list-screen";
 import { timeBasedGreeting } from "@/lib/greeting";
 import { useIdleTimeout } from "@/lib/use-idle-timeout";
-import { ActivityScreen, createLodgeActivity, deleteLodgeActivity, getEditableMemberProfile, getManagedLodgeActivities, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getSecretaryDashboardSummary, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, SecretaryDashboardSummaryResponse, trackScreenView, trackUserAction, updateMemberProfile, uploadMemberProfilePhotoById, getMemberAccountStatus, activateMemberLogin, deactivateMemberLogin } from "@/lib/api";
+import { ActivityScreen, activateMemberLogin, activatePetitionerLogin, createLodgeActivity, DashboardCardVisibility, defaultDashboardCardVisibility, deactivateMemberLogin, deactivatePetitionerLogin, deleteLodgeActivity, getEditableMemberProfile, getEditablePetitionerProfile, getManagedLodgeActivities, getMemberAccountStatus, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getPetitionerAccountStatus, getPetitionerList, getSecretaryDashboardSummary, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, PetitionerStage, SecretaryDashboardSummaryResponse, trackScreenView, trackUserAction, updateMemberProfile, updatePetitionerProfile, uploadMemberProfilePhotoById, uploadPetitionerProfilePhotoById } from "@/lib/api";
 
 type MemberDashboardScreenProps = {
   profile: MemberDashboardProfile | null;
@@ -19,10 +21,12 @@ type MemberDashboardScreenProps = {
   onDocumentsOpen?: () => void;
   canManageActivities?: boolean;
   canEditMembers?: boolean;
+  canEditPetitioners?: boolean;
+  dashboardCardVisibility?: DashboardCardVisibility;
 };
 
 type MemberDashboardTab = "dashboard" | "profile" | "more";
-type MemberDashboardView = "home" | "profile" | "members" | "activity" | "member-edit" | "dues";
+type MemberDashboardView = "home" | "profile" | "members" | "petitioners" | "activity" | "member-edit" | "petitioner-edit" | "dues";
 type MemberSheetName = "appendant" | "positions" | "activity" | "eventlist" | "payment";
 type SecretaryNavItemId = "dashboard" | "profile" | "documents" | "more";
 type ActivityTimePickerTarget = "start" | "end";
@@ -313,6 +317,15 @@ const fallbackMemberSummaryGroups: MemberSummaryGroup[] = [
   { key: "dropped_working_tools", label: "Dropped Working Tools", section: "DROPED THE WORKING TOOLS", count: 0 },
 ];
 
+const petitionerEditGroups: MemberGroupDisplay[] = [
+  { key: "fcm", label: "FCM", section: "PETITIONER - FCM", count: 0, heading: "FCM Petitioners", color: "#2f6fbd", tint: "#e9f3ff", border: "#b6d3f3", icon: <PersonIcon />, dashboardLabel: "FCM" },
+  { key: "eam", label: "EAM", section: "PETITIONER - EAM", count: 0, heading: "EAM Petitioners", color: "#6b9fd5", tint: "#f0f6fd", border: "#cbdff2", icon: <PersonIcon />, dashboardLabel: "EAM" },
+  { key: "balloted", label: "Balloted", section: "PETITIONER - BALLOTED", count: 0, heading: "Balloted Petitioners", color: "#4c7fc1", tint: "#edf4fc", border: "#c4d9ef", icon: <PersonIcon group />, dashboardLabel: "Balloted" },
+  { key: "re_apply", label: "Re-Apply", section: "PETITIONER - RE-APPLY", count: 0, heading: "Re-Apply Petitioners", color: "#477dbf", tint: "#edf4fc", border: "#c4d9ef", icon: <PersonIcon />, dashboardLabel: "Re-Apply" },
+  { key: "circulated", label: "Circulated", section: "PETITIONER - CIRCULATED", count: 0, heading: "Circulated Petitioners", color: "#477dbf", tint: "#edf4fc", border: "#c4d9ef", icon: <PersonIcon />, dashboardLabel: "Circulated" },
+  { key: "inactive", label: "Inactive", section: "PETITIONER - INACTIVE", count: 0, heading: "Inactive Petitioners", color: "#6b7280", tint: "#f4f6f8", border: "#d5d9df", icon: <PersonIcon />, dashboardLabel: "Inactive" },
+];
+
 const GROUP_ORDER: string[] = [
   "Regular",
   "Dual/Plural",
@@ -393,6 +406,14 @@ const emptyDashboardSummary: SecretaryDashboardSummaryResponse = {
     total_count: 0,
     percent: 0,
   },
+  petitioner: {
+    fcm: 0,
+    eam: 0,
+    balloted: 0,
+    re_apply: 0,
+    circulated: 0,
+    inactive: 0,
+  },
   finances: {
     percent: 0,
     status: "No Treasurer report yet",
@@ -434,6 +455,10 @@ function normalizeDashboardSummary(
     growth: {
       ...emptyDashboardSummary.growth,
       ...summary.growth,
+    },
+    petitioner: {
+      ...emptyDashboardSummary.petitioner,
+      ...summary.petitioner,
     },
     finances: {
       ...emptyDashboardSummary.finances,
@@ -1146,6 +1171,25 @@ function memberGroupDetailsForMember(member: MemberListItem, groups: MemberGroup
   };
 }
 
+function petitionerStageForRecord(name: string, section: string): PetitionerStage {
+  const normalizedName = name.trim().toUpperCase();
+  const normalizedSection = section.trim().toUpperCase();
+  const combined = `${normalizedSection} ${normalizedName}`;
+  if (normalizedSection.includes("NOT ACTIVE") || normalizedSection.includes("INACTIVE")) return "inactive";
+  if (combined.includes("RE-APPLY") || combined.includes("RE APPLY") || combined.includes("REAPPLY")) return "re_apply";
+  if (combined.includes("CIRCULAT")) return "circulated";
+  if (combined.includes("BALLOT")) return "balloted";
+  if (/\bFCM\b/.test(normalizedSection)) return "fcm";
+  if (/\bEAM\b/.test(normalizedSection)) return "eam";
+  if (normalizedName.startsWith("FCM ")) return "fcm";
+  if (normalizedName.startsWith("EAM ")) return "eam";
+  return "circulated";
+}
+
+function petitionerGroupDetails(stage: PetitionerStage) {
+  return petitionerEditGroups.find((group) => group.key === stage) ?? petitionerEditGroups[4];
+}
+
 function workbookRowLabel(key: string): string {
   const parts = key.split("/");
   return (parts.at(-1) ?? key).trim() || key;
@@ -1254,17 +1298,20 @@ export function MemberDashboardScreen({
   onDocumentsOpen,
   canManageActivities = false,
   canEditMembers = false,
+  canEditPetitioners = false,
+  dashboardCardVisibility = defaultDashboardCardVisibility,
 }: MemberDashboardScreenProps) {
   useIdleTimeout();
 
   const isProfileOnly = initialView === "profile";
   const usesSecretaryNav = onDashboardClose !== undefined || onProfileClose !== undefined;
+  const hasAccountTools = canManageActivities || canEditMembers || canEditPetitioners;
   const contextualNavItems = usesSecretaryNav
     ? secretaryNavItems.filter((item) => item.id !== "documents" || onDocumentsOpen !== undefined)
-    : navItems;
+    : hasAccountTools ? [...navItems, { id: "more" as const, label: "More", icon: <DotsIcon /> }] : navItems;
   const contextualNavGridClass = usesSecretaryNav
     ? contextualNavItems.length === 4 ? "grid-cols-4" : "grid-cols-3"
-    : "grid-cols-2";
+    : contextualNavItems.length === 3 ? "grid-cols-3" : "grid-cols-2";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const activityStartDateRef = useRef<HTMLInputElement | null>(null);
   const activityEndDateRef = useRef<HTMLInputElement | null>(null);
@@ -1293,6 +1340,7 @@ export function MemberDashboardScreen({
   const [activeMemberFilter, setActiveMemberFilter] = useState<MemberGroupKey>("active");
   const [memberSearch, setMemberSearch] = useState("");
   const [duesFilter, setDuesFilter] = useState<"paid" | "unpaid" | "all">("all");
+  const [activePetitionerStage, setActivePetitionerStage] = useState<PetitionerStage>("circulated");
   const [memberList, setMemberList] = useState<MemberListItem[]>([]);
   const [memberListCount, setMemberListCount] = useState(0);
   const [isMemberListLoading, setIsMemberListLoading] = useState(false);
@@ -1347,6 +1395,7 @@ export function MemberDashboardScreen({
   const [activityDeleteError, setActivityDeleteError] = useState("");
   const [editMemberSearch, setEditMemberSearch] = useState("");
   const [editMemberFilter, setEditMemberFilter] = useState<MemberGroupKey>("active");
+  const [editPetitionerStage, setEditPetitionerStage] = useState<PetitionerStage>("circulated");
   const [editMemberList, setEditMemberList] = useState<MemberListItem[]>([]);
   const [editMemberListCount, setEditMemberListCount] = useState(0);
   const [isEditMemberListLoading, setIsEditMemberListLoading] = useState(false);
@@ -1376,6 +1425,7 @@ export function MemberDashboardScreen({
   const resolvedEditMemberFilter = memberDisplayGroups.some((group) => group.key === editMemberFilter)
     ? editMemberFilter
     : memberDisplayGroups[0]?.key ?? editMemberFilter;
+  const isPetitionerEdit = activeView === "petitioner-edit";
 
   useEffect(() => {
     return () => {
@@ -1392,12 +1442,14 @@ export function MemberDashboardScreen({
     const screenByView: Record<Exclude<MemberDashboardView, "home">, ActivityScreen> = {
       profile: "My Profile",
       members: "Members",
+      petitioners: "Petitioners",
       activity: "Activity Management",
       "member-edit": "Edit Member",
+      "petitioner-edit": "Edit Petitioner",
       dues: "Dues",
     };
     const screen = activeView === "home"
-      ? (activeTab === "profile" ? "My Profile" : "Dashboard")
+      ? (activeTab === "profile" ? "My Profile" : activeTab === "more" ? "More" : "Dashboard")
       : screenByView[activeView];
     trackScreenView(screen);
   }, [activeTab, activeView, usesSecretaryNav]);
@@ -1505,7 +1557,9 @@ export function MemberDashboardScreen({
   }, [activeView, resolvedActiveMemberFilter, memberSearch, duesFilter, memberSummaryGroups]);
 
   useEffect(() => {
-    if (activeView !== "member-edit" || !canEditMembers || memberSummaryGroups === null) {
+    const canLoadMembers = activeView === "member-edit" && canEditMembers && memberSummaryGroups !== null;
+    const canLoadPetitioners = activeView === "petitioner-edit" && canEditPetitioners;
+    if (!canLoadMembers && !canLoadPetitioners) {
       return;
     }
 
@@ -1516,16 +1570,18 @@ export function MemberDashboardScreen({
         setEditMemberListError("");
         try {
           const [response] = await Promise.all([
-            getMemberList(resolvedEditMemberFilter, editMemberSearch),
+            canLoadPetitioners
+              ? getPetitionerList(editPetitionerStage, editMemberSearch)
+              : getMemberList(resolvedEditMemberFilter, editMemberSearch),
             minimumLoadingDelay(),
           ]);
           if (isMounted) {
-            setEditMemberList(response.members);
+            setEditMemberList("petitioners" in response ? response.petitioners : response.members);
             setEditMemberListCount(response.count);
           }
         } catch (error) {
           if (isMounted) {
-            setEditMemberListError(error instanceof Error ? error.message : "Unable to load members.");
+            setEditMemberListError(error instanceof Error ? error.message : `Unable to load ${canLoadPetitioners ? "petitioners" : "members"}.`);
           }
         } finally {
           if (isMounted) {
@@ -1541,7 +1597,7 @@ export function MemberDashboardScreen({
       isMounted = false;
       window.clearTimeout(debounce);
     };
-  }, [activeView, canEditMembers, resolvedEditMemberFilter, editMemberSearch, memberSummaryGroups]);
+  }, [activeView, canEditMembers, canEditPetitioners, resolvedEditMemberFilter, editPetitionerStage, editMemberSearch, memberSummaryGroups]);
 
   useEffect(() => {
     if (activeView !== "activity" || activityScreenTab !== "list") {
@@ -1668,7 +1724,9 @@ export function MemberDashboardScreen({
     try {
       const croppedPhoto = await createCroppedProfilePhotoBlob(selectedPhotoUrl, crop);
       const [response] = await Promise.all([
-        uploadMemberProfilePhotoById(memberId, croppedPhoto),
+        isPetitionerEdit
+          ? uploadPetitionerProfilePhotoById(memberId, croppedPhoto)
+          : uploadMemberProfilePhotoById(memberId, croppedPhoto),
         minimumLoadingDelay(),
       ]);
       if (selectedEditMember) {
@@ -1730,6 +1788,11 @@ export function MemberDashboardScreen({
     setActiveView("members");
   }
 
+  function openPetitionerList(stage: PetitionerStage) {
+    setActivePetitionerStage(stage);
+    setActiveView("petitioners");
+  }
+
   function closeMembersList(nextTab?: MemberDashboardTab) {
     setIsMembersViewClosing(true);
     window.setTimeout(() => {
@@ -1783,10 +1846,28 @@ export function MemberDashboardScreen({
     setActiveView("member-edit");
   }
 
+  function openPetitionerEdit() {
+    setEditReturnView(activeView);
+    setEditMemberFormError("");
+    setEditMemberSuccessToast("");
+    setSelectedEditMember(null);
+    setEditMemberForm(null);
+    setEditMemberList([]);
+    setEditMemberListCount(0);
+    setIsEditMemberLoading(false);
+    setIsMemberEditClosing(false);
+    setActiveView("petitioner-edit");
+  }
+
   function closeMemberEdit() {
     setIsMemberEditClosing(true);
     window.setTimeout(() => {
       const returnView = editReturnView;
+      if (usesSecretaryNav && returnView === "home" && onDashboardClose !== undefined) {
+        setIsMemberEditClosing(false);
+        onDashboardClose();
+        return;
+      }
       setActiveView(returnView);
       if (returnView === "home") {
         setActiveTab("dashboard");
@@ -1813,12 +1894,13 @@ export function MemberDashboardScreen({
     setEditMemberSuccessToast("");
     try {
       const [profileData] = await Promise.all([
-        getEditableMemberProfile(memberId),
+        isPetitionerEdit ? getEditablePetitionerProfile(memberId) : getEditableMemberProfile(memberId),
         minimumLoadingDelay(),
       ]);
       setSelectedEditMember(profileData);
       setEditMemberForm(editableMemberForm(profileData));
-      getMemberAccountStatus(memberId).then(setMemberAccountStatus).catch(() => setMemberAccountStatus(null));
+      const getAccountStatus = isPetitionerEdit ? getPetitionerAccountStatus : getMemberAccountStatus;
+      getAccountStatus(memberId).then(setMemberAccountStatus).catch(() => setMemberAccountStatus(null));
       window.setTimeout(() => {
         editMemberDetailsRef.current?.scrollIntoView({
           behavior: "smooth",
@@ -1826,7 +1908,7 @@ export function MemberDashboardScreen({
         });
       }, 80);
     } catch (error) {
-      setEditMemberFormError(error instanceof Error ? error.message : "Unable to load this member record.");
+      setEditMemberFormError(error instanceof Error ? error.message : `Unable to load this ${isPetitionerEdit ? "petitioner" : "member"} record.`);
     } finally {
       setIsEditMemberLoading(false);
     }
@@ -1836,7 +1918,9 @@ export function MemberDashboardScreen({
     if (!selectedEditMember) return;
     setIsAccountActionLoading(true);
     try {
-      const response = await activateMemberLogin(selectedEditMember.id);
+      const response = isPetitionerEdit
+        ? await activatePetitionerLogin(selectedEditMember.id)
+        : await activateMemberLogin(selectedEditMember.id);
       setMemberAccountStatus({
         status: response.status,
         account_exists: response.status === "activated",
@@ -1846,7 +1930,7 @@ export function MemberDashboardScreen({
       });
       setEditMemberSuccessToast(response.message);
     } catch (error) {
-      setEditMemberFormError(error instanceof Error ? error.message : "Unable to activate member login.");
+      setEditMemberFormError(error instanceof Error ? error.message : `Unable to activate ${isPetitionerEdit ? "petitioner" : "member"} login.`);
     } finally {
       setIsAccountActionLoading(false);
     }
@@ -1856,7 +1940,9 @@ export function MemberDashboardScreen({
     if (!selectedEditMember) return;
     setIsAccountActionLoading(true);
     try {
-      const response = await deactivateMemberLogin(selectedEditMember.id);
+      const response = isPetitionerEdit
+        ? await deactivatePetitionerLogin(selectedEditMember.id)
+        : await deactivateMemberLogin(selectedEditMember.id);
       setMemberAccountStatus({
         status: response.status,
         account_exists: false,
@@ -1866,7 +1952,7 @@ export function MemberDashboardScreen({
       });
       setEditMemberSuccessToast(response.message);
     } catch (error) {
-      setEditMemberFormError(error instanceof Error ? error.message : "Unable to deactivate member login.");
+      setEditMemberFormError(error instanceof Error ? error.message : `Unable to deactivate ${isPetitionerEdit ? "petitioner" : "member"} login.`);
     } finally {
       setIsAccountActionLoading(false);
     }
@@ -1984,7 +2070,7 @@ export function MemberDashboardScreen({
 
   async function saveMemberEdit() {
     if (selectedEditMember === null || editMemberForm === null) {
-      setEditMemberFormError("Please select a member first.");
+      setEditMemberFormError(`Please select a ${isPetitionerEdit ? "petitioner" : "member"} first.`);
       return;
     }
     if (!editMemberForm.name.trim()) {
@@ -2025,7 +2111,9 @@ export function MemberDashboardScreen({
     setEditMemberSuccessToast("");
     try {
       const [response] = await Promise.all([
-        updateMemberProfile(selectedEditMember.id, payload),
+        isPetitionerEdit
+          ? updatePetitionerProfile(selectedEditMember.id, payload)
+          : updateMemberProfile(selectedEditMember.id, payload),
         minimumLoadingDelay(),
       ]);
       setSelectedEditMember(response.member);
@@ -2033,7 +2121,7 @@ export function MemberDashboardScreen({
       setEditMemberSuccessToast(response.message);
       window.setTimeout(() => setEditMemberSuccessToast(""), 3200);
     } catch (error) {
-      setEditMemberFormError(error instanceof Error ? error.message : "Unable to save member record.");
+      setEditMemberFormError(error instanceof Error ? error.message : `Unable to save ${isPetitionerEdit ? "petitioner" : "member"} record.`);
     } finally {
       setIsSavingMemberEdit(false);
     }
@@ -2331,8 +2419,11 @@ export function MemberDashboardScreen({
     );
   }
 
-  if (activeView === "member-edit") {
-    const selectedGroup = memberGroupDetails(resolvedEditMemberFilter, memberDisplayGroups);
+  if (activeView === "member-edit" || activeView === "petitioner-edit") {
+    const editGroups = isPetitionerEdit ? petitionerEditGroups : memberDisplayGroups;
+    const selectedGroup = isPetitionerEdit
+      ? petitionerGroupDetails(editPetitionerStage)
+      : memberGroupDetails(resolvedEditMemberFilter, memberDisplayGroups);
     const textInputClass = "mt-1.5 h-9 w-full rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 text-[0.68rem] text-[#111111] outline-none placeholder:text-[#9a928b]";
     const labelClass = "text-[0.66rem] font-bold text-[#2f2925]";
 
@@ -2348,7 +2439,7 @@ export function MemberDashboardScreen({
             <button type="button" onClick={closeMemberEdit} className="flex h-9 w-9 items-center justify-center text-[#1f2529]" aria-label="Back to more">
               <Icon className="h-6 w-6"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /></Icon>
             </button>
-            <h1 className="text-[1.02rem] font-bold tracking-[-0.04em]">Edit Member</h1>
+            <h1 className="text-[1.02rem] font-bold tracking-[-0.04em]">Edit {isPetitionerEdit ? "Petitioner" : "Member"}</h1>
             <span className="h-9 w-9" />
           </header>
 
@@ -2359,19 +2450,19 @@ export function MemberDashboardScreen({
               <div className="flex items-center gap-3">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#d40000] text-white"><PersonIcon /></span>
                 <span className="min-w-0">
-                  <span className="block text-[0.92rem] font-extrabold tracking-[-0.035em]">Select Member</span>
-                  <span className="mt-0.5 block text-[0.64rem] leading-4 text-[#6a625e]">Choose a section, search, then edit the selected record.</span>
+                  <span className="block text-[0.92rem] font-extrabold tracking-[-0.035em]">Select {isPetitionerEdit ? "Petitioner" : "Member"}</span>
+                  <span className="mt-0.5 block text-[0.64rem] leading-4 text-[#6a625e]">Choose a classification, search, then edit the selected record.</span>
                 </span>
               </div>
               <div className="relative mt-3">
                 <div className="flex gap-2 overflow-x-scroll pb-1.5 pr-6 scrollbar-thin [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]">
-                  {memberDisplayGroups.map((filter) => {
-                    const isActive = resolvedEditMemberFilter === filter.key;
+                  {editGroups.map((filter) => {
+                    const isActive = isPetitionerEdit ? editPetitionerStage === filter.key : resolvedEditMemberFilter === filter.key;
                     return (
                       <button
                         key={filter.key}
                         type="button"
-                        onClick={() => setEditMemberFilter(filter.key)}
+                        onClick={() => isPetitionerEdit ? setEditPetitionerStage(filter.key as PetitionerStage) : setEditMemberFilter(filter.key)}
                         className="shrink-0 rounded-full border px-3 py-1.5 text-[0.62rem] font-bold"
                         style={{ color: filter.color, borderColor: isActive ? filter.border : `${filter.border}99`, backgroundColor: isActive ? filter.tint : "rgba(255,255,255,0.7)" }}
                       >
@@ -2388,7 +2479,7 @@ export function MemberDashboardScreen({
               </div>
               <label className="mt-2 flex h-10 items-center gap-2 rounded-[0.7rem] border border-[#f0e5d7] bg-white px-3 text-[#716a66]">
                 <SearchIcon />
-                <input type="search" value={editMemberSearch} onChange={(event) => setEditMemberSearch(event.target.value)} placeholder="Search member names" className="min-w-0 flex-1 bg-transparent text-[0.72rem] text-[#111111] outline-none placeholder:text-[#9a928b]" />
+                <input type="search" value={editMemberSearch} onChange={(event) => setEditMemberSearch(event.target.value)} placeholder={`Search ${isPetitionerEdit ? "petitioner" : "member"} names`} className="min-w-0 flex-1 bg-transparent text-[0.72rem] text-[#111111] outline-none placeholder:text-[#9a928b]" />
               </label>
               <div className="mt-3 flex items-center justify-between px-1">
                 <span className="text-[0.66rem] font-semibold" style={{ color: selectedGroup.color }}>{editMemberSearch.trim() ? "Search Results" : selectedGroup.heading}</span>
@@ -2402,10 +2493,12 @@ export function MemberDashboardScreen({
                 ) : editMemberList.length > 0 ? (
                   editMemberList.map((member) => {
                     const isSelected = selectedEditMember?.id === member.id;
-                    const groupDetails = memberGroupDetailsForMember(member, memberDisplayGroups);
+                    const groupDetails = isPetitionerEdit
+                      ? petitionerGroupDetails(petitionerStageForRecord(member.name, member.section))
+                      : memberGroupDetailsForMember(member, memberDisplayGroups);
                     return (
                       <button key={member.id} type="button" onClick={() => void selectEditableMember(member.id)} className={`flex w-full items-center gap-2.5 rounded-[0.78rem] px-2.5 py-2 text-left shadow-[0_8px_18px_rgba(75,48,20,0.04)] ${isSelected ? "bg-[#fff4e3] ring-1 ring-[#d68a00]" : "bg-white/90"}`}>
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.68rem] font-bold text-white">
+                        <span className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ${isPetitionerEdit ? "bg-[linear-gradient(145deg,#5b7dba,#2f6fbd)]" : "bg-[linear-gradient(145deg,#20aa38,#008a1f)]"} text-[0.68rem] font-bold text-white`}>
                           {member.profile_photo_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
@@ -2420,7 +2513,7 @@ export function MemberDashboardScreen({
                     );
                   })
                 ) : (
-                  <p className="rounded-xl bg-white/88 px-3 py-5 text-center text-[0.7rem] text-[#665d57]">No members found.</p>
+                  <p className="rounded-xl bg-white/88 px-3 py-5 text-center text-[0.7rem] text-[#665d57]">No {isPetitionerEdit ? "petitioners" : "members"} found.</p>
                 )}
               </div>
             </section>
@@ -2432,8 +2525,10 @@ export function MemberDashboardScreen({
                 <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
                   <h2 className="text-[0.72rem] font-bold">Category</h2>
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {memberDisplayGroups.map((group) => {
-                      const isActive = editMemberForm.section.trim().toUpperCase() === group.section.trim().toUpperCase();
+                    {editGroups.map((group) => {
+                      const isActive = isPetitionerEdit
+                        ? petitionerStageForRecord(editMemberForm.name, editMemberForm.section) === group.key
+                        : editMemberForm.section.trim().toUpperCase() === group.section.trim().toUpperCase();
                       return (
                         <button
                           key={group.key}
@@ -2459,7 +2554,7 @@ export function MemberDashboardScreen({
                 </div>
 
                 <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
-                  <h2 className="text-[0.78rem] font-bold">Member Login</h2>
+                  <h2 className="text-[0.78rem] font-bold">{isPetitionerEdit ? "Petitioner" : "Member"} Login</h2>
                   <div className="mt-3 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2.5">
                       <span className={`flex h-9 w-9 items-center justify-center rounded-full ${memberAccountStatus?.status === "activated" ? "bg-[#eef8f0] text-[#168129]" : memberAccountStatus?.status === "pending" ? "bg-[#fff8e6] text-[#cd8600]" : memberAccountStatus?.status === "deactivated" ? "bg-[#fff0f0] text-[#c90000]" : "bg-[#f5f0eb] text-[#938b83]"}`}>
@@ -2482,11 +2577,11 @@ export function MemberDashboardScreen({
                            "No Login Setup"}
                         </div>
                         <div className="mt-0.5 text-[0.55rem] text-[#90887e]">
-                          {memberAccountStatus?.status === "activated" ? "Member can access the app." :
+                          {memberAccountStatus?.status === "activated" ? `${isPetitionerEdit ? "Petitioner" : "Member"} can access the app.` :
                            memberAccountStatus?.status === "pending" ? "Waiting for account setup." :
-                           memberAccountStatus?.status === "deactivated" ? "Member cannot log in." :
+                           memberAccountStatus?.status === "deactivated" ? `${isPetitionerEdit ? "Petitioner" : "Member"} cannot log in.` :
                            memberAccountStatus?.status === "no_email" ? "Add an email address first." :
-                           "Member has not been given login access."}
+                           `${isPetitionerEdit ? "Petitioner" : "Member"} has not been given login access.`}
                         </div>
                       </div>
                     </div>
@@ -2505,16 +2600,16 @@ export function MemberDashboardScreen({
                 </div>
 
                 <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
-                  <h2 className="text-[0.78rem] font-bold">Member Identity</h2>
+                  <h2 className="text-[0.78rem] font-bold">{isPetitionerEdit ? "Petitioner" : "Member"} Identity</h2>
                   <div className="mt-3 grid grid-cols-2 gap-2.5">
                     <label className={labelClass}>Name<input value={editMemberForm.name} onChange={(event) => updateEditMemberField("name", event.target.value)} className={textInputClass} /></label>
                     <label className={labelClass}>GLP ID<input value={editMemberForm.glp_id_number} onChange={(event) => updateEditMemberField("glp_id_number", event.target.value)} className={textInputClass} /></label>
-                    <label className={labelClass}>Member No.<input value={editMemberForm.member_number} onChange={(event) => updateEditMemberField("member_number", event.target.value)} className={textInputClass} /></label>
+                    <label className={labelClass}>{isPetitionerEdit ? "Petitioner" : "Member"} No.<input value={editMemberForm.member_number} onChange={(event) => updateEditMemberField("member_number", event.target.value)} className={textInputClass} /></label>
                     <label className={labelClass}>Section<select value={editMemberForm.section} onChange={(event) => updateEditMemberField("section", event.target.value)} className={textInputClass}>
-                      {memberDisplayGroups.filter((g) => !g.key.startsWith("trestle_board")).map((group) => (
+                      {editGroups.filter((g) => isPetitionerEdit || !g.key.startsWith("trestle_board")).map((group) => (
                         <option key={group.key} value={group.section}>{group.label}</option>
                       ))}
-                      {!memberDisplayGroups.some((g) => g.section.trim().toUpperCase() === editMemberForm.section.trim().toUpperCase()) ? (
+                      {!editGroups.some((g) => g.section.trim().toUpperCase() === editMemberForm.section.trim().toUpperCase()) ? (
                         <option value={editMemberForm.section}>Current: {editMemberForm.section || "-"}</option>
                       ) : null}
                     </select></label>
@@ -2534,7 +2629,7 @@ export function MemberDashboardScreen({
                         )}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[0.68rem] text-[#655e59]">Upload a new profile photo for this member.</span>
+                        <span className="block text-[0.68rem] text-[#655e59]">Upload a new profile photo for this {isPetitionerEdit ? "petitioner" : "member"}.</span>
                         <button
                           type="button"
                           onClick={openPhotoSelector}
@@ -2651,8 +2746,8 @@ export function MemberDashboardScreen({
                 <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#fff4e3] text-[#d68a00]">
                   <PersonIcon />
                 </div>
-                <h2 className="mt-3 text-[0.82rem] font-bold">No member selected</h2>
-                <p className="mt-1 text-[0.66rem] leading-5 text-[#6a625e]">Select a member above to open the edit form.</p>
+                <h2 className="mt-3 text-[0.82rem] font-bold">No {isPetitionerEdit ? "petitioner" : "member"} selected</h2>
+                <p className="mt-1 text-[0.66rem] leading-5 text-[#6a625e]">Select a {isPetitionerEdit ? "petitioner" : "member"} above to open the edit form.</p>
               </section>
             ) : null}
 
@@ -2723,7 +2818,7 @@ export function MemberDashboardScreen({
               <button type="button" onClick={closeMemberEdit} className="h-11 rounded-[0.62rem] border border-[#eadfda] bg-white text-[0.72rem] font-bold text-[#c10000]">Cancel</button>
               <button type="button" onClick={() => void saveMemberEdit()} disabled={isSavingMemberEdit || editMemberForm === null} className="flex h-11 items-center justify-center gap-2 rounded-[0.62rem] bg-[linear-gradient(145deg,#f1a51c,#d88400)] text-[0.72rem] font-extrabold text-white shadow-[0_10px_20px_rgba(205,133,0,0.2)] disabled:cursor-not-allowed disabled:opacity-60">
                 {isSavingMemberEdit ? <ThemedLoader size="sm" className="brightness-125" /> : <PersonIcon />}
-                <span>{isSavingMemberEdit ? "Saving..." : "Save Member"}</span>
+                <span>{isSavingMemberEdit ? "Saving..." : `Save ${isPetitionerEdit ? "Petitioner" : "Member"}`}</span>
               </button>
             </div>
           </div>
@@ -3036,6 +3131,30 @@ export function MemberDashboardScreen({
           ) : null}
         </div>
       </main>
+    );
+  }
+
+  if (activeView === "petitioners") {
+    return (
+      <PetitionerListScreen
+        initialStage={activePetitionerStage}
+        navigationItems={contextualNavItems}
+        onBack={() => setActiveView("home")}
+        onNavigate={(itemId) => {
+          if (itemId === "profile") {
+            setActiveView("home");
+            void openFullProfile();
+          } else if (itemId === "documents") {
+            onDocumentsOpen?.();
+          } else if (itemId === "more") {
+            setActiveView("home");
+            setActiveTab("more");
+          } else {
+            setActiveView("home");
+            setActiveTab("dashboard");
+          }
+        }}
+      />
     );
   }
 
@@ -3616,7 +3735,7 @@ export function MemberDashboardScreen({
         </header>
 
         <div className="mt-3.5 flex-1 space-y-3 overflow-y-auto pb-[5.6rem] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mt-4 sm:space-y-3.5">
-          {usesSecretaryNav && activeTab === "more" ? (
+          {activeTab === "more" ? (
             <section className="rounded-[1.25rem] border border-white/80 bg-white/90 p-4 shadow-[0_12px_30px_rgba(74,48,19,0.08)] sm:rounded-[1.45rem] sm:p-5">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#f7efe5] text-[#d58d00] shadow-[inset_0_0_0_1px_rgba(220,171,91,0.18)]">
@@ -3629,7 +3748,7 @@ export function MemberDashboardScreen({
                 </div>
                 <div className="min-w-0">
                   <h2 className="text-base font-bold tracking-[-0.03em] text-[#111111]">Tools</h2>
-                  <p className="mt-0.5 text-[0.68rem] leading-snug text-[#655e59] sm:text-xs">Access profile photo, lodge activities, and member record tools.</p>
+                  <p className="mt-0.5 text-[0.68rem] leading-snug text-[#655e59] sm:text-xs">Access lodge activities, member, and petitioner record tools.</p>
                 </div>
               </div>
 
@@ -3658,9 +3777,23 @@ export function MemberDashboardScreen({
                   <span className="shrink-0 text-[#77716d]"><ChevronIcon /></span>
                 </button>
               ) : null}
+
+              {canEditPetitioners ? (
+                <button type="button" onClick={openPetitionerEdit} className="mt-3 flex w-full items-center justify-between rounded-[1rem] border border-[#dce8f5] bg-[#fffdfb] p-3 text-left shadow-[0_8px_20px_rgba(47,111,189,0.06)]">
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#5b7dba,#2f6fbd)] text-white"><PersonIcon /></span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-semibold text-[#111111]">Edit Petitioner</span>
+                      <span className="mt-0.5 block truncate text-[0.62rem] text-[#706760]">Select and update petitioner records.</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[#477dbf]"><ChevronIcon /></span>
+                </button>
+              ) : null}
             </section>
           ) : (
             <>
+          {dashboardCardVisibility.lodge_health_indicator ? (
           <section className="rounded-[1.25rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px] sm:rounded-[1.45rem]">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -3718,7 +3851,9 @@ export function MemberDashboardScreen({
               ))}
             </div>
           </section>
+          ) : null}
 
+          {dashboardCardVisibility.next_lodge_activity ? (
           <section className="relative overflow-hidden rounded-[1.25rem] border border-white/80 bg-white/88 p-3.5 shadow-[0_12px_30px_rgba(74,48,19,0.08)] sm:rounded-[1.45rem] sm:p-4">
             <LodgeWatermark />
             <div className="relative z-10 flex items-start gap-2.5">
@@ -3747,7 +3882,9 @@ export function MemberDashboardScreen({
             )}
             {nextActivityError ? <p className="relative z-10 mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{nextActivityError}</p> : null}
           </section>
+          ) : null}
 
+          {dashboardCardVisibility.members ? (
           <section className="rounded-[1.25rem] border border-white/80 bg-white/88 p-3.5 shadow-[0_12px_30px_rgba(74,48,19,0.08)] sm:rounded-[1.45rem] sm:p-4">
             <div className="flex items-center gap-2.5">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[linear-gradient(145deg,#eda600,#c77900)] text-white shadow-[0_8px_20px_rgba(205,133,0,0.2)] sm:h-12 sm:w-12"><PersonIcon group /></div>
@@ -3770,7 +3907,13 @@ export function MemberDashboardScreen({
             </div>
             {memberSummaryError ? <p className="mt-3 rounded-xl bg-[#fff0f0] px-3 py-2 text-[0.68rem] text-[#c90000]">{memberSummaryError}</p> : null}
           </section>
+          ) : null}
 
+          {dashboardCardVisibility.petitioner ? (
+            <PetitionerDashboardCard summary={dashboardSummary.petitioner} onSelect={openPetitionerList} />
+          ) : null}
+
+          {dashboardCardVisibility.dues_collection ? (
           <section className="rounded-[1.25rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px] sm:rounded-[1.45rem] sm:p-4">
             <div className="flex items-center gap-3">
               <div className="rounded-full bg-[#fff7f7] p-1.5 text-[#d31313]">
@@ -3846,7 +3989,9 @@ export function MemberDashboardScreen({
               <span className="text-white/80"><ChevronIcon /></span>
             </button>
           </section>
+          ) : null}
 
+          {dashboardCardVisibility.financial_summary ? (
           <section className="rounded-[1.25rem] border border-[#f1ece4] bg-white/88 px-4 py-4 shadow-[0_14px_34px_rgba(149,110,46,0.08)] backdrop-blur-[10px] sm:rounded-[1.45rem] sm:p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -3892,6 +4037,7 @@ export function MemberDashboardScreen({
               </div>
             </div>
           </section>
+          ) : null}
             </>
           )}
         </div>
@@ -3920,6 +4066,11 @@ export function MemberDashboardScreen({
                     }
                     if (item.id === "profile") {
                       void openFullProfile();
+                      return;
+                    }
+                    if (item.id === "more") {
+                      setActiveView("home");
+                      setActiveTab("more");
                       return;
                     }
                     setActiveTab("dashboard");

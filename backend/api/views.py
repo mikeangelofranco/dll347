@@ -75,6 +75,7 @@ TRACKABLE_SCREENS = {
     "More",
     "Activity Management",
     "Edit Member",
+    "Edit Petitioner",
 }
 TRACKABLE_USER_ACTIONS = {
     "View Member Profile",
@@ -243,6 +244,28 @@ def user_can_manage_activities(user) -> bool:
 
 def user_can_edit_members(user) -> bool:
     return user.is_authenticated and user.can_edit_members
+
+
+def user_can_edit_petitioners(user) -> bool:
+    return user.is_authenticated and user.can_edit_petitioners
+
+
+def petitioner_records():
+    return MemberDatabaseRecord.objects.filter(
+        Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER"),
+        is_test_record=False,
+    )
+
+
+def regular_member_records():
+    return MemberDatabaseRecord.objects.exclude(
+        Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER")
+    )
+
+
+def is_petitioner_section(section: str) -> bool:
+    normalized = section.strip().upper()
+    return normalized.startswith("TRESTLE BOARD") or "PETITIONER" in normalized
 
 
 def request_window_label(request) -> str:
@@ -483,6 +506,45 @@ def is_progressing_member(name: str, section: str) -> bool:
         or "EAM" in normalized_section
         or "FCM" in normalized_section
     )
+
+
+def petitioner_stage(name: str, section: str) -> str:
+    normalized_name = name.strip().upper()
+    normalized_section = section.strip().upper()
+    combined = f"{normalized_section} {normalized_name}"
+
+    if "NOT ACTIVE" in normalized_section or "INACTIVE" in normalized_section:
+        return "inactive"
+    if any(label in combined for label in ("RE-APPLY", "RE APPLY", "REAPPLY")):
+        return "re_apply"
+    if "CIRCULAT" in combined:
+        return "circulated"
+    if "BALLOT" in combined:
+        return "balloted"
+    if re.search(r"\bFCM\b", normalized_section):
+        return "fcm"
+    if re.search(r"\bEAM\b", normalized_section):
+        return "eam"
+    if normalized_name.startswith("FCM "):
+        return "fcm"
+    if normalized_name.startswith("EAM "):
+        return "eam"
+    return "circulated"
+
+
+def petitioner_summary_payload(records: list[MemberDatabaseRecord]) -> dict[str, int]:
+    counts = {
+        "fcm": 0,
+        "eam": 0,
+        "balloted": 0,
+        "re_apply": 0,
+        "circulated": 0,
+        "inactive": 0,
+    }
+    for record in records:
+        if is_trestle_board_member(record.section):
+            counts[petitioner_stage(record.name, record.section)] += 1
+    return counts
 
 
 @api_view(["GET"])
@@ -855,7 +917,7 @@ def member_profile_photo_edit_view(request, member_id: int):
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    member = MemberDatabaseRecord.objects.filter(pk=member_id).first()
+    member = regular_member_records().filter(pk=member_id).first()
     if member is None:
         return Response(
             {
@@ -866,6 +928,33 @@ def member_profile_photo_edit_view(request, member_id: int):
         )
 
     return _upload_profile_photo(request, member)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def petitioner_profile_photo_edit_view(request, member_id: int):
+    if not user_can_edit_petitioners(request.user):
+        return Response(
+            {
+                "code": "PETITIONER_EDIT_FORBIDDEN",
+                "message": "You do not have permission to upload petitioner photos.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    petitioner = petitioner_records().filter(pk=member_id).first()
+    if petitioner is None:
+        return Response(
+            {
+                "code": "PETITIONER_PROFILE_NOT_FOUND",
+                "message": "We could not find that petitioner profile.",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    record_tool_access(request, ToolAccessLog.Tool.EDIT_PETITIONER)
+    return _upload_profile_photo(request, petitioner)
 
 
 def _upload_profile_photo(request, member: MemberDatabaseRecord):
@@ -946,6 +1035,31 @@ def member_detail_profile_view(request, member_id: int):
             {
                 "code": "MEMBER_PROFILE_NOT_FOUND",
                 "message": "We could not find that member profile.",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return Response(
+        MemberFullProfileSerializer(member, context={"request": request}).data,
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def petitioner_detail_profile_view(request, member_id: int):
+    member = (
+        MemberDatabaseRecord.objects.filter(
+            Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER"),
+            pk=member_id,
+            is_test_record=False,
+        ).first()
+    )
+    if member is None:
+        return Response(
+            {
+                "code": "PETITIONER_PROFILE_NOT_FOUND",
+                "message": "We could not find that petitioner profile.",
             },
             status=status.HTTP_404_NOT_FOUND,
         )
@@ -1046,6 +1160,98 @@ def member_edit_profile_view(request, member_id: int):
     )
 
 
+@api_view(["GET", "PATCH", "PUT"])
+@permission_classes([IsAuthenticated])
+def petitioner_edit_profile_view(request, member_id: int):
+    if not user_can_edit_petitioners(request.user):
+        return Response(
+            {
+                "code": "PETITIONER_EDIT_FORBIDDEN",
+                "message": "You do not have permission to edit petitioner records.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    record_tool_access(request, ToolAccessLog.Tool.EDIT_PETITIONER)
+    petitioner = petitioner_records().filter(pk=member_id).first()
+    if petitioner is None:
+        return Response(
+            {
+                "code": "PETITIONER_PROFILE_NOT_FOUND",
+                "message": "We could not find that petitioner profile.",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if request.method == "GET":
+        return Response(
+            MemberEditableProfileSerializer(petitioner, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+    serializer = MemberProfileUpdateSerializer(
+        petitioner,
+        data=request.data,
+        partial=request.method == "PATCH",
+    )
+    serializer.is_valid(raise_exception=True)
+    next_section = serializer.validated_data.get("section", petitioner.section)
+    if not is_petitioner_section(next_section):
+        return Response(
+            {
+                "code": "INVALID_PETITIONER_SECTION",
+                "message": "A petitioner must remain in a Petitioner or Trestle Board classification.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    tracked_fields = (
+        "section", "member_number", "name", "glp_id_number",
+        "date_of_birth", "initiation_date", "passing_date", "raising_date",
+        "proficiency_date", "suspension", "restored", "demit", "lml",
+        "dual_plural_honorary_date", "address", "telephone", "email",
+        "blood_type", "widow_or_sister", "widow_or_sister_date_of_birth",
+    )
+    changes = {}
+    for field_name in tracked_fields:
+        if field_name in serializer.validated_data:
+            old_value = getattr(petitioner, field_name)
+            new_value = serializer.validated_data[field_name]
+            if old_value != new_value:
+                changes[field_name] = {
+                    "old": str(old_value) if old_value else None,
+                    "new": str(new_value) if new_value else None,
+                }
+
+    for field_name in ("appendant_bodies", "annual_dues"):
+        if field_name in serializer.validated_data:
+            old_values = getattr(petitioner, field_name) or {}
+            new_values = serializer.validated_data[field_name]
+            changed_keys = [
+                key for key in set(old_values) | set(new_values)
+                if old_values.get(key) != new_values.get(key)
+            ]
+            if changed_keys:
+                changes[field_name] = {"updated_keys": changed_keys}
+
+    updated_petitioner = serializer.save()
+    create_audit_log(
+        AuditLog.Action.PETITIONER_UPDATED,
+        actor=request.user,
+        target_model="MemberDatabaseRecord",
+        target_id=updated_petitioner.pk,
+        changes=changes,
+        **audit_from_request(request),
+    )
+    return Response(
+        {
+            "message": "Petitioner record updated successfully.",
+            "member": MemberEditableProfileSerializer(updated_petitioner, context={"request": request}).data,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def member_positions_held_view(request):
@@ -1074,7 +1280,7 @@ def member_account_status_view(request, member_id: int):
             {"code": "MEMBER_EDIT_FORBIDDEN", "message": "You do not have permission."},
             status=status.HTTP_403_FORBIDDEN,
         )
-    member = MemberDatabaseRecord.objects.filter(pk=member_id).first()
+    member = regular_member_records().filter(pk=member_id).first()
     if member is None:
         return Response(
             {"code": "MEMBER_PROFILE_NOT_FOUND", "message": "We could not find that member profile."},
@@ -1107,7 +1313,7 @@ def member_activate_login_view(request, member_id: int):
             {"code": "MEMBER_EDIT_FORBIDDEN", "message": "You do not have permission."},
             status=status.HTTP_403_FORBIDDEN,
         )
-    member = MemberDatabaseRecord.objects.filter(pk=member_id).first()
+    member = regular_member_records().filter(pk=member_id).first()
     if member is None:
         return Response(
             {"code": "MEMBER_PROFILE_NOT_FOUND", "message": "We could not find that member profile."},
@@ -1153,7 +1359,7 @@ def member_deactivate_login_view(request, member_id: int):
             {"code": "MEMBER_EDIT_FORBIDDEN", "message": "You do not have permission."},
             status=status.HTTP_403_FORBIDDEN,
         )
-    member = MemberDatabaseRecord.objects.filter(pk=member_id).first()
+    member = regular_member_records().filter(pk=member_id).first()
     if member is None:
         return Response(
             {"code": "MEMBER_PROFILE_NOT_FOUND", "message": "We could not find that member profile."},
@@ -1171,6 +1377,115 @@ def member_deactivate_login_view(request, member_id: int):
         account.save(update_fields=["is_active"])
     PreidentifiedEmail.objects.filter(email__iexact=email).delete()
     return Response({"status": "deactivated", "message": "Member login deactivated."})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def petitioner_account_status_view(request, member_id: int):
+    if not user_can_edit_petitioners(request.user):
+        return Response(
+            {"code": "PETITIONER_EDIT_FORBIDDEN", "message": "You do not have permission."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    petitioner = petitioner_records().filter(pk=member_id).first()
+    if petitioner is None:
+        return Response(
+            {"code": "PETITIONER_PROFILE_NOT_FOUND", "message": "We could not find that petitioner profile."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    record_tool_access(request, ToolAccessLog.Tool.EDIT_PETITIONER)
+    email = petitioner.email.strip().lower() if petitioner.email else ""
+    if not email:
+        return Response({
+            "status": "no_email", "account_exists": False,
+            "account_is_active": False, "preidentified_exists": False,
+        })
+    account = Account.objects.filter(email__iexact=email).first()
+    preidentified = PreidentifiedEmail.objects.filter(email__iexact=email).first()
+    return Response({
+        "status": "activated" if (account and account.is_active) else
+                  "deactivated" if (account and not account.is_active) else
+                  "pending" if preidentified else "none",
+        "account_exists": account is not None,
+        "account_is_active": account.is_active if account else False,
+        "preidentified_exists": preidentified is not None,
+        "email": email,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def petitioner_activate_login_view(request, member_id: int):
+    if not user_can_edit_petitioners(request.user):
+        return Response(
+            {"code": "PETITIONER_EDIT_FORBIDDEN", "message": "You do not have permission."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    petitioner = petitioner_records().filter(pk=member_id).first()
+    if petitioner is None:
+        return Response(
+            {"code": "PETITIONER_PROFILE_NOT_FOUND", "message": "We could not find that petitioner profile."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    record_tool_access(request, ToolAccessLog.Tool.EDIT_PETITIONER)
+    email = petitioner.email.strip().lower() if petitioner.email else ""
+    if not email:
+        return Response(
+            {"code": "PETITIONER_HAS_NO_EMAIL", "message": "This petitioner does not have an email address on file."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    account = Account.objects.filter(email__iexact=email).first()
+    if account:
+        updated_fields = []
+        if not account.is_active:
+            account.is_active = True
+            updated_fields.append("is_active")
+        if petitioner.glp_id_number.strip() and account.glp_id_number.strip().casefold() != petitioner.glp_id_number.strip().casefold():
+            account.glp_id_number = petitioner.glp_id_number.strip()
+            updated_fields.append("glp_id_number")
+        if updated_fields:
+            updated_fields.append("updated_at")
+            account.save(update_fields=updated_fields)
+        return Response({"status": "activated", "message": "Petitioner login reactivated."})
+    preidentified, created = PreidentifiedEmail.objects.get_or_create(
+        email=email, defaults={"role": Account.Role.MEMBER},
+    )
+    if created:
+        preidentified.set_default_password("dll347")
+    preidentified.save()
+    return Response({
+        "status": "pending",
+        "message": "Petitioner added to the pre-identified list. They can now set up their account.",
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def petitioner_deactivate_login_view(request, member_id: int):
+    if not user_can_edit_petitioners(request.user):
+        return Response(
+            {"code": "PETITIONER_EDIT_FORBIDDEN", "message": "You do not have permission."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    petitioner = petitioner_records().filter(pk=member_id).first()
+    if petitioner is None:
+        return Response(
+            {"code": "PETITIONER_PROFILE_NOT_FOUND", "message": "We could not find that petitioner profile."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    record_tool_access(request, ToolAccessLog.Tool.EDIT_PETITIONER)
+    email = petitioner.email.strip().lower() if petitioner.email else ""
+    if not email:
+        return Response(
+            {"code": "PETITIONER_HAS_NO_EMAIL", "message": "This petitioner does not have an email address on file."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    account = Account.objects.filter(email__iexact=email).first()
+    if account:
+        account.is_active = False
+        account.save(update_fields=["is_active"])
+    PreidentifiedEmail.objects.filter(email__iexact=email).delete()
+    return Response({"status": "deactivated", "message": "Petitioner login deactivated."})
 
 
 @api_view(["GET"])
@@ -1328,6 +1643,7 @@ def secretary_dashboard_summary_view(request):
                 "total_count": len(active_trestle_board_members),
                 "percent": growth_percent,
             },
+            "petitioner": petitioner_summary_payload(records),
             "finances": {
                 **financial_summary_payload(),
             },
@@ -1608,6 +1924,55 @@ def member_list_view(request):
             "group": requested_group,
             "count": len(records),
             "members": MemberListItemSerializer(records, many=True, context={"request": request}).data,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def petitioner_list_view(request):
+    requested_stage = request.query_params.get("stage", "circulated").strip()
+    search = request.query_params.get("search", "").strip()
+    valid_stages = {"fcm", "eam", "balloted", "re_apply", "circulated", "inactive"}
+    if requested_stage not in valid_stages:
+        requested_stage = "circulated"
+
+    records = list(
+        MemberDatabaseRecord.objects.filter(
+            Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER"),
+            is_test_record=False,
+        )
+    )
+    if search:
+        normalized_search = search.casefold()
+        records = [record for record in records if normalized_search in record.name.casefold()]
+    else:
+        records = [
+            record
+            for record in records
+            if petitioner_stage(record.name, record.section) == requested_stage
+        ]
+
+    records.sort(key=lambda record: record.name.casefold())
+    serialized_records = MemberListItemSerializer(
+        records,
+        many=True,
+        context={"request": request},
+    ).data
+    petitioners = [
+        {
+            **dict(serialized),
+            "petitioner_stage": petitioner_stage(record.name, record.section),
+        }
+        for record, serialized in zip(records, serialized_records, strict=True)
+    ]
+
+    return Response(
+        {
+            "stage": requested_stage,
+            "count": len(petitioners),
+            "petitioners": petitioners,
         },
         status=status.HTTP_200_OK,
     )

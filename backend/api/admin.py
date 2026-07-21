@@ -7,6 +7,7 @@ from .models import (
     Account,
     AuditLog,
     BallotingCoinRecord,
+    DashboardCardVisibility,
     LodgeActivity,
     LodgeVisitorRecord,
     MemberDatabaseRecord,
@@ -23,13 +24,13 @@ from .models import (
 class AccountAdmin(UserAdmin):
     ordering = ("id",)
     list_display = ("id", "email", "role", "is_active", "last_login", "last_app_activity", "last_viewed_screen")
-    list_filter = ("role", "can_manage_activities", "can_edit_members", "is_active", "is_staff")
+    list_filter = ("role", "can_manage_activities", "can_edit_members", "can_edit_petitioners", "is_active", "is_staff")
     search_fields = ("email",)
     actions = ("unlock_accounts",)
 
     fieldsets = (
         (None, {"fields": ("email", "password")}),
-        ("Access", {"fields": ("role", "can_manage_activities", "can_edit_members", "is_active", "is_staff", "is_superuser")}),
+        ("Access", {"fields": ("role", "can_manage_activities", "can_edit_members", "can_edit_petitioners", "is_active", "is_staff", "is_superuser")}),
         ("Permissions", {"fields": ("groups", "user_permissions")}),
         ("Lockout", {"fields": ("failed_login_attempts", "locked_until")}),
         ("Audit", {"fields": ("last_login", "created_at", "updated_at")}),
@@ -46,7 +47,7 @@ class AccountAdmin(UserAdmin):
             None,
             {
                 "classes": ("wide",),
-                "fields": ("email", "role", "can_manage_activities", "can_edit_members", "password1", "password2", "is_active", "is_staff"),
+                "fields": ("email", "role", "can_manage_activities", "can_edit_members", "can_edit_petitioners", "password1", "password2", "is_active", "is_staff"),
             },
         ),
     )
@@ -73,6 +74,29 @@ class AccountAdmin(UserAdmin):
     @admin.display(description="Last screen")
     def last_viewed_screen(self, obj):
         return obj._last_viewed_screen or "—"
+
+
+@admin.register(DashboardCardVisibility)
+class DashboardCardVisibilityAdmin(admin.ModelAdmin):
+    list_display = (
+        "role",
+        "lodge_health_indicator",
+        "members",
+        "petitioner",
+        "next_lodge_activity",
+        "dues_collection",
+        "financial_summary",
+        "updated_at",
+    )
+    list_editable = (
+        "lodge_health_indicator",
+        "members",
+        "petitioner",
+        "next_lodge_activity",
+        "dues_collection",
+        "financial_summary",
+    )
+    readonly_fields = ("updated_at",)
 
 
 @admin.register(PreidentifiedEmail)

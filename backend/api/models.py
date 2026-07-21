@@ -86,6 +86,7 @@ class Account(AbstractBaseUser, PermissionsMixin):
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.MEMBER)
     can_manage_activities = models.BooleanField(default=False)
     can_edit_members = models.BooleanField(default=False)
+    can_edit_petitioners = models.BooleanField(default=False)
     failed_login_attempts = models.PositiveSmallIntegerField(default=0)
     locked_until = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
@@ -154,11 +155,49 @@ class Account(AbstractBaseUser, PermissionsMixin):
         return super().save(*args, **kwargs)
 
 
+class DashboardCardVisibility(models.Model):
+    role = models.CharField(max_length=20, choices=Account.Role.choices, unique=True)
+    lodge_health_indicator = models.BooleanField(default=True)
+    members = models.BooleanField(default=True)
+    petitioner = models.BooleanField(default=False)
+    next_lodge_activity = models.BooleanField(default=True)
+    dues_collection = models.BooleanField(default=True)
+    financial_summary = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dll347_dashboard_card_visibility"
+        ordering = ["role"]
+        verbose_name = "dashboard visibility by role"
+        verbose_name_plural = "dashboard visibility by role"
+
+    def __str__(self) -> str:
+        return self.get_role_display()
+
+    @classmethod
+    def defaults(cls, role: str | None = None) -> dict[str, bool]:
+        return {
+            "lodge_health_indicator": True,
+            "members": True,
+            "petitioner": role == Account.Role.SECRETARY,
+            "next_lodge_activity": True,
+            "dues_collection": True,
+            "financial_summary": True,
+        }
+
+    @classmethod
+    def for_role(cls, role: str) -> dict[str, bool]:
+        default_values = cls.defaults(role)
+        values = cls.objects.filter(role=role).values(*default_values.keys()).first()
+        return values or default_values
+
+
 class ToolAccessLog(models.Model):
     class Tool(models.TextChoices):
         DOCUMENTS = "documents", "Documents"
         ACTIVITY = "activity", "Activity"
         EDIT_MEMBER = "edit_member", "Edit Member"
+        EDIT_PETITIONER = "edit_petitioner", "Edit Petitioner"
 
     account = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -222,6 +261,7 @@ class AuditLog(models.Model):
         PASSWORD_RESET_REQUESTED = "password_reset_requested", "Password Reset Requested"
         PASSWORD_RESET = "password_reset", "Password Reset"
         MEMBER_UPDATED = "member_updated", "Member Updated"
+        PETITIONER_UPDATED = "petitioner_updated", "Petitioner Updated"
         DOCUMENT_UPLOADED = "document_uploaded", "Document Uploaded"
         DOCUMENT_DELETED = "document_deleted", "Document Deleted"
         ACTIVITY_CREATED = "activity_created", "Activity Created"

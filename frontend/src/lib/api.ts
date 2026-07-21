@@ -10,6 +10,24 @@ export type ApiHealthResponse = {
 
 export type AccountRole = "member" | "secretary" | "three_lights" | "administrator" | "developer";
 
+export type DashboardCardVisibility = {
+  lodge_health_indicator: boolean;
+  members: boolean;
+  petitioner: boolean;
+  next_lodge_activity: boolean;
+  dues_collection: boolean;
+  financial_summary: boolean;
+};
+
+export const defaultDashboardCardVisibility: DashboardCardVisibility = {
+  lodge_health_indicator: true,
+  members: true,
+  petitioner: false,
+  next_lodge_activity: true,
+  dues_collection: true,
+  financial_summary: true,
+};
+
 export type LoginResponse = {
   code: "LOGIN_SUCCESS";
   message: string;
@@ -19,9 +37,11 @@ export type LoginResponse = {
     role: AccountRole;
     can_manage_activities: boolean;
     can_edit_members: boolean;
+    can_edit_petitioners: boolean;
     is_active: boolean;
     is_staff: boolean;
     is_admin: boolean;
+    dashboard_card_visibility: DashboardCardVisibility;
     member_profile: MemberDashboardProfile | null;
     last_login: string | null;
     created_at: string;
@@ -81,12 +101,14 @@ export type LogoutResponse = {
 export type ActivityScreen =
   | "Dashboard"
   | "Members"
+  | "Petitioners"
   | "Dues"
   | "My Profile"
   | "Documents"
   | "More"
   | "Activity Management"
-  | "Edit Member";
+  | "Edit Member"
+  | "Edit Petitioner";
 
 export type UserActionLabel =
   | "View Member Profile"
@@ -154,6 +176,18 @@ export type MemberListResponse = {
   group: MemberGroupKey;
   count: number;
   members: MemberListItem[];
+};
+
+export type PetitionerStage = "fcm" | "eam" | "balloted" | "re_apply" | "circulated" | "inactive";
+
+export type PetitionerListItem = MemberListItem & {
+  petitioner_stage: PetitionerStage;
+};
+
+export type PetitionerListResponse = {
+  stage: PetitionerStage;
+  count: number;
+  petitioners: PetitionerListItem[];
 };
 
 export type MemberPositionHeld = {
@@ -292,6 +326,14 @@ export type SecretaryDashboardSummaryResponse = {
     progressing_count: number;
     total_count: number;
     percent: number;
+  };
+  petitioner: {
+    fcm: number;
+    eam: number;
+    balloted: number;
+    re_apply: number;
+    circulated: number;
+    inactive: number;
   };
   finances: {
     percent: number;
@@ -716,6 +758,16 @@ export async function uploadMemberProfilePhotoById(
   return apiPostForm<MemberProfilePhotoUploadResponse>(`/members/${memberId}/profile-photo/`, body);
 }
 
+export async function uploadPetitionerProfilePhotoById(
+  petitionerId: number,
+  photo: Blob,
+): Promise<MemberProfilePhotoUploadResponse> {
+  await prepareSessionCsrf();
+  const body = new FormData();
+  body.append("photo", photo, "profile-photo.jpg");
+  return apiPostForm<MemberProfilePhotoUploadResponse>(`/petitioners/${petitionerId}/profile-photo/`, body);
+}
+
 export async function getMemberAccountStatus(
   memberId: number,
 ): Promise<MemberAccountStatusResponse> {
@@ -734,6 +786,26 @@ export async function deactivateMemberLogin(
 ): Promise<MemberAccountActionResponse> {
   await prepareSessionCsrf();
   return apiPost<MemberAccountActionResponse>(`/members/${memberId}/deactivate-login/`, {});
+}
+
+export async function getPetitionerAccountStatus(
+  petitionerId: number,
+): Promise<MemberAccountStatusResponse> {
+  return apiGet<MemberAccountStatusResponse>(`/petitioners/${petitionerId}/account-status/`);
+}
+
+export async function activatePetitionerLogin(
+  petitionerId: number,
+): Promise<MemberAccountActionResponse> {
+  await prepareSessionCsrf();
+  return apiPost<MemberAccountActionResponse>(`/petitioners/${petitionerId}/activate-login/`, {});
+}
+
+export async function deactivatePetitionerLogin(
+  petitionerId: number,
+): Promise<MemberAccountActionResponse> {
+  await prepareSessionCsrf();
+  return apiPost<MemberAccountActionResponse>(`/petitioners/${petitionerId}/deactivate-login/`, {});
 }
 
 export async function getMemberSummary(): Promise<MemberSummaryResponse> {
@@ -755,6 +827,21 @@ export async function getMemberList(
   return apiGet<MemberListResponse>(`/members/list/?${params.toString()}`);
 }
 
+export async function getPetitionerList(
+  stage: PetitionerStage,
+  search = "",
+): Promise<PetitionerListResponse> {
+  const params = new URLSearchParams({ stage });
+  if (search.trim()) {
+    params.set("search", search.trim());
+  }
+  return apiGet<PetitionerListResponse>(`/petitioners/list/?${params.toString()}`);
+}
+
+export async function getPetitionerProfile(petitionerId: number): Promise<MemberFullProfile> {
+  return apiGet<MemberFullProfile>(`/petitioners/${petitionerId}/profile/`);
+}
+
 export async function getMyMemberProfile(): Promise<MemberFullProfile> {
   return apiGet<MemberFullProfile>("/members/me/profile/");
 }
@@ -773,6 +860,18 @@ export async function updateMemberProfile(
 ): Promise<MemberProfileUpdateResponse> {
   await prepareSessionCsrf();
   return apiPost<MemberProfileUpdateResponse>(`/members/${memberId}/edit/`, payload, "PATCH");
+}
+
+export async function getEditablePetitionerProfile(petitionerId: number): Promise<MemberEditableProfile> {
+  return apiGet<MemberEditableProfile>(`/petitioners/${petitionerId}/edit/`);
+}
+
+export async function updatePetitionerProfile(
+  petitionerId: number,
+  payload: MemberProfileUpdatePayload,
+): Promise<MemberProfileUpdateResponse> {
+  await prepareSessionCsrf();
+  return apiPost<MemberProfileUpdateResponse>(`/petitioners/${petitionerId}/edit/`, payload, "PATCH");
 }
 
 export async function getMyPositionsHeld(): Promise<MemberPositionsHeldResponse> {

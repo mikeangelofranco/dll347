@@ -6,6 +6,7 @@ from rest_framework import serializers
 
 from .models import (
     Account,
+    DashboardCardVisibility,
     LodgeActivity,
     LodgeDocument,
     MemberDatabaseRecord,
@@ -485,6 +486,7 @@ class LodgeDocumentSerializer(serializers.ModelSerializer):
 class AccountSerializer(serializers.ModelSerializer):
     is_admin = serializers.SerializerMethodField()
     member_profile = serializers.SerializerMethodField()
+    dashboard_card_visibility = serializers.SerializerMethodField()
 
     class Meta:
         model = Account
@@ -494,9 +496,11 @@ class AccountSerializer(serializers.ModelSerializer):
             "role",
             "can_manage_activities",
             "can_edit_members",
+            "can_edit_petitioners",
             "is_active",
             "is_staff",
             "is_admin",
+            "dashboard_card_visibility",
             "member_profile",
             "last_login",
             "created_at",
@@ -505,6 +509,9 @@ class AccountSerializer(serializers.ModelSerializer):
 
     def get_is_admin(self, obj: Account) -> bool:
         return obj.is_superuser
+
+    def get_dashboard_card_visibility(self, obj: Account) -> dict[str, bool]:
+        return DashboardCardVisibility.for_role(obj.role)
 
     def get_member_profile(self, obj: Account):
         member = find_member_for_account(obj)
@@ -524,7 +531,7 @@ class LoginSerializer(serializers.Serializer):
 
         account = (
             Account.objects.filter(email=email)
-            .only("id", "email", "password", "role", "can_manage_activities", "can_edit_members", "is_active", "is_staff", "is_superuser")
+            .only("id", "email", "password", "role", "can_manage_activities", "can_edit_members", "can_edit_petitioners", "is_active", "is_staff", "is_superuser")
             .first()
         )
         attrs["account"] = account

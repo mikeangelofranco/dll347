@@ -25,7 +25,7 @@ from .excel_members import (
     sheet_columns,
     update_existing_members_from_workbook,
 )
-from .models import AuditLog, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
+from .models import AuditLog, DashboardCardVisibility, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
 
 
 class ExcelMemberImportHelpersTests(SimpleTestCase):
@@ -203,6 +203,7 @@ class AuthApiTests(TestCase):
         self.assertTrue(payload["account"]["is_staff"])
         self.assertFalse(payload["account"]["is_admin"])
         self.assertFalse(payload["account"]["can_edit_members"])
+        self.assertFalse(payload["account"]["can_edit_petitioners"])
         self.assertEqual(payload["code"], "LOGIN_SUCCESS")
 
     def test_login_returns_three_lights_role(self):
@@ -435,6 +436,82 @@ class AuthApiTests(TestCase):
         app_open = AuditLog.objects.get(actor=self.user, action=AuditLog.Action.APP_OPEN)
         self.assertEqual(app_open.screen, "Dashboard")
         self.assertEqual(app_open.event_label, "Opened DLL347 app")
+
+    def test_current_account_returns_all_dashboard_cards_visible_by_default(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("api:current-account"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["dashboard_card_visibility"],
+            {
+                "lodge_health_indicator": True,
+                "members": True,
+                "petitioner": False,
+                "next_lodge_activity": True,
+                "dues_collection": True,
+                "financial_summary": True,
+            },
+        )
+
+    def test_current_account_applies_dashboard_card_visibility_for_role(self):
+        visibility, _ = DashboardCardVisibility.objects.get_or_create(role="administrator")
+        visibility.members = False
+        visibility.financial_summary = False
+        visibility.save()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("api:current-account"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["dashboard_card_visibility"]["members"])
+        self.assertFalse(response.json()["dashboard_card_visibility"]["financial_summary"])
+        self.assertTrue(response.json()["dashboard_card_visibility"]["dues_collection"])
+
+    def test_secretary_has_petitioner_dashboard_visible_by_default(self):
+        secretary = get_user_model().objects.create_user(
+            email="secretary-visibility@dll347.org",
+            password=self.password,
+            role="secretary",
+        )
+        self.client.force_login(secretary)
+
+        response = self.client.get(reverse("api:current-account"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["dashboard_card_visibility"]["petitioner"])
+
+    def test_dashboard_card_visibility_returns_every_saved_switch_for_every_role(self):
+        fields = (
+            "lodge_health_indicator",
+            "members",
+            "petitioner",
+            "next_lodge_activity",
+            "dues_collection",
+            "financial_summary",
+        )
+        roles = ("member", "secretary", "three_lights", "administrator", "developer")
+
+        for role_index, role in enumerate(roles):
+            expected = {
+                field: (role_index + field_index) % 2 == 0
+                for field_index, field in enumerate(fields)
+            }
+            DashboardCardVisibility.objects.update_or_create(role=role, defaults=expected)
+            account = get_user_model().objects.create_user(
+                email=f"visibility-{role}@dll347.org",
+                password=self.password,
+                role=role,
+                is_staff=role == "developer",
+                is_superuser=role == "developer",
+            )
+            self.client.force_login(account)
+
+            response = self.client.get(reverse("api:current-account"))
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["dashboard_card_visibility"], expected)
 
     def test_authenticated_user_can_record_screen_view_and_action(self):
         self.client.force_login(self.user)
@@ -884,6 +961,88 @@ class AuthApiTests(TestCase):
         self.assertEqual(counts["honorary"], 1)
         self.assertEqual(counts["inactive_snpd_demit"], 1)
         self.assertEqual(counts["dropped_working_tools"], 1)
+
+    def test_dashboard_summary_returns_petitioner_stage_counts(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="petitioner-summary.xlsx",
+            file_sha256="p" * 64,
+        )
+        petitioner_records = (
+            ("FCM Active Petitioner", "TRESTLE BOARD - ACTIVE"),
+            ("Future FCM Petitioner", "PETITIONER - FCM"),
+            ("EAM Active Petitioner", "TRESTLE BOARD - ACTIVE"),
+            ("Future EAM Petitioner", "PETITIONER - EAM"),
+            ("Mr. Balloted Petitioner", "TRESTLE BOARD - ACTIVE"),
+            ("Mr. Reapplying Petitioner", "PETITIONER - RE-APPLY"),
+            ("Mr. Circulated Petitioner", "PETITIONER - CIRCULATED"),
+            ("Mr. Unclassified Petitioner", "TRESTLE BOARD - ACTIVE"),
+            ("Mr. Inactive Petitioner", "TRESTLE BOARD - NOT ACTIVE"),
+        )
+        for index, (name, section) in enumerate(petitioner_records, start=1):
+            MemberDatabaseRecord.objects.create(
+                workbook_import=workbook_import,
+                source_row=12500 + index,
+                name=name,
+                section=section,
+            )
+
+        response = self.client.get(reverse("api:secretary-dashboard-summary"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["petitioner"],
+            {
+                "fcm": 2,
+                "eam": 2,
+                "balloted": 1,
+                "re_apply": 1,
+                "circulated": 2,
+                "inactive": 1,
+            },
+        )
+
+    def test_petitioner_list_filters_by_stage_and_searches_all_stages(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="petitioner-list.xlsx",
+            file_sha256="q" * 64,
+        )
+        fcm = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12601,
+            name="FCM Filtered Petitioner",
+            section="TRESTLE BOARD - ACTIVE",
+        )
+        circulated = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12602,
+            name="Mr. Searchable Candidate",
+            section="TRESTLE BOARD - ACTIVE",
+        )
+
+        filtered_response = self.client.get(
+            reverse("api:petitioner-list"),
+            {"stage": "fcm"},
+        )
+        search_response = self.client.get(
+            reverse("api:petitioner-list"),
+            {"stage": "fcm", "search": "Searchable"},
+        )
+        profile_response = self.client.get(
+            reverse("api:petitioner-detail-profile", args=[circulated.id]),
+        )
+
+        self.assertEqual(filtered_response.status_code, 200)
+        self.assertEqual(filtered_response.json()["count"], 1)
+        self.assertEqual(filtered_response.json()["petitioners"][0]["id"], fcm.id)
+        self.assertEqual(filtered_response.json()["petitioners"][0]["petitioner_stage"], "fcm")
+        self.assertEqual(search_response.status_code, 200)
+        self.assertEqual(search_response.json()["count"], 1)
+        self.assertEqual(search_response.json()["petitioners"][0]["id"], circulated.id)
+        self.assertEqual(search_response.json()["petitioners"][0]["petitioner_stage"], "circulated")
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertEqual(profile_response.json()["id"], circulated.id)
 
     def test_member_summary_and_list_include_dynamic_excel_sections(self):
         self.client.force_login(self.user)
@@ -1720,6 +1879,130 @@ class AuthApiTests(TestCase):
         self.assertEqual(member.annual_dues["ANNUAL DUES / 2026"]["style_id"], 75)
         self.assertEqual(member.positions_held.count(), 1)
         self.assertEqual(member.positions_held.first().title, "Secretary")
+
+    def test_petitioner_edit_requires_its_own_permission(self):
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="petitioner-edit-permission.xlsx",
+            file_sha256="1" * 64,
+        )
+        petitioner = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12003,
+            name="FCM Readonly Petitioner",
+            section="TRESTLE BOARD - ACTIVE",
+        )
+        member_editor = get_user_model().objects.create_user(
+            email="member-only-editor@dll347.org",
+            password=self.password,
+            can_edit_members=True,
+        )
+        self.client.force_login(member_editor)
+
+        response = self.client.get(reverse("api:petitioner-edit-profile", args=[petitioner.id]))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "PETITIONER_EDIT_FORBIDDEN")
+
+    def test_petitioner_editor_can_update_only_petitioner_records(self):
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="petitioner-edit.xlsx",
+            file_sha256="2" * 64,
+        )
+        petitioner = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12004,
+            name="FCM Original Petitioner",
+            section="TRESTLE BOARD - ACTIVE",
+            email="petitioner@dll347.org",
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12005,
+            name="Regular Member",
+            section="MASTER MASONS - ACTIVE",
+        )
+        editor = get_user_model().objects.create_user(
+            email="petitioner-editor@dll347.org",
+            password=self.password,
+            can_edit_petitioners=True,
+        )
+        self.client.force_login(editor)
+
+        response = self.client.patch(
+            reverse("api:petitioner-edit-profile", args=[petitioner.id]),
+            {"name": "FCM Updated Petitioner", "section": "PETITIONER - EAM"},
+            content_type="application/json",
+        )
+        member_response = self.client.get(reverse("api:petitioner-edit-profile", args=[member.id]))
+
+        self.assertEqual(response.status_code, 200)
+        petitioner.refresh_from_db()
+        self.assertEqual(petitioner.name, "FCM Updated Petitioner")
+        self.assertEqual(petitioner.section, "PETITIONER - EAM")
+        stage_response = self.client.get(reverse("api:petitioner-list"), {"stage": "eam"})
+        self.assertEqual([item["id"] for item in stage_response.json()["petitioners"]], [petitioner.id])
+        self.assertEqual(member_response.status_code, 404)
+        self.assertTrue(AuditLog.objects.filter(
+            actor=editor,
+            action=AuditLog.Action.PETITIONER_UPDATED,
+            target_id=petitioner.id,
+        ).exists())
+        self.assertTrue(ToolAccessLog.objects.filter(
+            account=editor,
+            tool=ToolAccessLog.Tool.EDIT_PETITIONER,
+        ).exists())
+
+    def test_petitioner_edit_rejects_reclassification_as_member(self):
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="petitioner-scope.xlsx",
+            file_sha256="3" * 64,
+        )
+        petitioner = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12006,
+            name="EAM Scoped Petitioner",
+            section="TRESTLE BOARD - ACTIVE",
+        )
+        editor = get_user_model().objects.create_user(
+            email="petitioner-scope-editor@dll347.org",
+            password=self.password,
+            can_edit_petitioners=True,
+        )
+        self.client.force_login(editor)
+
+        response = self.client.patch(
+            reverse("api:petitioner-edit-profile", args=[petitioner.id]),
+            {"section": "MASTER MASONS - ACTIVE"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "INVALID_PETITIONER_SECTION")
+        petitioner.refresh_from_db()
+        self.assertEqual(petitioner.section, "TRESTLE BOARD - ACTIVE")
+
+    def test_member_edit_support_routes_do_not_accept_petitioner_ids(self):
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="member-petitioner-boundary.xlsx",
+            file_sha256="4" * 64,
+        )
+        petitioner = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12007,
+            name="Circulated Petitioner",
+            section="PETITIONER - CIRCULATED",
+            email="boundary@dll347.org",
+        )
+        editor = get_user_model().objects.create_user(
+            email="member-boundary-editor@dll347.org",
+            password=self.password,
+            can_edit_members=True,
+        )
+        self.client.force_login(editor)
+
+        response = self.client.get(reverse("api:member-account-status", args=[petitioner.id]))
+
+        self.assertEqual(response.status_code, 404)
 
     def test_logout_clears_session(self):
         self.client.force_login(self.user)
