@@ -749,6 +749,8 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
         "passing_date",
         "raising_date",
         "proficiency_date",
+        "date_presented",
+        "date_balloted",
         "suspension",
         "restored",
         "demit",
@@ -769,6 +771,7 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
 
     updated_records = []
     unmatched_names = []
+    matched_db_ids: set[int] = set()
     old_emails: dict[int, str] = {}
     with transaction.atomic():
         workbook_import, _created = MembersWorkbookImport.objects.update_or_create(
@@ -795,6 +798,7 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
                 unmatched_names.append(incoming.name)
                 continue
 
+            matched_db_ids.add(existing.pk)
             if existing.pk not in old_emails:
                 old_emails[existing.pk] = existing.email.strip().casefold() if existing.email else ""
             existing.workbook_import = workbook_import
@@ -807,6 +811,19 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
                 updated_records,
                 ["workbook_import", *mutable_fields, "updated_at"],
             )
+
+        existing_petitioners = {
+            record
+            for record in existing_records
+            if is_petitioner_section(record.section)
+        }
+        petitioners_to_delete = [
+            record for record in existing_petitioners
+            if record.pk not in matched_db_ids
+        ]
+        if petitioners_to_delete:
+            petitioner_ids = [record.pk for record in petitioners_to_delete]
+            MemberDatabaseRecord.objects.filter(pk__in=petitioner_ids).delete()
 
         _sync_member_accounts(updated_records, old_emails)
 

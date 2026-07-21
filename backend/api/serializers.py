@@ -230,6 +230,8 @@ class MemberFullProfileSerializer(MemberDashboardProfileSerializer):
     passing_date = serializers.DateField()
     raising_date = serializers.DateField()
     proficiency_date = serializers.DateField()
+    date_presented = serializers.DateField()
+    date_balloted = serializers.DateField()
     telephone = serializers.CharField()
     address = serializers.CharField()
     appendant_bodies = serializers.JSONField()
@@ -243,6 +245,8 @@ class MemberFullProfileSerializer(MemberDashboardProfileSerializer):
             "passing_date",
             "raising_date",
             "proficiency_date",
+            "date_presented",
+            "date_balloted",
             "telephone",
             "address",
             "appendant_bodies",
@@ -320,6 +324,8 @@ class MemberProfileUpdateSerializer(serializers.ModelSerializer):
             "passing_date",
             "raising_date",
             "proficiency_date",
+            "date_presented",
+            "date_balloted",
             "suspension",
             "restored",
             "demit",
@@ -347,6 +353,8 @@ class MemberProfileUpdateSerializer(serializers.ModelSerializer):
             "passing_date": {"allow_null": True, "required": False},
             "raising_date": {"allow_null": True, "required": False},
             "proficiency_date": {"allow_null": True, "required": False},
+            "date_presented": {"allow_null": True, "required": False},
+            "date_balloted": {"allow_null": True, "required": False},
             "suspension": {"allow_blank": True, "required": False},
             "restored": {"allow_blank": True, "required": False},
             "demit": {"allow_blank": True, "required": False},

@@ -206,6 +206,8 @@ export type MemberFullProfile = MemberDashboardProfile & {
   passing_date: string | null;
   raising_date: string | null;
   proficiency_date: string | null;
+  date_presented: string | null;
+  date_balloted: string | null;
   telephone: string;
   address: string;
   appendant_bodies: Record<string, unknown>;
@@ -249,6 +251,8 @@ export type MemberProfileUpdatePayload = {
   passing_date: string | null;
   raising_date: string | null;
   proficiency_date: string | null;
+  date_presented: string | null;
+  date_balloted: string | null;
   suspension: string;
   restored: string;
   demit: string;

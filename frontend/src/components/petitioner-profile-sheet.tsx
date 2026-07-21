@@ -56,6 +56,13 @@ export function PetitionerProfileSheet({ profile, stage, isLoading, error, onClo
     ["Wife", displayValue(profile.widow_or_sister)],
   ] : [];
 
+  const membershipTimeline = profile ? [
+    ["Date Presented", formatDate(profile.date_presented)],
+    ["Date Balloted", formatDate(profile.date_balloted)],
+    ["Initiated", formatDate(profile.initiation_date)],
+    ["Passed", formatDate(profile.passing_date)],
+  ] : [];
+
   return (
     <div className="absolute inset-0 z-50 flex items-end bg-[#171717]/48 backdrop-blur-[1px] member-sheet-backdrop-enter">
       <section className="max-h-[88%] w-full overflow-hidden rounded-t-[1.25rem] bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.22)] member-sheet-panel-enter">
@@ -96,6 +103,18 @@ export function PetitionerProfileSheet({ profile, stage, isLoading, error, onClo
                 <h3 className="text-[0.78rem] font-bold text-[#234f8d]">Personal Information</h3>
                 <div className="mt-2">
                   {personalInformation.map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between gap-4 border-b border-[#e3eaf3] py-2.5 last:border-b-0">
+                      <span className="text-[0.74rem] text-[#596273]">{label}</span>
+                      <span className="max-w-[58%] text-right text-[0.74rem] leading-snug text-[#111111]">{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="mt-3 rounded-[1rem] border border-[#dfe7f2] bg-white/90 px-3.5 py-3 shadow-[0_10px_24px_rgba(50,83,130,0.06)]">
+                <h3 className="text-[0.78rem] font-bold text-[#234f8d]">Membership Timeline</h3>
+                <div className="mt-2">
+                  {membershipTimeline.map(([label, value]) => (
                     <div key={label} className="flex items-center justify-between gap-4 border-b border-[#e3eaf3] py-2.5 last:border-b-0">
                       <span className="text-[0.74rem] text-[#596273]">{label}</span>
                       <span className="max-w-[58%] text-right text-[0.74rem] leading-snug text-[#111111]">{value}</span>

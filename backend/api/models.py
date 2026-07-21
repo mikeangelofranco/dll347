@@ -392,6 +392,8 @@ class MemberDatabaseRecord(models.Model):
     passing_date = models.DateField(null=True, blank=True)
     raising_date = models.DateField(null=True, blank=True)
     proficiency_date = models.DateField(null=True, blank=True)
+    date_presented = models.DateField(null=True, blank=True)
+    date_balloted = models.DateField(null=True, blank=True)
     suspension = models.CharField(max_length=100, blank=True)
     restored = models.CharField(max_length=100, blank=True)
     demit = models.CharField(max_length=100, blank=True)

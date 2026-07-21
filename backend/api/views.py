@@ -1113,7 +1113,7 @@ def member_edit_profile_view(request, member_id: int):
     tracked_fields = (
         "section", "member_number", "name", "glp_id_number",
         "date_of_birth", "initiation_date", "passing_date", "raising_date",
-        "proficiency_date", "suspension", "restored", "demit", "lml",
+        "proficiency_date", "date_presented", "date_balloted", "suspension", "restored", "demit", "lml",
         "dual_plural_honorary_date", "address", "telephone", "email",
         "blood_type", "widow_or_sister", "widow_or_sister_date_of_birth",
     )
@@ -1213,7 +1213,8 @@ def petitioner_edit_profile_view(request, member_id: int):
     tracked_fields = (
         "section", "member_number", "name",
         "date_of_birth", "initiation_date", "passing_date", "raising_date",
-        "proficiency_date", "suspension", "restored", "demit", "lml",
+        "proficiency_date", "date_presented", "date_balloted",
+        "suspension", "restored", "demit", "lml",
         "dual_plural_honorary_date", "address", "telephone", "email",
         "blood_type", "widow_or_sister", "widow_or_sister_date_of_birth",
     )

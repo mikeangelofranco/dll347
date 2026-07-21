@@ -1022,6 +1022,8 @@ function editableMemberForm(profile: MemberEditableProfile | PetitionerEditableP
     passing_date: profile.passing_date,
     raising_date: profile.raising_date,
     proficiency_date: profile.proficiency_date,
+    date_presented: profile.date_presented ?? null,
+    date_balloted: profile.date_balloted ?? null,
     suspension: profile.suspension,
     restored: profile.restored,
     demit: profile.demit,
@@ -2087,6 +2089,8 @@ export function MemberDashboardScreen({
       passing_date: editMemberForm.passing_date,
       raising_date: editMemberForm.raising_date,
       proficiency_date: editMemberForm.proficiency_date,
+      date_presented: editMemberForm.date_presented,
+      date_balloted: editMemberForm.date_balloted,
       suspension: editMemberForm.suspension,
       restored: editMemberForm.restored,
       demit: editMemberForm.demit,
@@ -2673,6 +2677,8 @@ export function MemberDashboardScreen({
                   <div className="mt-3 grid grid-cols-2 gap-2.5">
                     <label className={labelClass}>Initiated<input type="date" value={dateInputValue(editMemberForm.initiation_date)} onChange={(event) => updateEditMemberField("initiation_date", nullableDate(event.target.value))} className={textInputClass} /></label>
                     <label className={labelClass}>Passed<input type="date" value={dateInputValue(editMemberForm.passing_date)} onChange={(event) => updateEditMemberField("passing_date", nullableDate(event.target.value))} className={textInputClass} /></label>
+                    <label className={labelClass}>Date Presented<input type="date" value={dateInputValue(editMemberForm.date_presented)} onChange={(event) => updateEditMemberField("date_presented", nullableDate(event.target.value))} className={textInputClass} /></label>
+                    <label className={labelClass}>Date Balloted<input type="date" value={dateInputValue(editMemberForm.date_balloted)} onChange={(event) => updateEditMemberField("date_balloted", nullableDate(event.target.value))} className={textInputClass} /></label>
                     <label className={labelClass}>Raised<input type="date" value={dateInputValue(editMemberForm.raising_date)} onChange={(event) => updateEditMemberField("raising_date", nullableDate(event.target.value))} className={textInputClass} /></label>
                     <label className={labelClass}>Proficiency<input type="date" value={dateInputValue(editMemberForm.proficiency_date)} onChange={(event) => updateEditMemberField("proficiency_date", nullableDate(event.target.value))} className={textInputClass} /></label>
                     <label className={labelClass}>Suspension<input type="date" value={dateInputValue(editMemberForm.suspension)} onChange={(event) => updateEditMemberField("suspension", event.target.value)} className={textInputClass} /></label>
