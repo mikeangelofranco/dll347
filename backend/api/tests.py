@@ -26,7 +26,7 @@ from .excel_members import (
     sheet_columns,
     update_existing_members_from_workbook,
 )
-from .models import AuditLog, DashboardCardVisibility, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
+from .models import AuditLog, DashboardCardVisibility, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PersonalInformationVisibility, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
 
 
 class ExcelMemberImportHelpersTests(SimpleTestCase):
@@ -854,6 +854,74 @@ class AuthApiTests(TestCase):
         self.assertEqual(payload["telephone"], "+1 555 123 4567")
         self.assertEqual(payload["address"], "123 Masonic Way")
         self.assertEqual(payload["attendance_this_year"], 1)
+
+    def test_personal_information_visibility_hides_each_field_for_configured_role(self):
+        member_user = get_user_model().objects.create_user(
+            email="private-profile@dll347.org",
+            password=self.password,
+            role="member",
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="private-profile.xlsx",
+            file_sha256="9" * 64,
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10030,
+            name="Private Profile Member",
+            email=member_user.email,
+            section="MASTER MASONS - ACTIVE",
+            date_of_birth=date(1985, 3, 15),
+            address="Private address",
+        )
+        PersonalInformationVisibility.objects.update_or_create(
+            role="member",
+            defaults={"birthdate": False, "address": False},
+        )
+        self.client.force_login(member_user)
+
+        own_profile_response = self.client.get(reverse("api:member-full-profile"))
+        detail_response = self.client.get(
+            reverse("api:member-detail-profile", args=[member.id])
+        )
+
+        self.assertEqual(own_profile_response.status_code, 200)
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertNotIn("date_of_birth", own_profile_response.json())
+        self.assertNotIn("address", own_profile_response.json())
+        self.assertNotIn("date_of_birth", detail_response.json())
+        self.assertNotIn("address", detail_response.json())
+
+    def test_personal_information_visibility_is_independent_for_each_field(self):
+        member_user = get_user_model().objects.create_user(
+            email="partial-private-profile@dll347.org",
+            password=self.password,
+            role="member",
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="partial-private-profile.xlsx",
+            file_sha256="a" * 64,
+        )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10031,
+            name="Partial Private Profile Member",
+            email=member_user.email,
+            section="MASTER MASONS - ACTIVE",
+            date_of_birth=date(1986, 4, 16),
+            address="Visible address",
+        )
+        PersonalInformationVisibility.objects.update_or_create(
+            role="member",
+            defaults={"birthdate": False, "address": True},
+        )
+        self.client.force_login(member_user)
+
+        response = self.client.get(reverse("api:member-full-profile"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("date_of_birth", response.json())
+        self.assertEqual(response.json()["address"], "Visible address")
 
     def test_secretary_can_view_own_linked_member_profile(self):
         secretary_user = get_user_model().objects.create_user(
@@ -1890,6 +1958,48 @@ class AuthApiTests(TestCase):
         self.assertEqual(member.annual_dues["ANNUAL DUES / 2026"]["style_id"], 75)
         self.assertEqual(member.positions_held.count(), 1)
         self.assertEqual(member.positions_held.first().title, "Secretary")
+
+    def test_member_editor_cannot_read_or_change_hidden_personal_information(self):
+        editor = get_user_model().objects.create_user(
+            email="private-member-editor@dll347.org",
+            password=self.password,
+            role="member",
+            can_edit_members=True,
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="private-member-edit.xlsx",
+            file_sha256="b" * 64,
+        )
+        member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=12030,
+            name="Private Editable Member",
+            section="MASTER MASONS - ACTIVE",
+            date_of_birth=date(1980, 1, 2),
+            address="Original private address",
+        )
+        PersonalInformationVisibility.objects.update_or_create(
+            role="member",
+            defaults={"birthdate": False, "address": False},
+        )
+        self.client.force_login(editor)
+
+        get_response = self.client.get(reverse("api:member-edit-profile", args=[member.id]))
+        patch_response = self.client.patch(
+            reverse("api:member-edit-profile", args=[member.id]),
+            {"date_of_birth": "2000-01-01", "address": "Changed address"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(get_response.status_code, 200)
+        self.assertNotIn("date_of_birth", get_response.json())
+        self.assertNotIn("address", get_response.json())
+        self.assertEqual(patch_response.status_code, 400)
+        self.assertIn("date_of_birth", patch_response.json())
+        self.assertIn("address", patch_response.json())
+        member.refresh_from_db()
+        self.assertEqual(member.date_of_birth, date(1980, 1, 2))
+        self.assertEqual(member.address, "Original private address")
 
     def test_petitioner_edit_requires_its_own_permission(self):
         workbook_import = MembersWorkbookImport.objects.create(

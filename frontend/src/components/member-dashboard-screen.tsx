@@ -1017,7 +1017,7 @@ function editableMemberForm(profile: MemberEditableProfile | PetitionerEditableP
     member_number: profile.member_number,
     name: profile.name,
     glp_id_number: "glp_id_number" in profile ? profile.glp_id_number : "",
-    date_of_birth: profile.date_of_birth,
+    date_of_birth: "date_of_birth" in profile ? profile.date_of_birth : undefined,
     initiation_date: profile.initiation_date,
     passing_date: profile.passing_date,
     raising_date: profile.raising_date,
@@ -1029,7 +1029,7 @@ function editableMemberForm(profile: MemberEditableProfile | PetitionerEditableP
     demit: profile.demit,
     lml: profile.lml,
     dual_plural_honorary_date: profile.dual_plural_honorary_date,
-    address: profile.address,
+    address: "address" in profile ? profile.address : undefined,
     telephone: profile.telephone,
     email: profile.email,
     blood_type: profile.blood_type,
@@ -2658,14 +2658,14 @@ export function MemberDashboardScreen({
                   <div className="mt-3 space-y-2.5">
                     <label className={labelClass}>Email<input value={editMemberForm.email} onChange={(event) => updateEditMemberField("email", event.target.value)} className={textInputClass} /></label>
                     <label className={labelClass}>Phone<input value={editMemberForm.telephone} onChange={(event) => updateEditMemberField("telephone", event.target.value)} className={textInputClass} /></label>
-                    <label className={labelClass}>Address<textarea value={editMemberForm.address} onChange={(event) => updateEditMemberField("address", event.target.value)} className="mt-1.5 h-20 w-full resize-none rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 py-2 text-[0.68rem] leading-5 text-[#111111] outline-none" /></label>
+                    {editMemberForm.address !== undefined ? <label className={labelClass}>Address<textarea value={editMemberForm.address} onChange={(event) => updateEditMemberField("address", event.target.value)} className="mt-1.5 h-20 w-full resize-none rounded-[0.55rem] border border-[#ded6cf] bg-white px-2.5 py-2 text-[0.68rem] leading-5 text-[#111111] outline-none" /></label> : null}
                   </div>
                 </div>
 
                 <div className="rounded-[1rem] border border-white/80 bg-white/92 p-3.5 shadow-[0_10px_26px_rgba(74,48,19,0.07)]">
                   <h2 className="text-[0.78rem] font-bold">Personal</h2>
                   <div className="mt-3 grid grid-cols-2 gap-2.5">
-                    <label className={labelClass}>Birthdate<input type="date" value={dateInputValue(editMemberForm.date_of_birth)} onChange={(event) => updateEditMemberField("date_of_birth", nullableDate(event.target.value))} className={textInputClass} /></label>
+                    {editMemberForm.date_of_birth !== undefined ? <label className={labelClass}>Birthdate<input type="date" value={dateInputValue(editMemberForm.date_of_birth)} onChange={(event) => updateEditMemberField("date_of_birth", nullableDate(event.target.value))} className={textInputClass} /></label> : null}
                     <label className={labelClass}>Blood Type<input value={editMemberForm.blood_type} onChange={(event) => updateEditMemberField("blood_type", event.target.value)} className={textInputClass} /></label>
                     <label className={labelClass}>Widow / Sister<input value={editMemberForm.widow_or_sister} onChange={(event) => updateEditMemberField("widow_or_sister", event.target.value)} className={textInputClass} /></label>
                     <label className={labelClass}>W/S Birthdate<input type="date" value={dateInputValue(editMemberForm.widow_or_sister_date_of_birth)} onChange={(event) => updateEditMemberField("widow_or_sister_date_of_birth", nullableDate(event.target.value))} className={textInputClass} /></label>
@@ -3438,8 +3438,8 @@ export function MemberDashboardScreen({
       ["Grand Lodge", "Grand Lodge of the Philippines"],
     ];
     const additionalRows = [
-      ["Birthday", formatDate(fullProfile.date_of_birth)],
-      ["Address", displayValue(fullProfile.address)],
+      ...(fullProfile.date_of_birth !== undefined ? [["Birthday", formatDate(fullProfile.date_of_birth)]] : []),
+      ...(fullProfile.address !== undefined ? [["Address", displayValue(fullProfile.address)]] : []),
       ["Phone", displayValue(fullProfile.telephone)],
       ["Email", displayValue(fullProfile.email)],
       ["Blood Type", displayValue(fullProfile.blood_type)],

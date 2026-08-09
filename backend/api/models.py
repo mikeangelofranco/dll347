@@ -192,6 +192,32 @@ class DashboardCardVisibility(models.Model):
         return values or default_values
 
 
+class PersonalInformationVisibility(models.Model):
+    role = models.CharField(max_length=20, choices=Account.Role.choices, unique=True)
+    birthdate = models.BooleanField(default=True)
+    address = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dll347_personal_information_visibility"
+        ordering = ["role"]
+        verbose_name = "personal information visibility by role"
+        verbose_name_plural = "personal information visibility by role"
+
+    def __str__(self) -> str:
+        return self.get_role_display()
+
+    @classmethod
+    def defaults(cls) -> dict[str, bool]:
+        return {"birthdate": True, "address": True}
+
+    @classmethod
+    def for_role(cls, role: str) -> dict[str, bool]:
+        default_values = cls.defaults()
+        values = cls.objects.filter(role=role).values(*default_values.keys()).first()
+        return values or default_values
+
+
 class ToolAccessLog(models.Model):
     class Tool(models.TextChoices):
         DOCUMENTS = "documents", "Documents"

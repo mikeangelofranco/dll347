@@ -201,7 +201,7 @@ export type MemberPositionHeld = {
 };
 
 export type MemberFullProfile = MemberDashboardProfile & {
-  date_of_birth: string | null;
+  date_of_birth?: string | null;
   initiation_date: string | null;
   passing_date: string | null;
   raising_date: string | null;
@@ -209,7 +209,7 @@ export type MemberFullProfile = MemberDashboardProfile & {
   date_presented: string | null;
   date_balloted: string | null;
   telephone: string;
-  address: string;
+  address?: string;
   appendant_bodies: Record<string, unknown>;
   positions_held: MemberPositionHeld[];
   blood_type: string;
@@ -246,7 +246,7 @@ export type MemberProfileUpdatePayload = {
   member_number: string;
   name: string;
   glp_id_number: string;
-  date_of_birth: string | null;
+  date_of_birth?: string | null;
   initiation_date: string | null;
   passing_date: string | null;
   raising_date: string | null;
@@ -258,7 +258,7 @@ export type MemberProfileUpdatePayload = {
   demit: string;
   lml: string;
   dual_plural_honorary_date: string;
-  address: string;
+  address?: string;
   telephone: string;
   email: string;
   appendant_bodies: Record<string, unknown>;

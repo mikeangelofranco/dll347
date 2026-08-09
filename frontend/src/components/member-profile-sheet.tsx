@@ -216,8 +216,8 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
     : [];
   const additionalRows = profile
     ? [
-        ["Birthday", formatDate(profile.date_of_birth)],
-        ["Address", displayValue(profile.address)],
+        ...("date_of_birth" in profile ? [["Birthday", formatDate(profile.date_of_birth)]] : []),
+        ...("address" in profile ? [["Address", displayValue(profile.address)]] : []),
         ["Phone", displayValue(profile.telephone)],
         ["Email", displayValue(profile.email)],
         ["Blood Type", displayValue(profile.blood_type)],

@@ -1107,6 +1107,7 @@ def member_edit_profile_view(request, member_id: int):
         member,
         data=request.data,
         partial=request.method == "PATCH",
+        context={"request": request},
     )
     serializer.is_valid(raise_exception=True)
 
@@ -1198,6 +1199,7 @@ def petitioner_edit_profile_view(request, member_id: int):
         petitioner,
         data=petitioner_data,
         partial=request.method == "PATCH",
+        context={"request": request},
     )
     serializer.is_valid(raise_exception=True)
     next_section = serializer.validated_data.get("section", petitioner.section)

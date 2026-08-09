@@ -11,6 +11,7 @@ from .models import (
     LodgeDocument,
     MemberDatabaseRecord,
     MemberPositionHeld,
+    PersonalInformationVisibility,
     PreidentifiedEmail,
     TreasurerReportSummary,
 )
@@ -267,6 +268,17 @@ class MemberFullProfileSerializer(MemberDashboardProfileSerializer):
             years -= 1
         return max(years, 0)
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        request = self.context.get("request")
+        role = getattr(getattr(request, "user", None), "role", Account.Role.MEMBER)
+        visibility = PersonalInformationVisibility.for_role(role)
+        if not visibility["birthdate"]:
+            representation.pop("date_of_birth", None)
+        if not visibility["address"]:
+            representation.pop("address", None)
+        return representation
+
 
 class PetitionerFullProfileSerializer(MemberFullProfileSerializer):
     class Meta(MemberFullProfileSerializer.Meta):
@@ -380,6 +392,20 @@ class MemberProfileUpdateSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value: str) -> str:
         return value.strip().lower()
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        request = self.context.get("request")
+        role = getattr(getattr(request, "user", None), "role", Account.Role.MEMBER)
+        visibility = PersonalInformationVisibility.for_role(role)
+        errors = {}
+        if "date_of_birth" in attrs and not visibility["birthdate"]:
+            errors["date_of_birth"] = "Your role is not allowed to view or change birthdates."
+        if "address" in attrs and not visibility["address"]:
+            errors["address"] = "Your role is not allowed to view or change addresses."
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
 
     def update(self, instance: MemberDatabaseRecord, validated_data):
         positions = validated_data.pop("positions_held", None)

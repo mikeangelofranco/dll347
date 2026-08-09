@@ -15,6 +15,7 @@ from .models import (
     MembersWorkbookImport,
     MembersWorkbookSheetSchema,
     PasswordResetToken,
+    PersonalInformationVisibility,
     PreidentifiedEmail,
     ToolAccessLog,
 )
@@ -96,6 +97,13 @@ class DashboardCardVisibilityAdmin(admin.ModelAdmin):
         "dues_collection",
         "financial_summary",
     )
+    readonly_fields = ("updated_at",)
+
+
+@admin.register(PersonalInformationVisibility)
+class PersonalInformationVisibilityAdmin(admin.ModelAdmin):
+    list_display = ("role", "birthdate", "address", "updated_at")
+    list_editable = ("birthdate", "address")
     readonly_fields = ("updated_at",)
 
 
