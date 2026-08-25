@@ -13,6 +13,7 @@ from django.urls import reverse
 from unittest.mock import patch
 
 from .auth_tokens import build_password_reset_token
+from .document_extraction import extract_treasurer_report
 from .excel_members import (
     ParsedCell,
     ParsedSheet,
@@ -27,6 +28,7 @@ from .excel_members import (
     update_existing_members_from_workbook,
 )
 from .models import AuditLog, DashboardCardVisibility, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PersonalInformationVisibility, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
+from .views import growth_percent, was_good_standing_member_by_year
 
 
 class ExcelMemberImportHelpersTests(SimpleTestCase):
@@ -104,6 +106,62 @@ class ExcelMemberImportHelpersTests(SimpleTestCase):
             normalize_member_name("FCM Dano, Cyrus Gil Q. Jr. +"),
             ("dano", "cyrus", "gil", "q"),
         )
+
+    def test_lodge_growth_uses_good_standing_membership_year(self):
+        established = MemberDatabaseRecord(
+            name="Established Member",
+            section="REGULAR",
+            raising_date=date(2025, 6, 1),
+        )
+        new_member = MemberDatabaseRecord(
+            name="New Member",
+            section="REGULAR",
+            raising_date=date(2026, 3, 1),
+        )
+        fcm = MemberDatabaseRecord(
+            name="FCM Candidate",
+            section="PETITIONER - ACTIVE",
+        )
+
+        self.assertTrue(was_good_standing_member_by_year(established, 2025))
+        self.assertFalse(was_good_standing_member_by_year(new_member, 2025))
+        self.assertFalse(was_good_standing_member_by_year(fcm, 2025))
+        self.assertEqual(growth_percent(86, 80), 7.5)
+
+
+class TreasurerReportExtractionTests(SimpleTestCase):
+    @patch("api.document_extraction.read_document_text")
+    def test_labeled_totals_are_not_overwritten_by_line_item_reconciliation(self, read_text):
+        read_text.return_value = """
+        For the month of July, 2026
+        CASH BALANCE per Iast report dated June 4, 2026 P 258,275.86
+        TOTAL CASH ACCOUNTABILITY P 286,375.86
+        Temple Rental P 3,000.00
+        Past Master's Ring P 4,000.00
+        CR Cleaning P 1,000.00
+        TOTAL CASH DISBURSEMENTS P 47,600.00
+        CASH IN BANK AT THE END OF THE MONTH P 238,775.86
+        """
+
+        result = extract_treasurer_report(SimpleUploadedFile("report.pdf", b"pdf"), "application/pdf")
+
+        self.assertEqual(result.values["cash_balance_last_report"], Decimal("258275.86"))
+        self.assertEqual(result.values["cash_to_date"], Decimal("286375.86"))
+        self.assertEqual(result.values["cash_disbursements"], Decimal("47600.00"))
+        self.assertEqual(result.values["remaining_cash"], Decimal("238775.86"))
+        self.assertEqual(result.values["cash_received_month"], Decimal("28100.00"))
+        self.assertTrue(result.is_complete)
+
+    @patch("api.document_extraction.read_document_text")
+    def test_reconciliation_fallback_still_handles_reports_without_total_labels(self, read_text):
+        read_text.return_value = "For the month of May, 2026 P 100.00 P 40.00 P 60.00"
+
+        result = extract_treasurer_report(SimpleUploadedFile("report.pdf", b"pdf"), "application/pdf")
+
+        self.assertEqual(result.values["cash_to_date"], Decimal("100.00"))
+        self.assertEqual(result.values["cash_disbursements"], Decimal("40.00"))
+        self.assertEqual(result.values["remaining_cash"], Decimal("60.00"))
+        self.assertTrue(result.is_complete)
 
 
 class HealthcheckTests(SimpleTestCase):
@@ -923,6 +981,42 @@ class AuthApiTests(TestCase):
         self.assertNotIn("date_of_birth", response.json())
         self.assertEqual(response.json()["address"], "Visible address")
 
+    def test_petitioner_profile_uses_role_personal_information_visibility(self):
+        viewer = get_user_model().objects.create_user(
+            email="petitioner-profile-viewer@dll347.org",
+            password=self.password,
+            role="member",
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="private-petitioner-profile.xlsx",
+            file_sha256="7" * 64,
+        )
+        petitioner = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=10032,
+            name="Private Petitioner",
+            section="PETITIONER - ACTIVE",
+            date_of_birth=date(1990, 5, 20),
+            address="Private petitioner address",
+            date_presented=date(2026, 1, 10),
+            date_balloted=date(2026, 2, 10),
+        )
+        PersonalInformationVisibility.objects.update_or_create(
+            role="member",
+            defaults={"birthdate": False, "address": False},
+        )
+        self.client.force_login(viewer)
+
+        response = self.client.get(
+            reverse("api:petitioner-detail-profile", args=[petitioner.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("date_of_birth", response.json())
+        self.assertNotIn("address", response.json())
+        self.assertNotIn("date_presented", response.json())
+        self.assertNotIn("date_balloted", response.json())
+
     def test_secretary_can_view_own_linked_member_profile(self):
         secretary_user = get_user_model().objects.create_user(
             email="secretary-full-profile@dll347.org",
@@ -1120,6 +1214,8 @@ class AuthApiTests(TestCase):
         self.assertEqual(profile_response.status_code, 200)
         self.assertEqual(profile_response.json()["id"], circulated.id)
         self.assertNotIn("glp_id_number", profile_response.json())
+        self.assertNotIn("date_presented", profile_response.json())
+        self.assertNotIn("date_balloted", profile_response.json())
         fcm.refresh_from_db()
         self.assertEqual(fcm.glp_id_number, "")
 
@@ -1211,6 +1307,135 @@ class AuthApiTests(TestCase):
         target_member.refresh_from_db()
         self.assertEqual(first_member.section, "MASTER MASONS - ACTIVE")
         self.assertEqual(target_member.section, "MASTER MASONS - INACTIVE")
+
+    def test_member_workbook_update_does_not_match_member_number_across_sections(self):
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="cross-section-member-number.xlsx",
+            file_sha256="9" * 64,
+        )
+        petitioner = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=160,
+            member_number="28",
+            name="Mr. Existing Petitioner",
+            email="petitioner@example.com",
+            section="PETITIONER - ACTIVE",
+        )
+        next_member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=39,
+            member_number="29",
+            name="Godornes, Alex Dave A.",
+            glp_id_number="RVIIA-347-34956",
+            email="davegodornes@yahoo.com",
+            section="REGULAR",
+        )
+        incoming_member = MemberDatabaseRecord(
+            source_row=39,
+            member_number="28",
+            name="Godornes, Adrian A.",
+            glp_id_number="RVIIA-347-30084",
+            email="iangodornes@yahoo.com",
+            section="REGULAR",
+        )
+        incoming_petitioner = MemberDatabaseRecord(
+            source_row=160,
+            member_number="28",
+            name="Mr. Existing Petitioner",
+            email="petitioner@example.com",
+            section="PETITIONER - ACTIVE",
+        )
+        incoming_next_member = MemberDatabaseRecord(
+            source_row=40,
+            member_number="29",
+            name="Godornes, Alex Dave A.",
+            glp_id_number="RVIIA-347-34956",
+            email="davegodornes@yahoo.com",
+            section="REGULAR",
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx") as workbook_file:
+            workbook_file.write(b"workbook bytes")
+            workbook_file.flush()
+            with patch(
+                "api.excel_members.parsed_member_records_from_workbook",
+                return_value=([incoming_member, incoming_next_member, incoming_petitioner], {"DLL 347 Members Database": {"records": 3, "columns": 207}}),
+            ):
+                result = update_existing_members_from_workbook(workbook_file.name)
+
+        petitioner.refresh_from_db()
+        next_member.refresh_from_db()
+        adrian = MemberDatabaseRecord.objects.get(name="Godornes, Adrian A.")
+        self.assertEqual(petitioner.name, "Mr. Existing Petitioner")
+        self.assertEqual(petitioner.section, "PETITIONER - ACTIVE")
+        self.assertEqual(adrian.glp_id_number, "RVIIA-347-30084")
+        self.assertEqual(adrian.source_row, 39)
+        self.assertEqual(next_member.source_row, 40)
+        self.assertEqual(result.updated_count, 2)
+        self.assertEqual(result.created_count, 1)
+        self.assertEqual(result.unmatched_count, 0)
+
+    def test_member_workbook_update_is_idempotent_and_preserves_profile_data(self):
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="repeat-upload.xlsx",
+            file_sha256="8" * 64,
+        )
+        existing = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=40,
+            member_number="29",
+            name="Existing Member",
+            glp_id_number="GLP-29",
+            email="existing@example.com",
+            section="REGULAR",
+            profile_photo="member-profile-photos/existing.jpg",
+            default_profile_photo="member-default-profile-photos/existing.png",
+        )
+        position = MemberPositionHeld.objects.create(
+            member_record=existing,
+            title="Secretary",
+            date_range="2026",
+        )
+
+        def incoming_records():
+            return [
+                MemberDatabaseRecord(
+                    source_row=39,
+                    member_number="28",
+                    name="New Member",
+                    glp_id_number="GLP-28",
+                    email="new@example.com",
+                    section="REGULAR",
+                ),
+                MemberDatabaseRecord(
+                    source_row=40,
+                    member_number="29",
+                    name="Existing Member",
+                    glp_id_number="GLP-29",
+                    email="existing@example.com",
+                    section="REGULAR",
+                ),
+            ]
+
+        summary = {"DLL 347 Members Database": {"records": 2, "columns": 207}}
+        with tempfile.NamedTemporaryFile(suffix=".xlsx") as workbook_file:
+            workbook_file.write(b"repeatable workbook bytes")
+            workbook_file.flush()
+            with patch("api.excel_members.parsed_member_records_from_workbook") as parser:
+                parser.return_value = (incoming_records(), summary)
+                first_result = update_existing_members_from_workbook(workbook_file.name)
+                parser.return_value = (incoming_records(), summary)
+                second_result = update_existing_members_from_workbook(workbook_file.name)
+
+        existing.refresh_from_db()
+        position.refresh_from_db()
+        self.assertEqual(MemberDatabaseRecord.objects.count(), 2)
+        self.assertEqual(first_result.created_count, 1)
+        self.assertEqual(second_result.updated_count, 2)
+        self.assertEqual(second_result.created_count, 0)
+        self.assertEqual(existing.profile_photo.name, "member-profile-photos/existing.jpg")
+        self.assertEqual(existing.default_profile_photo.name, "member-default-profile-photos/existing.png")
+        self.assertEqual(position.member_record_id, existing.id)
 
     def test_member_list_includes_test_records_and_excludes_trestle_board(self):
         self.client.force_login(self.user)
@@ -1321,20 +1546,27 @@ class AuthApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["membership"], {"active_count": 1, "total_count": 5, "percent": 20})
-        self.assertEqual(payload["growth"], {"progressing_count": 2, "total_count": 2, "percent": 100})
+        self.assertEqual(payload["membership"], {"active_count": 3, "total_count": 3, "percent": 100})
+        self.assertEqual(payload["growth"], {
+            "previous_year": current_year - 1,
+            "current_year": current_year,
+            "previous_active_count": 3,
+            "current_active_count": 3,
+            "increase": 0,
+            "percent": 0.0,
+        })
         self.assertEqual(payload["finances"]["percent"], 0)
         self.assertEqual(payload["finances"]["status"], "No Treasurer report yet")
         self.assertFalse(payload["finances"]["has_data"])
         self.assertEqual(
             payload["attendance"],
-            {"average_count": 2, "total_count": 3, "meeting_count": 2, "percent": 67},
+            {"average_count": 1, "total_count": 3, "meeting_count": 2, "percent": 33},
         )
         self.assertEqual(
             payload["dues_collection"],
-            {"paid_count": 2, "unpaid_count": 1, "total_count": 3, "percent": 67},
+            {"paid_count": 2, "unpaid_count": 0, "total_count": 2, "percent": 100},
         )
-        self.assertEqual(payload["overall_percent"], 64)
+        self.assertEqual(payload["overall_percent"], 58)
 
     def test_three_lights_can_load_secretary_dashboard_summary(self):
         three_lights_user = get_user_model().objects.create_user(

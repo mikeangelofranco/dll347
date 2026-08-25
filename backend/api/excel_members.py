@@ -67,6 +67,7 @@ class MembersWorkbookFormatError(Exception):
 class MembersWorkbookUpdateResult:
     total_rows: int
     updated_count: int
+    created_count: int
     unmatched_count: int
     unmatched_names: list[str]
 
@@ -722,7 +723,11 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
     existing_records = list(MemberDatabaseRecord.objects.all())
     email_counts = Counter(record.email.strip().casefold() for record in existing_records if record.email.strip())
     glp_counts = Counter(record.glp_id_number.strip().casefold() for record in existing_records if record.glp_id_number.strip())
-    member_number_counts = Counter(record.member_number.strip().casefold() for record in existing_records if record.member_number.strip())
+    section_member_number_counts = Counter(
+        (normalized_header_value(record.section), record.member_number.strip().casefold())
+        for record in existing_records
+        if record.member_number.strip()
+    )
     by_email = {
         record.email.strip().casefold(): record
         for record in existing_records
@@ -733,10 +738,13 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
         for record in existing_records
         if record.glp_id_number.strip() and glp_counts[record.glp_id_number.strip().casefold()] == 1
     }
-    by_member_number = {
-        record.member_number.strip().casefold(): record
+    by_section_member_number = {
+        (normalized_header_value(record.section), record.member_number.strip().casefold()): record
         for record in existing_records
-        if record.member_number.strip() and member_number_counts[record.member_number.strip().casefold()] == 1
+        if record.member_number.strip()
+        and section_member_number_counts[
+            (normalized_header_value(record.section), record.member_number.strip().casefold())
+        ] == 1
     }
     by_name = build_member_name_index(existing_records)
     mutable_fields = [
@@ -770,9 +778,11 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
     ]
 
     updated_records = []
+    created_records = []
     unmatched_names = []
     matched_db_ids: set[int] = set()
     old_emails: dict[int, str] = {}
+    final_source_rows: dict[int, int] = {}
     with transaction.atomic():
         workbook_import, _created = MembersWorkbookImport.objects.update_or_create(
             file_sha256=file_sha256,
@@ -785,20 +795,36 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
             existing = None
             if incoming.email.strip():
                 existing = by_email.get(incoming.email.strip().casefold())
+                if existing is not None and existing.pk in matched_db_ids:
+                    existing = None
             if existing is None and incoming.glp_id_number.strip():
                 existing = by_glp.get(incoming.glp_id_number.strip().casefold())
+                if existing is not None and existing.pk in matched_db_ids:
+                    existing = None
             if existing is None:
-                matched_member, match_status, _notes = resolve_member_name_match(incoming.name, by_name)
-                if match_status == "matched":
-                    existing = matched_member
+                available_name_matches = [
+                    record
+                    for record in by_name.get(member_name_match_key(incoming.name), [])
+                    if record.pk not in matched_db_ids
+                ]
+                if len(available_name_matches) == 1:
+                    existing = available_name_matches[0]
             if existing is None and incoming.member_number.strip():
-                existing = by_member_number.get(incoming.member_number.strip().casefold())
+                member_number_key = (
+                    normalized_header_value(incoming.section),
+                    incoming.member_number.strip().casefold(),
+                )
+                existing = by_section_member_number.get(member_number_key)
+                if existing is not None and existing.pk in matched_db_ids:
+                    existing = None
 
             if existing is None:
-                unmatched_names.append(incoming.name)
+                incoming.workbook_import = workbook_import
+                created_records.append(incoming)
                 continue
 
             matched_db_ids.add(existing.pk)
+            final_source_rows[existing.pk] = incoming.source_row
             if existing.pk not in old_emails:
                 old_emails[existing.pk] = existing.email.strip().casefold() if existing.email else ""
             existing.workbook_import = workbook_import
@@ -807,10 +833,26 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
             updated_records.append(existing)
 
         if updated_records:
+            # Row numbers are workbook locations, not stable member identity.
+            # Move matched records out of the workbook's row range first so
+            # inserts and row shifts cannot trip the unique source_row index.
+            highest_source_row = max(
+                [record.source_row for record in existing_records]
+                + [record.source_row for record in incoming_records]
+            )
+            for offset, record in enumerate(updated_records, start=1):
+                record.source_row = highest_source_row + offset
+            MemberDatabaseRecord.objects.bulk_update(updated_records, ["source_row"])
+
+            for record in updated_records:
+                record.source_row = final_source_rows[record.pk]
             MemberDatabaseRecord.objects.bulk_update(
                 updated_records,
-                ["workbook_import", *mutable_fields, "updated_at"],
+                ["workbook_import", "source_row", *mutable_fields, "updated_at"],
             )
+
+        if created_records:
+            MemberDatabaseRecord.objects.bulk_create(created_records)
 
         existing_petitioners = {
             record
@@ -825,11 +867,14 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
             petitioner_ids = [record.pk for record in petitioners_to_delete]
             MemberDatabaseRecord.objects.filter(pk__in=petitioner_ids).delete()
 
-        _sync_member_accounts(updated_records, old_emails)
+        _sync_member_accounts([*updated_records, *created_records], old_emails)
+
+    invalidate_member_name_index_cache()
 
     return MembersWorkbookUpdateResult(
         total_rows=len(incoming_records),
         updated_count=len(updated_records),
+        created_count=len(created_records),
         unmatched_count=len(unmatched_names),
         unmatched_names=unmatched_names[:10],
     )

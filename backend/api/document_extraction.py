@@ -281,7 +281,9 @@ def extract_treasurer_report(upload: BinaryIO, content_type: str) -> TreasurerEx
         result.values["report_year"] = year
 
     field_labels = {
-        "cash_balance_last_report": r"CASH\s+BALANCE\s+per\s+last\s+report",
+        # Some spreadsheet-generated PDFs extract the lowercase "l" in
+        # "last" as an uppercase "I" ("Iast"). Accept both readings.
+        "cash_balance_last_report": r"CASH\s+BALANCE\s+per\s+(?:last|iast)\s+report",
         "cash_to_date": r"TOTAL\s+CASH\s+ACCOUNTABILITY",
         "cash_disbursements": r"TOTAL\s+CASH\s+DISBURSEMENTS",
         "remaining_cash": r"CASH\s+IN\s+BANK\s+AT\s+THE\s+END\s+OF\s+THE\s+MONTH",
@@ -294,8 +296,12 @@ def extract_treasurer_report(upload: BinaryIO, content_type: str) -> TreasurerEx
 
     accounting_totals = _find_accounting_totals(normalized_text)
     for field_name, amount in accounting_totals.items():
-        result.values[field_name] = amount
-        result.raw_values[field_name] = str(amount)
+        # The reconciliation fallback scans every amount in the report and can
+        # find coincidental A - B = C combinations among individual line items.
+        # Labeled totals are more authoritative and must never be overwritten.
+        if field_name not in result.values:
+            result.values[field_name] = amount
+            result.raw_values[field_name] = str(amount)
 
     if "cash_to_date" in result.values and "cash_balance_last_report" in result.values:
         result.values["cash_received_month"] = (

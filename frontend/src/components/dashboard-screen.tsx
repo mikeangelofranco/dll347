@@ -412,8 +412,11 @@ const emptyDashboardSummary: SecretaryDashboardSummaryResponse = {
     percent: 0,
   },
   growth: {
-    progressing_count: 0,
-    total_count: 0,
+    previous_year: new Date().getFullYear() - 1,
+    current_year: new Date().getFullYear(),
+    previous_active_count: 0,
+    current_active_count: 0,
+    increase: 0,
     percent: 0,
   },
   petitioner: {
@@ -510,7 +513,7 @@ function buildHealthRows(summary: SecretaryDashboardSummaryResponse) {
     },
     {
       title: "Growth",
-      subtitle: `${summary.growth.progressing_count} / ${summary.growth.total_count} EAM/FCM`,
+      subtitle: `${summary.growth.previous_active_count} → ${summary.growth.current_active_count} Increase/Decrease`,
       percent: summary.growth.percent,
       color: "bg-[#cc1313]",
       iconBg: "bg-[#cc1313]",

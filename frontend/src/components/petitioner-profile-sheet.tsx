@@ -57,8 +57,6 @@ export function PetitionerProfileSheet({ profile, stage, isLoading, error, onClo
   ] : [];
 
   const membershipTimeline = profile ? [
-    ["Date Presented", formatDate(profile.date_presented)],
-    ["Date Balloted", formatDate(profile.date_balloted)],
     ["Initiated", formatDate(profile.initiation_date)],
     ["Passed", formatDate(profile.passing_date)],
   ] : [];

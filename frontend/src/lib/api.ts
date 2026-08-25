@@ -229,8 +229,8 @@ export type MemberEditableProfile = MemberFullProfile & {
   annual_dues: Record<string, unknown>;
 };
 
-export type PetitionerFullProfile = Omit<MemberFullProfile, "glp_id_number">;
-export type PetitionerEditableProfile = Omit<MemberEditableProfile, "glp_id_number">;
+export type PetitionerFullProfile = Omit<MemberFullProfile, "glp_id_number" | "date_presented" | "date_balloted">;
+export type PetitionerEditableProfile = Omit<MemberEditableProfile, "glp_id_number" | "date_presented" | "date_balloted">;
 
 export type MemberPositionHeldPayload = {
   title: string;
@@ -271,7 +271,7 @@ export type MemberProfileUpdatePayload = {
   positions_held: MemberPositionHeldPayload[];
 };
 
-export type PetitionerProfileUpdatePayload = Omit<MemberProfileUpdatePayload, "glp_id_number">;
+export type PetitionerProfileUpdatePayload = Omit<MemberProfileUpdatePayload, "glp_id_number" | "date_presented" | "date_balloted">;
 
 export type MemberProfileUpdateResponse = {
   message: string;
@@ -337,8 +337,11 @@ export type SecretaryDashboardSummaryResponse = {
     percent: number;
   };
   growth: {
-    progressing_count: number;
-    total_count: number;
+    previous_year: number;
+    current_year: number;
+    previous_active_count: number;
+    current_active_count: number;
+    increase: number;
     percent: number;
   };
   petitioner: {

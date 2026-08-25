@@ -1,10 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { LoginScreen } from "@/components/login-screen";
-import { ThemedLoader } from "@/components/themed-loader";
 import { ApiError, getCurrentAccount } from "@/lib/api";
 
 export default function Home() {
@@ -32,7 +32,14 @@ export default function Home() {
   if (status === "loading") {
     return (
       <main className="login-paper flex h-[100svh] items-center justify-center">
-        <ThemedLoader size="md" />
+        <Image
+          src="/branding/dll347-logo.png"
+          alt="Datu Lapu-Lapu Lodge No. 347 logo"
+          width={220}
+          height={220}
+          priority
+          className="dll347-launch-logo h-auto w-[clamp(8.5rem,42vw,13.75rem)] drop-shadow-[0_10px_18px_rgba(143,90,16,0.24)]"
+        />
       </main>
     );
   }

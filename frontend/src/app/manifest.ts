@@ -18,10 +18,22 @@ export default function manifest(): MetadataRoute.Manifest {
         src: "/branding/dll347-icon-192.png",
         sizes: "192x192",
         type: "image/png",
-        purpose: "maskable",
+        purpose: "any",
       },
       {
         src: "/branding/dll347-icon-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/branding/dll347-icon-maskable-192.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "maskable",
+      },
+      {
+        src: "/branding/dll347-icon-maskable-512.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",

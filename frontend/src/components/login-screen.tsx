@@ -622,7 +622,7 @@ export function LoginScreen() {
             width={220}
             height={220}
             priority
-            className={`h-auto drop-shadow-[0_10px_18px_rgba(143,90,16,0.24)] sm:w-[11rem] ${
+            className={`dll347-logo-enter h-auto drop-shadow-[0_10px_18px_rgba(143,90,16,0.24)] sm:w-[11rem] ${
               isTightHeight
                 ? "w-[clamp(5.1rem,19vw,7rem)]"
                 : isCompactHeight

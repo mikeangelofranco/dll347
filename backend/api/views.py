@@ -411,6 +411,7 @@ def process_members_data_document(document_id: int, manage_connections: bool = T
         result = update_existing_members_from_workbook(document.file.path)
         messages = [
             f"Updated {result.updated_count} existing member record{'s' if result.updated_count != 1 else ''}.",
+            f"Added {result.created_count} new member record{'s' if result.created_count != 1 else ''}.",
             f"Read {result.total_rows} member row{'s' if result.total_rows != 1 else ''} from the workbook.",
         ]
         if result.unmatched_count:
@@ -470,10 +471,6 @@ def is_trestle_board_member(section: str) -> bool:
     return normalized.startswith("TRESTLE BOARD") or "PETITIONER" in normalized
 
 
-def is_active_trestle_board_member(section: str) -> bool:
-    return section.upper().startswith("TRESTLE BOARD - ACTIVE")
-
-
 def json_cell_has_value(item) -> bool:
     value = item.get("value") if isinstance(item, dict) else item
     return value not in (None, "")
@@ -494,21 +491,30 @@ def percent_of(part: int | float, whole: int | float) -> int:
     return round((part / whole) * 100)
 
 
-def rounded_average_percent(values: list[int]) -> int:
+def rounded_average_percent(values: list[int | float]) -> int:
     if not values:
         return 0
     return int((sum(values) / len(values)) + 0.5)
 
 
-def is_progressing_member(name: str, section: str) -> bool:
-    normalized_name = name.strip().upper()
-    normalized_section = section.upper()
-    return (
-        normalized_name.startswith("EAM ")
-        or normalized_name.startswith("FCM ")
-        or "EAM" in normalized_section
-        or "FCM" in normalized_section
-    )
+def is_good_standing_member(record: MemberDatabaseRecord) -> bool:
+    return classify_member_group(record.section) not in {
+        "inactive_snpd_demit",
+        "dropped_working_tools",
+    }
+
+
+def was_good_standing_member_by_year(record: MemberDatabaseRecord, year: int) -> bool:
+    if not is_good_standing_member(record):
+        return False
+    member_since = record.raising_date or record.initiation_date
+    return member_since is None or member_since.year <= year
+
+
+def growth_percent(current: int, previous: int) -> float:
+    if previous <= 0:
+        return 0.0
+    return round(((current - previous) / previous) * 100, 1)
 
 
 def petitioner_stage(name: str, section: str) -> str:
@@ -1019,8 +1025,13 @@ def member_full_profile_view(request):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    serializer_class = (
+        PetitionerFullProfileSerializer
+        if is_petitioner_section(member.section)
+        else MemberFullProfileSerializer
+    )
     return Response(
-        PetitionerFullProfileSerializer(member, context={"request": request}).data,
+        serializer_class(member, context={"request": request}).data,
         status=status.HTTP_200_OK,
     )
 
@@ -1195,6 +1206,8 @@ def petitioner_edit_profile_view(request, member_id: int):
 
     petitioner_data = request.data.copy()
     petitioner_data.pop("glp_id_number", None)
+    petitioner_data.pop("date_presented", None)
+    petitioner_data.pop("date_balloted", None)
     serializer = MemberProfileUpdateSerializer(
         petitioner,
         data=petitioner_data,
@@ -1215,7 +1228,7 @@ def petitioner_edit_profile_view(request, member_id: int):
     tracked_fields = (
         "section", "member_number", "name",
         "date_of_birth", "initiation_date", "passing_date", "raising_date",
-        "proficiency_date", "date_presented", "date_balloted",
+        "proficiency_date",
         "suspension", "restored", "demit", "lml",
         "dual_plural_honorary_date", "address", "telephone", "email",
         "blood_type", "widow_or_sister", "widow_or_sister_date_of_birth",
@@ -1556,9 +1569,6 @@ def secretary_dashboard_summary_view(request):
     regular_members = [
         record for record in records if not is_trestle_board_member(record.section)
     ]
-    active_trestle_board_members = [
-        record for record in records if is_active_trestle_board_member(record.section)
-    ]
     active_regular_members = [
         record
         for record in regular_members
@@ -1597,11 +1607,17 @@ def secretary_dashboard_summary_view(request):
             latest_month_order = order
             latest_attendance = count
 
-    progressing_count = sum(
-        1
-        for record in active_trestle_board_members
-        if is_progressing_member(record.name, record.section)
+    current_year_number = int(current_year)
+    previous_year = current_year_number - 1
+    current_active_count = sum(
+        1 for record in regular_members if is_good_standing_member(record)
     )
+    previous_active_count = sum(
+        1
+        for record in regular_members
+        if was_good_standing_member_by_year(record, previous_year)
+    )
+    active_member_increase = current_active_count - previous_active_count
 
     dropped_working_tools_members = [
         record
@@ -1621,7 +1637,7 @@ def secretary_dashboard_summary_view(request):
         len(attendance_members),
         len(regular_members) - len(dropped_working_tools_members) - len(demit_only_members),
     )
-    growth_percent = percent_of(progressing_count, len(active_trestle_board_members))
+    lodge_growth_percent = growth_percent(current_active_count, previous_active_count)
     attendance_percent = percent_of(latest_attendance, len(attendance_members))
     dues_paid_count = sum(
         1
@@ -1636,7 +1652,7 @@ def secretary_dashboard_summary_view(request):
             "overall_percent": rounded_average_percent(
                 [
                     membership_percent,
-                    growth_percent,
+                    lodge_growth_percent,
                     attendance_percent,
                     dues_percent,
                 ]
@@ -1647,9 +1663,12 @@ def secretary_dashboard_summary_view(request):
                 "percent": membership_percent,
             },
             "growth": {
-                "progressing_count": progressing_count,
-                "total_count": len(active_trestle_board_members),
-                "percent": growth_percent,
+                "previous_year": previous_year,
+                "current_year": current_year_number,
+                "previous_active_count": previous_active_count,
+                "current_active_count": current_active_count,
+                "increase": active_member_increase,
+                "percent": lodge_growth_percent,
             },
             "petitioner": petitioner_summary_payload(records),
             "finances": {

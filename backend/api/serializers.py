@@ -284,7 +284,7 @@ class PetitionerFullProfileSerializer(MemberFullProfileSerializer):
     class Meta(MemberFullProfileSerializer.Meta):
         fields = tuple(
             field for field in MemberFullProfileSerializer.Meta.fields
-            if field != "glp_id_number"
+            if field not in {"glp_id_number", "date_presented", "date_balloted"}
         )
 
 
@@ -307,7 +307,7 @@ class PetitionerEditableProfileSerializer(MemberEditableProfileSerializer):
     class Meta(MemberEditableProfileSerializer.Meta):
         fields = tuple(
             field for field in MemberEditableProfileSerializer.Meta.fields
-            if field != "glp_id_number"
+            if field not in {"glp_id_number", "date_presented", "date_balloted"}
         )
 
 
