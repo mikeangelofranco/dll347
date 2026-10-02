@@ -530,6 +530,9 @@ export function DocumentsScreen({ onLogout, onNavigate, onMembersDataUploaded }:
   }
 
   async function handleUpload() {
+    if (isUploading) {
+      return;
+    }
     if (!selectedCategory) {
       const nextErrors = ["Select a category before uploading."];
       setErrors(nextErrors);
@@ -805,7 +808,7 @@ export function DocumentsScreen({ onLogout, onNavigate, onMembersDataUploaded }:
                       </div>
                     ) : null}
 
-                    <button ref={uploadButtonRef} type="button" disabled={isUploading || selectedFiles.length === 0} onClick={() => void handleUpload()} className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-[0.65rem] bg-[#d90000] text-[0.78rem] font-extrabold text-white shadow-[0_10px_20px_rgba(208,0,0,0.18)] disabled:cursor-not-allowed disabled:bg-[#e4b1b1]">
+                    <button ref={uploadButtonRef} type="button" disabled={isUploading || selectedFiles.length === 0} onClick={() => void handleUpload()} className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-[0.65rem] bg-[#d90000] text-[0.78rem] font-extrabold text-white shadow-[0_10px_20px_rgba(208,0,0,0.18)] transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#e4b1b1]">
                       {isUploading ? (
                         <>
                           <ThemedLoader size="sm" className="brightness-125" />

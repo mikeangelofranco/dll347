@@ -67,6 +67,7 @@ export function PetitionerListScreen({ initialStage, navigationItems, onBack, on
   const [selectedProfileStage, setSelectedProfileStage] = useState<PetitionerStage | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState("");
+  const [openingPetitionerId, setOpeningPetitionerId] = useState<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -105,6 +106,10 @@ export function PetitionerListScreen({ initialStage, navigationItems, onBack, on
   }
 
   async function openProfile(petitioner: PetitionerListItem) {
+    if (isProfileLoading || openingPetitionerId !== null) {
+      return;
+    }
+    setOpeningPetitionerId(petitioner.id);
     setSelectedProfile(null);
     setSelectedProfileStage(petitioner.petitioner_stage);
     setProfileError("");
@@ -115,6 +120,7 @@ export function PetitionerListScreen({ initialStage, navigationItems, onBack, on
       setProfileError(loadError instanceof Error ? loadError.message : "Unable to load petitioner profile.");
     } finally {
       setIsProfileLoading(false);
+      setOpeningPetitionerId(null);
     }
   }
 
@@ -172,7 +178,17 @@ export function PetitionerListScreen({ initialStage, navigationItems, onBack, on
               petitioners.map((petitioner) => {
                 const stage = stageOptions.find((option) => option.key === petitioner.petitioner_stage) ?? stageOptions[4];
                 return (
-                  <button key={petitioner.id} type="button" onClick={() => void openProfile(petitioner)} className="flex w-full items-center gap-2.5 rounded-[0.85rem] bg-white/90 px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(50,83,130,0.055)] transition-transform active:scale-[0.99]">
+                  <button
+                    key={petitioner.id}
+                    type="button"
+                    disabled={isProfileLoading}
+                    onClick={() => void openProfile(petitioner)}
+                    className={`flex w-full items-center gap-2.5 rounded-[0.85rem] px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(50,83,130,0.055)] transition-all duration-150 active:scale-[0.985] active:bg-blue-50/70 select-none ${
+                      openingPetitionerId === petitioner.id
+                        ? "bg-blue-50/90 ring-2 ring-[#315f9e]/40 shadow-[0_4px_12px_rgba(49,95,158,0.15)]"
+                        : "bg-white/90 hover:bg-white"
+                    }`}
+                  >
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#5b8fd1,#315f9e)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(49,95,158,0.18)]">
                       {petitioner.profile_photo_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -183,7 +199,13 @@ export function PetitionerListScreen({ initialStage, navigationItems, onBack, on
                       <span className="block truncate text-[0.75rem] font-bold tracking-[-0.02em] text-[#111111]">{petitionerDisplayName(petitioner.name)}</span>
                       <span className="mt-1 inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[0.54rem] font-semibold leading-none" style={{ color: stage.color, backgroundColor: stage.tint }}>{stage.label}</span>
                     </span>
-                    <span className="text-[#315f9e]"><ChevronIcon /></span>
+                    <span className="text-[#315f9e]">
+                      {openingPetitionerId === petitioner.id ? (
+                        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#315f9e] border-t-transparent" />
+                      ) : (
+                        <ChevronIcon />
+                      )}
+                    </span>
                   </button>
                 );
               })

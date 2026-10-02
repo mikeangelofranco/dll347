@@ -1353,6 +1353,7 @@ export function MemberDashboardScreen({
   const [selectedMemberProfile, setSelectedMemberProfile] = useState<MemberFullProfile | null>(null);
   const [isSelectedMemberProfileLoading, setIsSelectedMemberProfileLoading] = useState(false);
   const [selectedMemberProfileError, setSelectedMemberProfileError] = useState("");
+  const [openingMemberProfileId, setOpeningMemberProfileId] = useState<number | null>(null);
   const [nextActivity, setNextActivity] = useState<LodgeActivity | null>(null);
   const [isNextActivityLoading, setIsNextActivityLoading] = useState(true);
   const [nextActivityError, setNextActivityError] = useState("");
@@ -1408,6 +1409,7 @@ export function MemberDashboardScreen({
   const [selectedEditMember, setSelectedEditMember] = useState<MemberEditableProfile | PetitionerEditableProfile | null>(null);
   const [editMemberForm, setEditMemberForm] = useState<EditableMemberForm | null>(null);
   const [isEditMemberLoading, setIsEditMemberLoading] = useState(false);
+  const [openingEditMemberId, setOpeningEditMemberId] = useState<number | null>(null);
   const [editMemberFormError, setEditMemberFormError] = useState("");
   const [editMemberSuccessToast, setEditMemberSuccessToast] = useState("");
   const [isSavingMemberEdit, setIsSavingMemberEdit] = useState(false);
@@ -1882,6 +1884,10 @@ export function MemberDashboardScreen({
   }
 
   async function openEditMemberFor(memberId: number) {
+    if (isEditMemberLoading || openingEditMemberId !== null) {
+      return;
+    }
+    setOpeningEditMemberId(memberId);
     setEditReturnView(activeView);
     setEditMemberFormError("");
     setEditMemberSuccessToast("");
@@ -1893,6 +1899,7 @@ export function MemberDashboardScreen({
   }
 
   async function selectEditableMember(memberId: number) {
+    setOpeningEditMemberId(memberId);
     setMemberAccountStatus(null);
     setIsEditMemberLoading(true);
     setEditMemberFormError("");
@@ -1900,7 +1907,7 @@ export function MemberDashboardScreen({
     try {
       const [profileData] = await Promise.all([
         isPetitionerEdit ? getEditablePetitionerProfile(memberId) : getEditableMemberProfile(memberId),
-        minimumLoadingDelay(),
+        minimumLoadingDelay(150),
       ]);
       setSelectedEditMember(profileData);
       setEditMemberForm(editableMemberForm(profileData));
@@ -1916,11 +1923,12 @@ export function MemberDashboardScreen({
       setEditMemberFormError(error instanceof Error ? error.message : `Unable to load this ${isPetitionerEdit ? "petitioner" : "member"} record.`);
     } finally {
       setIsEditMemberLoading(false);
+      setOpeningEditMemberId(null);
     }
   }
 
   async function handleActivateLogin() {
-    if (!selectedEditMember) return;
+    if (isAccountActionLoading || !selectedEditMember) return;
     setIsAccountActionLoading(true);
     try {
       const response = isPetitionerEdit
@@ -1942,7 +1950,7 @@ export function MemberDashboardScreen({
   }
 
   async function handleDeactivateLogin() {
-    if (!selectedEditMember) return;
+    if (isAccountActionLoading || !selectedEditMember) return;
     setIsAccountActionLoading(true);
     try {
       const response = isPetitionerEdit
@@ -2074,6 +2082,9 @@ export function MemberDashboardScreen({
   }
 
   async function saveMemberEdit() {
+    if (isSavingMemberEdit) {
+      return;
+    }
     if (selectedEditMember === null || editMemberForm === null) {
       setEditMemberFormError(`Please select a ${isPetitionerEdit ? "petitioner" : "member"} first.`);
       return;
@@ -2189,6 +2200,9 @@ export function MemberDashboardScreen({
   }
 
   async function saveActivity() {
+    if (isSavingActivity) {
+      return;
+    }
     const title = activityTitle.trim();
     const details = activityDetails.trim();
     const place = activityPlace.trim();
@@ -2257,7 +2271,7 @@ export function MemberDashboardScreen({
   }
 
   async function confirmDeleteActivity() {
-    if (activityToDelete === null) {
+    if (isDeletingActivity || activityToDelete === null) {
       return;
     }
     setIsDeletingActivity(true);
@@ -2281,20 +2295,25 @@ export function MemberDashboardScreen({
   }
 
   async function openMemberProfile(memberId: number) {
+    if (isSelectedMemberProfileLoading || openingMemberProfileId !== null) {
+      return;
+    }
     trackUserAction("Members", "View Member Profile");
+    setOpeningMemberProfileId(memberId);
     setSelectedMemberProfile(null);
     setSelectedMemberProfileError("");
     setIsSelectedMemberProfileLoading(true);
     try {
       const [profileData] = await Promise.all([
         getMemberProfile(memberId),
-        minimumLoadingDelay(),
+        minimumLoadingDelay(150),
       ]);
       setSelectedMemberProfile(profileData);
     } catch (error) {
       setSelectedMemberProfileError(error instanceof Error ? error.message : "Unable to load this member profile.");
     } finally {
       setIsSelectedMemberProfileLoading(false);
+      setOpeningMemberProfileId(null);
     }
   }
 
@@ -2302,6 +2321,7 @@ export function MemberDashboardScreen({
     setSelectedMemberProfile(null);
     setSelectedMemberProfileError("");
     setIsSelectedMemberProfileLoading(false);
+    setOpeningMemberProfileId(null);
   }
 
   function openAppendantSheet() {
@@ -2507,7 +2527,15 @@ export function MemberDashboardScreen({
                       ? petitionerGroupDetails(petitionerStageForRecord(member.name, member.section))
                       : memberGroupDetailsForMember(member, memberDisplayGroups);
                     return (
-                      <button key={member.id} type="button" onClick={() => void selectEditableMember(member.id)} className={`flex w-full items-center gap-2.5 rounded-[0.78rem] px-2.5 py-2 text-left shadow-[0_8px_18px_rgba(75,48,20,0.04)] ${isSelected ? "bg-[#fff4e3] ring-1 ring-[#d68a00]" : "bg-white/90"}`}>
+                      <button
+                        key={member.id}
+                        type="button"
+                        disabled={isEditMemberLoading}
+                        onClick={() => void selectEditableMember(member.id)}
+                        className={`flex w-full items-center gap-2.5 rounded-[0.78rem] px-2.5 py-2 text-left shadow-[0_8px_18px_rgba(75,48,20,0.04)] transition-all duration-150 active:scale-[0.985] select-none ${
+                          isSelected ? "bg-[#fff4e3] ring-1 ring-[#d68a00]" : "bg-white/90 hover:bg-white"
+                        }`}
+                      >
                         <span className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ${isPetitionerEdit ? "bg-[linear-gradient(145deg,#5b7dba,#2f6fbd)]" : "bg-[linear-gradient(145deg,#20aa38,#008a1f)]"} text-[0.68rem] font-bold text-white`}>
                           {member.profile_photo_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
@@ -2829,8 +2857,8 @@ export function MemberDashboardScreen({
 
           <div className="absolute inset-x-0 bottom-0 z-20 border-t border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">
             <div className="grid grid-cols-[0.9fr_1.8fr] gap-2.5">
-              <button type="button" onClick={closeMemberEdit} className="h-11 rounded-[0.62rem] border border-[#eadfda] bg-white text-[0.72rem] font-bold text-[#c10000]">Cancel</button>
-              <button type="button" onClick={() => void saveMemberEdit()} disabled={isSavingMemberEdit || editMemberForm === null} className="flex h-11 items-center justify-center gap-2 rounded-[0.62rem] bg-[linear-gradient(145deg,#f1a51c,#d88400)] text-[0.72rem] font-extrabold text-white shadow-[0_10px_20px_rgba(205,133,0,0.2)] disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="button" onClick={closeMemberEdit} className="h-11 rounded-[0.62rem] border border-[#eadfda] bg-white text-[0.72rem] font-bold text-[#c10000] transition-transform active:scale-95">Cancel</button>
+              <button type="button" onClick={() => void saveMemberEdit()} disabled={isSavingMemberEdit || editMemberForm === null} className="flex h-11 items-center justify-center gap-2 rounded-[0.62rem] bg-[linear-gradient(145deg,#f1a51c,#d88400)] text-[0.72rem] font-extrabold text-white shadow-[0_10px_20px_rgba(205,133,0,0.2)] transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
                 {isSavingMemberEdit ? <ThemedLoader size="sm" className="brightness-125" /> : <PersonIcon />}
                 <span>{isSavingMemberEdit ? "Saving..." : `Save ${isPetitionerEdit ? "Petitioner" : "Member"}`}</span>
               </button>
@@ -3243,7 +3271,18 @@ export function MemberDashboardScreen({
                 memberList.map((member) => {
                   const groupDetails = memberGroupDetailsForMember(member, memberDisplayGroups);
                   return (
-                    <div key={member.id} role="button" tabIndex={0} onClick={() => void openMemberProfile(member.id)} onKeyDown={(e) => { if (e.key === "Enter") { void openMemberProfile(member.id); } }} className="flex w-full items-center gap-2.5 rounded-[0.85rem] bg-white/90 px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] cursor-pointer">
+                    <div
+                      key={member.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => void openMemberProfile(member.id)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { void openMemberProfile(member.id); } }}
+                      className={`flex w-full items-center gap-2.5 rounded-[0.85rem] px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] cursor-pointer transition-all duration-150 active:scale-[0.985] active:bg-amber-50/70 select-none ${
+                        openingMemberProfileId === member.id
+                          ? "bg-amber-50/90 ring-2 ring-[#c08200]/40 shadow-[0_4px_12px_rgba(192,130,0,0.15)]"
+                          : "bg-white/90 hover:bg-white"
+                      }`}
+                    >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
                         {member.profile_photo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -3263,17 +3302,28 @@ export function MemberDashboardScreen({
                       {canEditMembers ? (
                         <button
                           type="button"
+                          disabled={isEditMemberLoading || openingEditMemberId !== null}
                           onClick={(e) => { e.stopPropagation(); void openEditMemberFor(member.id); }}
-                          className="shrink-0 rounded-full border border-[#c8e4cf] bg-[#eef8f0] px-2.5 py-1 text-[0.58rem] font-bold text-[#138122]"
+                          className="shrink-0 rounded-full border border-[#c8e4cf] bg-[#eef8f0] px-2.5 py-1 text-[0.58rem] font-bold text-[#138122] transition-transform active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                           aria-label={`Edit ${member.name}`}
                         >
                           <span className="flex items-center gap-1">
-                            <Icon className="h-3 w-3"><circle cx="12" cy="12" r="3" fill="currentColor" /><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m-13 0 2.1-2.1m8.6-8.6 2.1-2.1" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" /></Icon>
+                            {openingEditMemberId === member.id ? (
+                              <span className="inline-block h-3 w-3 animate-spin rounded-full border border-[#138122] border-t-transparent" />
+                            ) : (
+                              <Icon className="h-3 w-3"><circle cx="12" cy="12" r="3" fill="currentColor" /><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m-13 0 2.1-2.1m8.6-8.6 2.1-2.1" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" /></Icon>
+                            )}
                             Edit
                           </span>
                         </button>
                       ) : (
-                        <span className="text-[#111111]"><ChevronIcon /></span>
+                        <span className="text-[#111111]">
+                          {openingMemberProfileId === member.id ? (
+                            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#cf8c00] border-t-transparent" />
+                          ) : (
+                            <ChevronIcon />
+                          )}
+                        </span>
                       )}
                     </div>
                   );
@@ -3399,7 +3449,18 @@ export function MemberDashboardScreen({
                   const groupDetails = memberGroupDetailsForMember(member, memberDisplayGroups);
                   const duesPaid = member.dues_status.startsWith("Paid");
                   return (
-                    <div key={member.id} role="button" tabIndex={0} onClick={() => void openMemberProfile(member.id)} onKeyDown={(e) => { if (e.key === "Enter") { void openMemberProfile(member.id); } }} className="flex w-full items-center gap-2.5 rounded-[0.85rem] bg-white/90 px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] cursor-pointer">
+                    <div
+                      key={member.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => void openMemberProfile(member.id)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { void openMemberProfile(member.id); } }}
+                      className={`flex w-full items-center gap-2.5 rounded-[0.85rem] px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] cursor-pointer transition-all duration-150 active:scale-[0.985] active:bg-amber-50/70 select-none ${
+                        openingMemberProfileId === member.id
+                          ? "bg-amber-50/90 ring-2 ring-[#c08200]/40 shadow-[0_4px_12px_rgba(192,130,0,0.15)]"
+                          : "bg-white/90 hover:bg-white"
+                      }`}
+                    >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
                         {member.profile_photo_url ? (
                           <img src={member.profile_photo_url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
@@ -3415,9 +3476,13 @@ export function MemberDashboardScreen({
                           <span className="truncate">{groupDetails.label}</span>
                         </span>
                       </span>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[0.55rem] font-bold ${duesPaid ? "bg-[#eef8f0] text-[#6e9a1d]" : "bg-[#fff7f7] text-[#d31313]"}`}>
-                        {duesPaid ? "Paid" : "Unpaid"}
-                      </span>
+                      {openingMemberProfileId === member.id ? (
+                        <span className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#cf8c00] border-t-transparent" />
+                      ) : (
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[0.55rem] font-bold ${duesPaid ? "bg-[#eef8f0] text-[#6e9a1d]" : "bg-[#fff7f7] text-[#d31313]"}`}>
+                          {duesPaid ? "Paid" : "Unpaid"}
+                        </span>
+                      )}
                     </div>
                   );
                 })

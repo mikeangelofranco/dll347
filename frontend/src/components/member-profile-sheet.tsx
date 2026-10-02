@@ -235,12 +235,12 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
       <section className="max-h-[88%] w-full overflow-hidden rounded-t-[1.25rem] bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.22)] member-sheet-panel-enter">
         <div className="mx-auto h-1 w-9 rounded-full bg-[#9b9b9b]" />
         <div className="mt-4 flex items-center justify-between">
-          <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center text-[#111111]" aria-label="Close member profile">
+          <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center text-[#111111] transition-transform active:scale-90" aria-label="Close member profile">
             <CloseIcon />
           </button>
           <h2 className="text-[1rem] font-bold tracking-[-0.035em]">Member Profile</h2>
           {canEditMembers && profile ? (
-            <button type="button" onClick={() => onEdit?.(profile.id)} className="rounded-full border border-[#c8e4cf] bg-[#eef8f0] px-2.5 py-1 text-[0.58rem] font-bold text-[#138122]" aria-label="Edit member">
+            <button type="button" onClick={() => onEdit?.(profile.id)} className="rounded-full border border-[#c8e4cf] bg-[#eef8f0] px-2.5 py-1 text-[0.58rem] font-bold text-[#138122] transition-transform active:scale-95" aria-label="Edit member">
               <span className="flex items-center gap-1">
                 <Icon className="h-3 w-3"><circle cx="12" cy="12" r="3" fill="currentColor" /><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m-13 0 2.1-2.1m8.6-8.6 2.1-2.1" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" /></Icon>
                 Edit

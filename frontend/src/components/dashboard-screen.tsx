@@ -858,6 +858,7 @@ export function DashboardScreen() {
   const [selectedMemberProfile, setSelectedMemberProfile] = useState<MemberFullProfile | null>(null);
   const [isSelectedMemberProfileLoading, setIsSelectedMemberProfileLoading] = useState(false);
   const [selectedMemberProfileError, setSelectedMemberProfileError] = useState("");
+  const [openingMemberProfileId, setOpeningMemberProfileId] = useState<number | null>(null);
   const [nextActivity, setNextActivity] = useState<LodgeActivity | null>(null);
   const [isNextActivityLoading, setIsNextActivityLoading] = useState(true);
   const [nextActivityError, setNextActivityError] = useState("");
@@ -1095,20 +1096,25 @@ export function DashboardScreen() {
   }
 
   async function openMemberProfile(memberId: number) {
+    if (isSelectedMemberProfileLoading || openingMemberProfileId !== null) {
+      return;
+    }
     trackUserAction(activeView === "dues" ? "Dues" : "Members", "View Member Profile");
+    setOpeningMemberProfileId(memberId);
     setSelectedMemberProfile(null);
     setSelectedMemberProfileError("");
     setIsSelectedMemberProfileLoading(true);
     try {
       const [profileData] = await Promise.all([
         getMemberProfile(memberId),
-        minimumLoadingDelay(),
+        minimumLoadingDelay(150),
       ]);
       setSelectedMemberProfile(profileData);
     } catch (error) {
       setSelectedMemberProfileError(error instanceof Error ? error.message : "Unable to load this member profile.");
     } finally {
       setIsSelectedMemberProfileLoading(false);
+      setOpeningMemberProfileId(null);
     }
   }
 
@@ -1116,6 +1122,7 @@ export function DashboardScreen() {
     setSelectedMemberProfile(null);
     setSelectedMemberProfileError("");
     setIsSelectedMemberProfileLoading(false);
+    setOpeningMemberProfileId(null);
   }
 
   function closeSheet(name: SecretarySheetName) {
@@ -1321,7 +1328,17 @@ export function DashboardScreen() {
                 memberList.map((member) => {
                   const groupDetails = memberGroupDetailsForMember(member, memberDisplayGroups);
                   return (
-                    <button key={member.id} type="button" onClick={() => void openMemberProfile(member.id)} className="flex w-full items-center gap-2.5 rounded-[0.85rem] bg-white/90 px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)]">
+                    <button
+                      key={member.id}
+                      type="button"
+                      disabled={isSelectedMemberProfileLoading}
+                      onClick={() => void openMemberProfile(member.id)}
+                      className={`flex w-full items-center gap-2.5 rounded-[0.85rem] px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] transition-all duration-150 active:scale-[0.985] active:bg-amber-50/70 select-none ${
+                        openingMemberProfileId === member.id
+                          ? "bg-amber-50/90 ring-2 ring-[#c08200]/40 shadow-[0_4px_12px_rgba(192,130,0,0.15)]"
+                          : "bg-white/90 hover:bg-white"
+                      }`}
+                    >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
                         {member.profile_photo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -1338,7 +1355,13 @@ export function DashboardScreen() {
                           <span className="truncate">{groupDetails.label}</span>
                         </span>
                       </span>
-                      <span className="text-[#111111]"><ChevronIcon /></span>
+                      <span className="text-[#111111]">
+                        {openingMemberProfileId === member.id ? (
+                          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#cf8c00] border-t-transparent" />
+                        ) : (
+                          <ChevronIcon />
+                        )}
+                      </span>
                     </button>
                   );
                 })
@@ -1453,7 +1476,17 @@ export function DashboardScreen() {
                   const groupDetails = memberGroupDetailsForMember(member, memberDisplayGroups);
                   const duesPaid = member.dues_status.startsWith("Paid");
                   return (
-                    <button key={member.id} type="button" onClick={() => void openMemberProfile(member.id)} className="flex w-full items-center gap-2.5 rounded-[0.85rem] bg-white/90 px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)]">
+                    <button
+                      key={member.id}
+                      type="button"
+                      disabled={isSelectedMemberProfileLoading}
+                      onClick={() => void openMemberProfile(member.id)}
+                      className={`flex w-full items-center gap-2.5 rounded-[0.85rem] px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] transition-all duration-150 active:scale-[0.985] active:bg-amber-50/70 select-none ${
+                        openingMemberProfileId === member.id
+                          ? "bg-amber-50/90 ring-2 ring-[#c08200]/40 shadow-[0_4px_12px_rgba(192,130,0,0.15)]"
+                          : "bg-white/90 hover:bg-white"
+                      }`}
+                    >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(145deg,#20aa38,#008a1f)] text-[0.76rem] font-bold text-white shadow-[0_8px_16px_rgba(0,128,32,0.16)]">
                         {member.profile_photo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -1470,9 +1503,13 @@ export function DashboardScreen() {
                           <span className="truncate">{groupDetails.label}</span>
                         </span>
                       </span>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[0.55rem] font-bold ${duesPaid ? "bg-[#eef8f0] text-[#6e9a1d]" : "bg-[#fff7f7] text-[#d31313]"}`}>
-                        {duesPaid ? "Paid" : "Unpaid"}
-                      </span>
+                      {openingMemberProfileId === member.id ? (
+                        <span className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#cf8c00] border-t-transparent" />
+                      ) : (
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[0.55rem] font-bold ${duesPaid ? "bg-[#eef8f0] text-[#6e9a1d]" : "bg-[#fff7f7] text-[#d31313]"}`}>
+                          {duesPaid ? "Paid" : "Unpaid"}
+                        </span>
+                      )}
                     </button>
                   );
                 })
