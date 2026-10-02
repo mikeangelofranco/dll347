@@ -27,7 +27,20 @@ from .excel_members import (
     sheet_columns,
     update_existing_members_from_workbook,
 )
-from .models import AuditLog, DashboardCardVisibility, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PersonalInformationVisibility, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
+from .models import (
+    ArchivedMemberRecord,
+    AuditLog,
+    DashboardCardVisibility,
+    LodgeActivity,
+    LodgeDocument,
+    MemberDatabaseRecord,
+    MemberPositionHeld,
+    MembersWorkbookImport,
+    PersonalInformationVisibility,
+    PreidentifiedEmail,
+    ToolAccessLog,
+    TreasurerReportSummary,
+)
 from .views import growth_percent, was_good_standing_member_by_year
 
 
@@ -1436,6 +1449,60 @@ class AuthApiTests(TestCase):
         self.assertEqual(existing.profile_photo.name, "member-profile-photos/existing.jpg")
         self.assertEqual(existing.default_profile_photo.name, "member-default-profile-photos/existing.png")
         self.assertEqual(position.member_record_id, existing.id)
+
+    def test_unmatched_petitioner_is_archived_and_row_collision_is_prevented(self):
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="archive-test.xlsx",
+            file_sha256="a" * 64,
+        )
+        old_petitioner = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=165,
+            member_number="50",
+            name="Mr. Obsolete Petitioner",
+            email="obsolete@example.com",
+            section="PETITIONER - ACTIVE",
+        )
+        existing_member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=172,
+            member_number="12",
+            name="Brother Existing",
+            email="existing@dll347.org",
+            section="MASTER MASONS - ACTIVE",
+        )
+
+        incoming_records = [
+            MemberDatabaseRecord(
+                source_row=165,
+                member_number="12",
+                name="Brother Existing",
+                email="existing@dll347.org",
+                section="MASTER MASONS - ACTIVE",
+            ),
+        ]
+
+        summary = {"DLL 347 Members Database": {"records": 1, "columns": 207}}
+        with tempfile.NamedTemporaryFile(suffix=".xlsx") as workbook_file:
+            workbook_file.write(b"archive test bytes")
+            workbook_file.flush()
+            with patch(
+                "api.excel_members.parsed_member_records_from_workbook",
+                return_value=(incoming_records, summary),
+            ):
+                result = update_existing_members_from_workbook(workbook_file.name)
+
+        self.assertEqual(result.updated_count, 1)
+        existing_member.refresh_from_db()
+        self.assertEqual(existing_member.source_row, 165)
+
+        self.assertFalse(MemberDatabaseRecord.objects.filter(pk=old_petitioner.pk).exists())
+
+        archived = ArchivedMemberRecord.objects.get(name="Mr. Obsolete Petitioner")
+        self.assertEqual(archived.original_member_id, old_petitioner.pk)
+        self.assertEqual(archived.email, "obsolete@example.com")
+        self.assertEqual(archived.section, "PETITIONER - ACTIVE")
+        self.assertEqual(archived.source_row, 165)
 
     def test_member_list_includes_test_records_and_excludes_trestle_board(self):
         self.client.force_login(self.user)

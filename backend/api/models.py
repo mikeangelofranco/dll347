@@ -658,3 +658,59 @@ class TreasurerReportSummary(models.Model):
         if self.report_month and self.report_year:
             return f"Treasurer Report {self.report_month}/{self.report_year}"
         return f"Treasurer Report #{self.pk}"
+
+
+class ArchivedMemberRecord(models.Model):
+    original_member_id = models.IntegerField(null=True, blank=True)
+    workbook_import = models.ForeignKey(
+        MembersWorkbookImport,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="archived_member_records",
+    )
+    source_row = models.PositiveIntegerField(null=True, blank=True)
+    archive_reason = models.CharField(
+        max_length=255,
+        default="Petitioner removed or not present in updated workbook",
+    )
+    archived_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    section = models.CharField(max_length=150, blank=True)
+    member_number = models.CharField(max_length=50, blank=True)
+    name = models.CharField(max_length=255)
+    glp_id_number = models.CharField(max_length=100, blank=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    initiation_date = models.DateField(null=True, blank=True)
+    passing_date = models.DateField(null=True, blank=True)
+    raising_date = models.DateField(null=True, blank=True)
+    proficiency_date = models.DateField(null=True, blank=True)
+    date_presented = models.DateField(null=True, blank=True)
+    date_balloted = models.DateField(null=True, blank=True)
+    suspension = models.CharField(max_length=100, blank=True)
+    restored = models.CharField(max_length=100, blank=True)
+    demit = models.CharField(max_length=100, blank=True)
+    lml = models.CharField(max_length=100, blank=True)
+    dual_plural_honorary_date = models.CharField(max_length=150, blank=True)
+    address = models.TextField(blank=True)
+    telephone = models.CharField(max_length=100, blank=True)
+    email = models.CharField(max_length=255, blank=True)
+    profile_photo = models.CharField(max_length=255, blank=True)
+    default_profile_photo = models.CharField(max_length=255, blank=True)
+    appendant_bodies = models.JSONField(default=dict)
+    blood_type = models.CharField(max_length=30, blank=True)
+    widow_or_sister = models.CharField(max_length=255, blank=True)
+    widow_or_sister_date_of_birth = models.DateField(null=True, blank=True)
+    meeting_attendance = models.JSONField(default=dict)
+    monthly_attendance = models.JSONField(default=dict)
+    annual_dues = models.JSONField(default=dict)
+    raw_cells = models.JSONField(default=dict)
+    record_created_at = models.DateTimeField(null=True, blank=True)
+    record_updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "dll347_archived_member_records"
+        ordering = ["-archived_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"{self.name} (Archived: {self.archive_reason})"

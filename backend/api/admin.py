@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from .models import (
     Account,
+    ArchivedMemberRecord,
     AuditLog,
     BallotingCoinRecord,
     DashboardCardVisibility,
@@ -358,4 +359,17 @@ class PasswordResetTokenAdmin(admin.ModelAdmin):
         return False
 
 
-# Register your models here.
+@admin.register(ArchivedMemberRecord)
+class ArchivedMemberRecordAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "section",
+        "email",
+        "archived_at",
+        "archive_reason",
+        "original_member_id",
+        "source_row",
+    )
+    list_filter = ("section", "archived_at")
+    search_fields = ("name", "email", "glp_id_number")
+    readonly_fields = [f.name for f in ArchivedMemberRecord._meta.fields]

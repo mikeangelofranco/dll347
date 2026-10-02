@@ -16,6 +16,7 @@ from django.db import transaction
 
 from .models import (
     Account,
+    ArchivedMemberRecord,
     BallotingCoinRecord,
     LodgeVisitorRecord,
     MemberDatabaseRecord,
@@ -832,18 +833,89 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
                 setattr(existing, field, getattr(incoming, field))
             updated_records.append(existing)
 
-        if updated_records:
-            # Row numbers are workbook locations, not stable member identity.
-            # Move matched records out of the workbook's row range first so
-            # inserts and row shifts cannot trip the unique source_row index.
-            highest_source_row = max(
-                [record.source_row for record in existing_records]
-                + [record.source_row for record in incoming_records]
-            )
-            for offset, record in enumerate(updated_records, start=1):
-                record.source_row = highest_source_row + offset
-            MemberDatabaseRecord.objects.bulk_update(updated_records, ["source_row"])
+        # Archive obsolete petitioners so their data is fully preserved
+        existing_petitioners = {
+            record
+            for record in existing_records
+            if is_petitioner_section(record.section)
+        }
+        petitioners_to_archive = [
+            record for record in existing_petitioners
+            if record.pk not in matched_db_ids
+        ]
+        petitioner_archive_ids = {record.pk for record in petitioners_to_archive}
 
+        if petitioners_to_archive:
+            archived_objects = [
+                ArchivedMemberRecord(
+                    original_member_id=record.pk,
+                    workbook_import=workbook_import,
+                    source_row=record.source_row,
+                    archive_reason="Petitioner removed or not present in updated workbook",
+                    section=record.section,
+                    member_number=record.member_number,
+                    name=record.name,
+                    glp_id_number=record.glp_id_number,
+                    date_of_birth=record.date_of_birth,
+                    initiation_date=record.initiation_date,
+                    passing_date=record.passing_date,
+                    raising_date=record.raising_date,
+                    proficiency_date=record.proficiency_date,
+                    date_presented=record.date_presented,
+                    date_balloted=record.date_balloted,
+                    suspension=record.suspension,
+                    restored=record.restored,
+                    demit=record.demit,
+                    lml=record.lml,
+                    dual_plural_honorary_date=record.dual_plural_honorary_date,
+                    address=record.address,
+                    telephone=record.telephone,
+                    email=record.email,
+                    profile_photo=str(record.profile_photo) if record.profile_photo else "",
+                    default_profile_photo=str(record.default_profile_photo) if record.default_profile_photo else "",
+                    appendant_bodies=record.appendant_bodies,
+                    blood_type=record.blood_type,
+                    widow_or_sister=record.widow_or_sister,
+                    widow_or_sister_date_of_birth=record.widow_or_sister_date_of_birth,
+                    meeting_attendance=record.meeting_attendance,
+                    monthly_attendance=record.monthly_attendance,
+                    annual_dues=record.annual_dues,
+                    raw_cells=record.raw_cells,
+                    record_created_at=record.created_at,
+                    record_updated_at=record.updated_at,
+                )
+                for record in petitioners_to_archive
+            ]
+            ArchivedMemberRecord.objects.bulk_create(archived_objects)
+            MemberDatabaseRecord.objects.filter(pk__in=petitioner_archive_ids).delete()
+
+        remaining_existing = [
+            record for record in existing_records
+            if record.pk not in petitioner_archive_ids
+        ]
+
+        # Shift all remaining records out of the incoming row range so
+        # inserts and row shifts cannot trip the unique source_row index.
+        highest_source_row = max(
+            [record.source_row for record in existing_records]
+            + [record.source_row for record in incoming_records]
+        )
+        for offset, record in enumerate(remaining_existing, start=1):
+            record.source_row = highest_source_row + offset
+        if remaining_existing:
+            MemberDatabaseRecord.objects.bulk_update(remaining_existing, ["source_row"])
+
+        # Any unmatched non-petitioners (e.g. honorary/suspended members not in sheet)
+        # stay in the database, but are given clean row numbers beyond the active sheet.
+        max_incoming_row = max((record.source_row for record in incoming_records), default=0)
+        unmatched_kept = [record for record in remaining_existing if record.pk not in matched_db_ids]
+        for offset, record in enumerate(unmatched_kept, start=1):
+            record.source_row = max_incoming_row + 1000 + offset
+        if unmatched_kept:
+            MemberDatabaseRecord.objects.bulk_update(unmatched_kept, ["source_row"])
+
+        # Assign final row numbers to all matched updated records
+        if updated_records:
             for record in updated_records:
                 record.source_row = final_source_rows[record.pk]
             MemberDatabaseRecord.objects.bulk_update(
@@ -853,19 +925,6 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
 
         if created_records:
             MemberDatabaseRecord.objects.bulk_create(created_records)
-
-        existing_petitioners = {
-            record
-            for record in existing_records
-            if is_petitioner_section(record.section)
-        }
-        petitioners_to_delete = [
-            record for record in existing_petitioners
-            if record.pk not in matched_db_ids
-        ]
-        if petitioners_to_delete:
-            petitioner_ids = [record.pk for record in petitioners_to_delete]
-            MemberDatabaseRecord.objects.filter(pk__in=petitioner_ids).delete()
 
         _sync_member_accounts([*updated_records, *created_records], old_emails)
 
