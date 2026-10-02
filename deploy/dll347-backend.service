@@ -7,7 +7,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/srv/dll347/backend
 EnvironmentFile=/srv/dll347/backend/.env
-ExecStart=/srv/dll347/backend/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8001 --workers 3
+ExecStart=/srv/dll347/backend/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8001 --workers 4 --threads 4
 Restart=always
 RestartSec=3
 
