@@ -3740,7 +3740,7 @@ export function MemberDashboardScreen({
             <h1 className="text-[0.94rem] font-bold leading-[1.15] tracking-[-0.045em] sm:text-[1.08rem]">
               {greeting},
               <br />
-              Brother <span aria-hidden="true">👋</span>
+              Brother
             </h1>
           </div>
           <button type="button" onClick={() => void onLogout()} className="mt-1.5 shrink-0 rounded-full border border-[#edcccc] bg-white/75 px-3 py-1.5 text-xs font-semibold text-[#c90000] shadow-[0_5px_12px_rgba(60,40,20,0.04)] sm:px-4 sm:py-2 sm:text-sm">

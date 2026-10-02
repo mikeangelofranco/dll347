@@ -1555,7 +1555,7 @@ export function DashboardScreen() {
               >
                 {greeting},
                 <br />
-                Brother 👋
+                Brother
               </h1>
             </div>
           </div>

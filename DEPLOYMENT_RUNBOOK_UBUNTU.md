@@ -166,6 +166,28 @@ Important:
 - In production, this should stay relative as `/api`
 - Do not set this to localhost or an IP for browser use
 
+## App Version Bumping (Every Deployment)
+
+Every production deployment should update the application version so that PWA caches bust properly and client deployments can be verified.
+
+The version is tracked in:
+- `VERSION` (root file)
+- `frontend/package.json` & `frontend/package-lock.json`
+- `frontend/public/version.json` (published for production health / verification)
+
+To bump the version before deployment:
+```powershell
+python scripts/bump_version.py
+```
+Or specify bump type (`patch`, `minor`, `major`):
+```powershell
+python scripts/bump_version.py --type patch
+```
+To check current version:
+```powershell
+python scripts/bump_version.py --check
+```
+
 ## Local Build
 
 Create separate deploy zips for frontend and backend.
@@ -184,7 +206,7 @@ Use the checked-in build script:
 
 ### Frontend
 ```powershell
-python scripts/make_deploy_zip.py --target frontend --output "C:\Users\Dell Latitude 5350\OneDrive\Desktop\build\dll347_frontend_build.zip"
+python scripts/make_deploy_zip.py --target frontend --bump-version --output "C:\Users\Dell Latitude 5350\OneDrive\Desktop\build\dll347_frontend_build.zip"
 ```
 
 ### Backend
@@ -381,6 +403,11 @@ Expected: all `active`
 ### Frontend
 ```bash
 curl -I https://dll347.org/
+```
+
+### Deployed App Version
+```bash
+curl https://dll347.org/version.json
 ```
 
 ### API through public domain

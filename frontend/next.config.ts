@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 import withPWAInit from "next-pwa";
 
+import packageJson from "./package.json";
+
 const withPWA = withPWAInit({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
@@ -10,6 +12,9 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  env: {
+    NEXT_PUBLIC_APP_VERSION: packageJson.version,
+  },
   allowedDevOrigins: ["192.168.31.28", "127.0.0.1", "localhost"],
   images: {
     formats: ["image/webp"],

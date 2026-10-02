@@ -689,7 +689,7 @@ export function DocumentsScreen({ onLogout, onNavigate, onMembersDataUploaded }:
             <h1 className="min-w-0 pt-1 font-[family:var(--font-body-sans)] text-[1.1rem] font-extrabold leading-[1.12] tracking-[-0.05em]">
               {greeting},
               <br />
-              Brother 👋
+              Brother
             </h1>
           </div>
           <button type="button" onClick={() => void onLogout()} className="mt-2 shrink-0 rounded-full border border-[#f2d7d7] bg-white/78 px-3.5 py-2 text-[0.72rem] font-semibold leading-none text-[#c10000] shadow-[0_6px_16px_rgba(120,90,40,0.05)]">

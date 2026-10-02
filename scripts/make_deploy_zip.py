@@ -83,7 +83,16 @@ def main() -> None:
         required=True,
         help="Output zip path.",
     )
+    parser.add_argument(
+        "--bump-version",
+        action="store_true",
+        help="Automatically bump the app version before packaging.",
+    )
     args = parser.parse_args()
+
+    if args.bump_version:
+        from bump_version import bump_version
+        bump_version()
 
     build_zip(args.target, Path(args.output).expanduser().resolve())
 

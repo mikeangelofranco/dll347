@@ -1629,11 +1629,41 @@ class AuthApiTests(TestCase):
             payload["attendance"],
             {"average_count": 1, "total_count": 3, "meeting_count": 2, "percent": 33},
         )
-        self.assertEqual(
-            payload["dues_collection"],
-            {"paid_count": 2, "unpaid_count": 0, "total_count": 2, "percent": 100},
-        )
+        self.assertEqual(payload["dues_collection"], {"paid_count": 2, "unpaid_count": 0, "total_count": 2, "percent": 100})
         self.assertEqual(payload["overall_percent"], 58)
+
+    def test_secretary_dashboard_summary_includes_suspended_in_latest_attendance_count(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="suspended-attendance.xlsx",
+            file_sha256="f" * 64,
+        )
+        current_year = timezone.localdate().year
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=14001,
+            name="Active Member 1",
+            email="active1@dll347.org",
+            section="REGULAR",
+            monthly_attendance={f"{current_year} - WB Test / Oct": {"value": "a"}},
+            annual_dues={f"ANNUAL DUES / {current_year}": {"value": f"Jan {current_year}"}},
+        )
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=14002,
+            name="Suspended Member 1",
+            email="suspended1@dll347.org",
+            section="SUSPENDED",
+            monthly_attendance={f"{current_year} - WB Test / Oct": {"value": "a"}},
+            annual_dues={},
+        )
+
+        response = self.client.get(reverse("api:secretary-dashboard-summary"))
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["attendance"]["average_count"], 2)
+        self.assertEqual(payload["membership"]["active_count"], 1)
+        self.assertEqual(payload["dues_collection"]["total_count"], 1)
 
     def test_three_lights_can_load_secretary_dashboard_summary(self):
         three_lights_user = get_user_model().objects.create_user(

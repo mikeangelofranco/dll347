@@ -1587,8 +1587,17 @@ def secretary_dashboard_summary_view(request):
         and (not record.lml.strip() or record.lml.strip().upper() == "N/A")
     ]
 
+    attendance_eligible_records = [
+        record
+        for record in regular_members
+        if classify_member_group(record.section)
+        not in {"inactive_snpd_demit", "dropped_working_tools"}
+        or "SUSPENDED" in record.section.upper()
+        or "SNPD" in record.section.upper()
+    ]
+
     monthly_meeting_counts: dict[str, int] = {}
-    for record in attendance_members:
+    for record in attendance_eligible_records:
         for key, item in record.monthly_attendance.items():
             if key.startswith(f"{current_year} -") and json_cell_has_value(item):
                 monthly_meeting_counts[key] = monthly_meeting_counts.get(key, 0) + 1
