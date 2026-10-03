@@ -6,6 +6,7 @@ import { FormEvent, ReactNode, useEffect, useState } from "react";
 
 import {
   ApiError,
+  checkEmailChangeNotice,
   loginWithEmailPassword,
   requestPasswordReset,
   setupPassword,
@@ -18,6 +19,7 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 const INSTALL_PROMPT_DISMISSED_KEY = "dll347_install_prompt_dismissed_v1";
+const LAST_LOGIN_EMAIL_KEY = "dll347_last_login_email";
 
 function MailIcon() {
   return (
@@ -292,6 +294,97 @@ function StatusModal({
   );
 }
 
+function EmailChangeNoticeModal({
+  open,
+  newEmail,
+  onClose,
+}: {
+  open: boolean;
+  newEmail: string;
+  onClose: () => void;
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#2b160d]/45 px-5 backdrop-blur-[3px]">
+      <div className="relative w-full max-w-[21.5rem] rounded-[1.6rem] border border-[#f0d9b8] bg-[linear-gradient(180deg,rgba(255,251,245,0.99)_0%,rgba(252,246,238,0.99)_100%)] p-5 text-center shadow-[0_24px_60px_rgba(86,45,8,0.25)]">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close notice"
+          className="absolute right-3.5 top-3.5 flex h-8 w-8 items-center justify-center rounded-full text-[#8a7e75] transition-colors hover:bg-[#ebdcc9]/60 active:scale-95"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4.5 w-4.5">
+            <path
+              d="M18 6 6 18M6 6l12 12"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2.2"
+            />
+          </svg>
+        </button>
+
+        <div className="mx-auto flex h-13 w-13 items-center justify-center rounded-full bg-[radial-gradient(circle_at_30%_30%,#ffebad_0%,#e0a11a_55%,#b27705_100%)] text-white shadow-[0_8px_18px_rgba(176,128,16,0.22)]">
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6">
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            />
+            <path
+              d="M12 10.5v5.5"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="2.2"
+            />
+            <circle cx="12" cy="7.25" r="1.1" fill="currentColor" />
+          </svg>
+        </div>
+
+        <h3 className="mt-3.5 font-[family:var(--font-display-serif)] text-[1.4rem] font-bold leading-tight text-[#2a150d]">
+          Notice to Brethren
+        </h3>
+
+        <div className="mt-3 space-y-2 text-left text-[0.82rem] leading-5 text-[#5e5249]">
+          <p>
+            Brethren, please be informed that the Lodge Secretary has updated your registered email address. You may be logged out of the DLL347 App and will need to set up your account again using your new email address and the default password <strong className="font-bold text-[#8f1d1d] font-mono">dll347</strong>.
+          </p>
+          <p>
+            Should you need any assistance or further information, please feel free to reach out to the Lodge Secretary. Thank you.
+          </p>
+        </div>
+
+        {newEmail ? (
+          <div className="mt-3 rounded-[0.85rem] border border-[#ebd2aa] bg-[#fdf8f0] px-3.5 py-2 text-left">
+            <span className="block text-[0.65rem] font-semibold uppercase tracking-wider text-[#938070]">
+              New Registered Email
+            </span>
+            <span className="block break-all font-mono text-[0.82rem] font-bold text-[#2b160d]">
+              {newEmail}
+            </span>
+          </div>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-4.5 inline-flex h-10.5 w-full items-center justify-center rounded-full bg-[linear-gradient(180deg,#cb0000_0%,#b00000_100%)] px-5 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(176,0,0,0.18)] transition-all hover:brightness-105 active:scale-[0.99]"
+        >
+          Understood
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FieldShell({
   icon,
   rightSlot,
@@ -403,6 +496,12 @@ export function LoginScreen() {
   );
   const [isInstallPromptOpen, setIsInstallPromptOpen] = useState(false);
   const [isInstallPromptLoading, setIsInstallPromptLoading] = useState(false);
+  const [emailNotice, setEmailNotice] = useState<{
+    noticeId: number;
+    oldEmail: string;
+    newEmail: string;
+    message: string;
+  } | null>(null);
   const isIosInstallHint =
     typeof window !== "undefined" &&
     /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase()) &&
@@ -484,6 +583,59 @@ export function LoginScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    async function checkNotice() {
+      const lastEmail = window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY);
+      if (!lastEmail) {
+        return;
+      }
+
+      try {
+        const res = await checkEmailChangeNotice(lastEmail);
+        if (res.has_notice && res.notice_id) {
+          const dismissedKey = `dll347_email_notice_dismissed_${res.notice_id}`;
+          if (window.localStorage.getItem(dismissedKey) !== "1") {
+            setEmailNotice({
+              noticeId: res.notice_id,
+              oldEmail: res.old_email || lastEmail,
+              newEmail: res.new_email || "",
+              message: res.message || "",
+            });
+            if (res.new_email) {
+              setEmail(res.new_email);
+            }
+          }
+        }
+      } catch {
+        // Silently ignore network failure on background check
+      }
+    }
+
+    void checkNotice();
+  }, []);
+
+  function handleDismissEmailNotice() {
+    if (!emailNotice) {
+      return;
+    }
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(`dll347_email_notice_dismissed_${emailNotice.noticeId}`, "1");
+      if (emailNotice.newEmail) {
+        window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, emailNotice.newEmail.trim().toLowerCase());
+      } else {
+        window.localStorage.removeItem(LAST_LOGIN_EMAIL_KEY);
+      }
+    }
+    if (emailNotice.newEmail) {
+      setEmail(emailNotice.newEmail);
+    }
+    setEmailNotice(null);
+  }
+
   const isCompactHeight = viewportDensity !== "regular";
   const isTightHeight = viewportDensity === "tight";
 
@@ -510,6 +662,9 @@ export function LoginScreen() {
     try {
       if (mode === "login") {
         await loginWithEmailPassword(email, password);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, email.trim().toLowerCase());
+        }
         setPassword("");
         router.push("/dashboard");
       } else if (mode === "forgot-password") {
@@ -518,6 +673,9 @@ export function LoginScreen() {
         setIsResetLinkSent(true);
       } else {
         await setupPassword(email, password, newPassword, confirmPassword);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, email.trim().toLowerCase());
+        }
         setSuccessTitle("Password updated");
         setSuccessMessage("Your new password has been saved. You can now sign in normally.");
         setIsSuccessOpen(true);
@@ -592,6 +750,11 @@ export function LoginScreen() {
         title={successTitle}
         message={successMessage}
         onClose={() => setIsSuccessOpen(false)}
+      />
+      <EmailChangeNoticeModal
+        open={Boolean(emailNotice)}
+        newEmail={emailNotice?.newEmail ?? ""}
+        onClose={handleDismissEmailNotice}
       />
       {isTransitioning ? (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#faf7f2]/86 backdrop-blur-[2px]">

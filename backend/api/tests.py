@@ -28,6 +28,7 @@ from .excel_members import (
     update_existing_members_from_workbook,
 )
 from .models import (
+    ArchivedAccount,
     ArchivedMemberRecord,
     AuditLog,
     DashboardCardVisibility,
@@ -2618,3 +2619,92 @@ class PreidentifiedEmailAdminApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         record = PreidentifiedEmail.objects.get(email="pending@dll347.org")
         self.assertTrue(record.check_default_password("dll347"))
+
+
+class EmailChangeAndArchiveTests(TestCase):
+    def setUp(self):
+        self.User = get_user_model()
+        self.workbook = MembersWorkbookImport.objects.create(
+            filename="members.xlsx",
+            file_sha256="testsha256emailchange",
+            sheet_summaries={},
+        )
+        self.developer = self.User.objects.create_superuser(
+            email="developer@dll347.org",
+            password="DeveloperPass123!",
+        )
+        self.developer.can_edit_members = True
+        self.developer.save()
+
+        self.member = MemberDatabaseRecord.objects.create(
+            workbook_import=self.workbook,
+            source_row=2,
+            name="Brother Jose Rizal",
+            email="jose.rizal@oldemail.org",
+            section="REGULAR",
+            member_number="1896",
+            glp_id_number="GLP-1896",
+        )
+        self.member_account = self.User.objects.create_user(
+            email="jose.rizal@oldemail.org",
+            password="MemberPass123!",
+            role="member",
+        )
+
+    def test_member_change_email_archives_old_account_and_resets_login(self):
+        self.client.force_login(self.developer)
+
+        response = self.client.post(
+            reverse("api:member-change-email", kwargs={"member_id": self.member.id}),
+            {"new_email": "jose.rizal@newemail.org"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.email, "jose.rizal@newemail.org")
+
+        # Verify old account deleted
+        self.assertFalse(self.User.objects.filter(email="jose.rizal@oldemail.org").exists())
+
+        # Verify archived account record
+        archived = ArchivedAccount.objects.filter(old_email="jose.rizal@oldemail.org").first()
+        self.assertIsNotNone(archived)
+        self.assertEqual(archived.new_email, "jose.rizal@newemail.org")
+        self.assertEqual(archived.original_account_id, self.member_account.id)
+        self.assertEqual(archived.change_source, ArchivedAccount.ChangeSource.MEMBER_EDIT)
+
+        # Verify new preidentified email created with default password dll347
+        pre = PreidentifiedEmail.objects.filter(email="jose.rizal@newemail.org").first()
+        self.assertIsNotNone(pre)
+        self.assertTrue(pre.check_default_password("dll347"))
+
+    def test_auth_email_change_notice_endpoint(self):
+        # Create an archived account
+        ArchivedAccount.objects.create(
+            original_account_id=999,
+            old_email="changed@dll347.org",
+            new_email="updated@dll347.org",
+            change_source=ArchivedAccount.ChangeSource.MEMBER_EDIT,
+        )
+
+        # Query notice with changed email
+        response = self.client.get(
+            reverse("api:auth-email-change-notice"),
+            {"email": "changed@dll347.org"},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["has_notice"])
+        self.assertEqual(data["new_email"], "updated@dll347.org")
+        self.assertIn("Brethren, please be informed that the Lodge Secretary has updated your registered email address.", data["message"])
+        self.assertIn("dll347", data["message"])
+
+        # Query notice with unchanged/unknown email
+        resp_unknown = self.client.get(
+            reverse("api:auth-email-change-notice"),
+            {"email": "unknown@dll347.org"},
+        )
+        self.assertEqual(resp_unknown.status_code, 200)
+        self.assertFalse(resp_unknown.json()["has_notice"])
+

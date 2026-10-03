@@ -14,7 +14,10 @@ export default function Home() {
   useEffect(() => {
     async function resolveEntry() {
       try {
-        await getCurrentAccount();
+        const account = await getCurrentAccount();
+        if (account?.email && typeof window !== "undefined") {
+          window.localStorage.setItem("dll347_last_login_email", account.email.trim().toLowerCase());
+        }
         router.replace("/dashboard");
       } catch (error) {
         if (error instanceof ApiError && error.status === 403) {

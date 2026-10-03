@@ -9,7 +9,7 @@ import { PetitionerDashboardCard } from "@/components/petitioner-dashboard-card"
 import { PetitionerListScreen } from "@/components/petitioner-list-screen";
 import { timeBasedGreeting } from "@/lib/greeting";
 import { useIdleTimeout } from "@/lib/use-idle-timeout";
-import { ActivityScreen, activateMemberLogin, activatePetitionerLogin, createLodgeActivity, DashboardCardVisibility, defaultDashboardCardVisibility, deactivateMemberLogin, deactivatePetitionerLogin, deleteLodgeActivity, getEditableMemberProfile, getEditablePetitionerProfile, getManagedLodgeActivities, getMemberAccountStatus, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getPetitionerAccountStatus, getPetitionerList, getSecretaryDashboardSummary, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, PetitionerEditableProfile, PetitionerListItem, PetitionerProfileUpdatePayload, PetitionerStage, SecretaryDashboardSummaryResponse, trackScreenView, trackUserAction, updateMemberProfile, updatePetitionerProfile, uploadMemberProfilePhotoById, uploadPetitionerProfilePhotoById } from "@/lib/api";
+import { ActivityScreen, activateMemberLogin, activatePetitionerLogin, changeMemberEmail, createLodgeActivity, DashboardCardVisibility, defaultDashboardCardVisibility, deactivateMemberLogin, deactivatePetitionerLogin, deleteLodgeActivity, getEditableMemberProfile, getEditablePetitionerProfile, getManagedLodgeActivities, getMemberAccountStatus, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getPetitionerAccountStatus, getPetitionerList, getSecretaryDashboardSummary, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, PetitionerEditableProfile, PetitionerListItem, PetitionerProfileUpdatePayload, PetitionerStage, SecretaryDashboardSummaryResponse, trackScreenView, trackUserAction, updateMemberProfile, updatePetitionerProfile, uploadMemberProfilePhotoById, uploadPetitionerProfilePhotoById } from "@/lib/api";
 
 type MemberDashboardScreenProps = {
   profile: MemberDashboardProfile | null;
@@ -1413,6 +1413,10 @@ export function MemberDashboardScreen({
   const [editMemberFormError, setEditMemberFormError] = useState("");
   const [editMemberSuccessToast, setEditMemberSuccessToast] = useState("");
   const [isSavingMemberEdit, setIsSavingMemberEdit] = useState(false);
+  const [isChangeEmailModalOpen, setIsChangeEmailModalOpen] = useState(false);
+  const [changeEmailNewValue, setChangeEmailNewValue] = useState("");
+  const [changeEmailError, setChangeEmailError] = useState("");
+  const [isChangeEmailSubmitting, setIsChangeEmailSubmitting] = useState(false);
   const [workbookAddSheet, setWorkbookAddSheet] = useState<WorkbookAddSheetKind | null>(null);
   const [workbookAddYear, setWorkbookAddYear] = useState(currentYearString());
   const [workbookAddMeeting, setWorkbookAddMeeting] = useState(defaultWorkbookMeetingName);
@@ -1968,6 +1972,41 @@ export function MemberDashboardScreen({
       setEditMemberFormError(error instanceof Error ? error.message : `Unable to deactivate ${isPetitionerEdit ? "petitioner" : "member"} login.`);
     } finally {
       setIsAccountActionLoading(false);
+    }
+  }
+
+  async function handleChangeEmailSubmit() {
+    if (!selectedEditMember || isChangeEmailSubmitting) return;
+    const cleanNewEmail = changeEmailNewValue.trim().toLowerCase();
+    if (!cleanNewEmail || !cleanNewEmail.includes("@")) {
+      setChangeEmailError("Please enter a valid email address.");
+      return;
+    }
+    if (cleanNewEmail === (selectedEditMember.email ?? "").trim().toLowerCase()) {
+      setChangeEmailError("New email must be different from current email.");
+      return;
+    }
+
+    setIsChangeEmailSubmitting(true);
+    setChangeEmailError("");
+
+    try {
+      const response = await changeMemberEmail(selectedEditMember.id, cleanNewEmail, isPetitionerEdit);
+      setSelectedEditMember(response.member);
+      setEditMemberForm((prev) => prev ? { ...prev, email: cleanNewEmail } : prev);
+      setMemberAccountStatus({
+        status: "pending",
+        account_exists: false,
+        account_is_active: false,
+        preidentified_exists: true,
+        email: cleanNewEmail,
+      });
+      setIsChangeEmailModalOpen(false);
+      setEditMemberSuccessToast(response.message);
+    } catch (error) {
+      setChangeEmailError(error instanceof Error ? error.message : "Failed to change email address.");
+    } finally {
+      setIsChangeEmailSubmitting(false);
     }
   }
 
@@ -2626,15 +2665,31 @@ export function MemberDashboardScreen({
                       </div>
                     </div>
                     {memberAccountStatus !== null && memberAccountStatus.status !== "no_email" ? (
-                      memberAccountStatus.status === "activated" || memberAccountStatus.status === "pending" ? (
-                        <button type="button" onClick={() => void handleDeactivateLogin()} disabled={isAccountActionLoading} className="rounded-full border border-[#e8c0c0] px-3 py-1.5 text-[0.58rem] font-bold text-[#c90000] disabled:opacity-50">
-                          {isAccountActionLoading ? <ThemedLoader size="sm" /> : "Deactivate"}
-                        </button>
-                      ) : (
-                        <button type="button" onClick={() => void handleActivateLogin()} disabled={isAccountActionLoading} className="rounded-full border border-[#b8e3c2] bg-[#eef8f0] px-3 py-1.5 text-[0.58rem] font-bold text-[#138122] disabled:opacity-50">
-                          {isAccountActionLoading ? <ThemedLoader size="sm" /> : "Activate"}
-                        </button>
-                      )
+                      <div className="flex items-center gap-1.5">
+                        {memberAccountStatus.status === "activated" && memberAccountStatus.account_is_active ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setChangeEmailNewValue("");
+                              setChangeEmailError("");
+                              setIsChangeEmailModalOpen(true);
+                            }}
+                            disabled={isAccountActionLoading}
+                            className="rounded-full border border-[#e5b357] bg-[#fffaf0] px-3 py-1.5 text-[0.58rem] font-bold text-[#b57304] hover:bg-[#fff2d6] transition-colors disabled:opacity-50"
+                          >
+                            Change Email
+                          </button>
+                        ) : null}
+                        {memberAccountStatus.status === "activated" || memberAccountStatus.status === "pending" ? (
+                          <button type="button" onClick={() => void handleDeactivateLogin()} disabled={isAccountActionLoading} className="rounded-full border border-[#e8c0c0] px-3 py-1.5 text-[0.58rem] font-bold text-[#c90000] disabled:opacity-50">
+                            {isAccountActionLoading ? <ThemedLoader size="sm" /> : "Deactivate"}
+                          </button>
+                        ) : (
+                          <button type="button" onClick={() => void handleActivateLogin()} disabled={isAccountActionLoading} className="rounded-full border border-[#b8e3c2] bg-[#eef8f0] px-3 py-1.5 text-[0.58rem] font-bold text-[#138122] disabled:opacity-50">
+                            {isAccountActionLoading ? <ThemedLoader size="sm" /> : "Activate"}
+                          </button>
+                        )}
+                      </div>
                     ) : null}
                   </div>
                 </div>
@@ -2893,6 +2948,83 @@ export function MemberDashboardScreen({
                   <button type="button" disabled={isUploadingPhoto || !selectedEditMember} onClick={() => { if (selectedEditMember) { void saveProfilePhoto(selectedEditMember.id); } }} className="flex items-center justify-center rounded-full bg-[#d40000] px-4 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(208,0,0,0.18)] disabled:opacity-70">{isUploadingPhoto ? <ThemedLoader size="sm" /> : "Save photo"}</button>
                 </div>
               </section>
+            </div>
+          ) : null}
+
+          {isChangeEmailModalOpen && selectedEditMember ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2b160d]/40 px-4 backdrop-blur-[3px]">
+              <div className="w-full max-w-[21rem] rounded-[1.4rem] border border-[#f0d9b8] bg-[linear-gradient(180deg,#fffdfa_0%,#faf4eb_100%)] p-5 shadow-[0_24px_50px_rgba(86,45,8,0.22)]">
+                <div className="flex items-center justify-between border-b border-[#f0e2cc] pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#fcedd2] text-[#b57304]">
+                      <Icon className="h-4 w-4">
+                        <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </Icon>
+                    </div>
+                    <h3 className="text-[0.82rem] font-bold text-[#2a150d]">Change {isPetitionerEdit ? "Petitioner" : "Member"} Email</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsChangeEmailModalOpen(false)}
+                    className="flex h-6 w-6 items-center justify-center rounded-full text-[#9c8e82] hover:bg-[#f0e4d2]"
+                  >
+                    <Icon className="h-4 w-4"><path d="M18 6 6 18M6 6l12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></Icon>
+                  </button>
+                </div>
+
+                <div className="mt-3.5 space-y-3">
+                  <div className="rounded-[0.8rem] border border-[#f3dfb6] bg-[#fefaf0] p-2.5 text-[0.62rem] leading-4 text-[#7d6545]">
+                    Updating the email will archive the existing account, log out active sessions, and set the default password to <strong className="font-semibold text-[#8f1d1d] font-mono">dll347</strong>. The member will see a one-time notice next time they visit the app.
+                  </div>
+
+                  <div>
+                    <label className="text-[0.6rem] font-bold uppercase tracking-wider text-[#938b83]">Current Email</label>
+                    <div className="mt-1 rounded-[0.55rem] border border-[#e5ded6] bg-[#f5efe8] px-2.5 py-1.5 font-mono text-[0.68rem] text-[#6d635b]">
+                      {selectedEditMember.email || "No email"}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[0.6rem] font-bold uppercase tracking-wider text-[#938b83]">New Email Address</label>
+                    <input
+                      type="email"
+                      value={changeEmailNewValue}
+                      onChange={(e) => {
+                        setChangeEmailNewValue(e.target.value);
+                        setChangeEmailError("");
+                      }}
+                      placeholder="Enter new email address"
+                      className="mt-1 w-full rounded-[0.55rem] border border-[#dfd4c8] bg-white px-2.5 py-1.5 text-[0.72rem] text-[#2b160d] outline-none focus:border-[#d58d00]"
+                    />
+                  </div>
+
+                  {changeEmailError ? (
+                    <div className="rounded-[0.6rem] bg-[#fff0f0] border border-[#f5c6c6] px-2.5 py-1.5 text-[0.62rem] text-[#c90000]">
+                      {changeEmailError}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsChangeEmailModalOpen(false)}
+                      disabled={isChangeEmailSubmitting}
+                      className="rounded-full px-3 py-1.5 text-[0.62rem] font-bold text-[#7a6f66] hover:bg-[#ede5da] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleChangeEmailSubmit()}
+                      disabled={isChangeEmailSubmitting || !changeEmailNewValue.trim()}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-[linear-gradient(180deg,#cb0000_0%,#b00000_100%)] px-3.5 py-1.5 text-[0.62rem] font-bold text-white shadow-[0_4px_12px_rgba(176,0,0,0.2)] disabled:opacity-50"
+                    >
+                      {isChangeEmailSubmitting ? <ThemedLoader size="sm" /> : null}
+                      <span>Save New Email</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : null}
         </div>

@@ -20,7 +20,20 @@ from .email_service import EmailDeliveryError, send_password_reset_email
 from .document_extraction import extract_treasurer_report
 from .excel_members import MembersWorkbookFormatError, build_member_name_index, find_member_for_account, resolve_member_name_match, update_existing_members_from_workbook
 from .member_groups import member_display_group_from_section
-from .models import Account, AuditLog, LodgeActivity, LodgeDocument, MemberDatabaseRecord, MemberPositionHeld, MembersWorkbookImport, PreidentifiedEmail, ToolAccessLog, TreasurerReportSummary
+from .models import (
+    Account,
+    ArchivedAccount,
+    AuditLog,
+    LodgeActivity,
+    LodgeDocument,
+    MemberDatabaseRecord,
+    MemberPositionHeld,
+    MembersWorkbookImport,
+    PreidentifiedEmail,
+    ToolAccessLog,
+    TreasurerReportSummary,
+)
+from .account_services import archive_and_reset_member_account
 from .permissions import IsDeveloper
 from .serializers import (
     AccountSerializer,
@@ -575,6 +588,36 @@ def healthcheck(request):
 @permission_classes([AllowAny])
 def csrf_view(request):
     return Response({"message": "CSRF cookie set."}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def auth_email_change_notice_view(request):
+    raw_email = str(request.query_params.get("email", "")).strip().lower()
+    if not raw_email:
+        return Response({"has_notice": False})
+
+    notice = (
+        ArchivedAccount.objects.filter(old_email__iexact=raw_email)
+        .order_by("-archived_at")
+        .first()
+    )
+    if notice is None:
+        return Response({"has_notice": False})
+
+    return Response({
+        "has_notice": True,
+        "notice_id": notice.id,
+        "old_email": notice.old_email,
+        "new_email": notice.new_email,
+        "message": (
+            "Brethren, please be informed that the Lodge Secretary has updated your registered email address. "
+            "You may be logged out of the DLL347 App and will need to set up your account again using your "
+            "new email address and the default password **dll347**.\n\n"
+            "Should you need any assistance or further information, please feel free to reach out to the "
+            "Lodge Secretary. Thank you."
+        ),
+    })
 
 
 @api_view(["POST"])
@@ -1157,7 +1200,17 @@ def member_edit_profile_view(request, member_id: int):
         if changed_ad:
             changes["annual_dues"] = {"updated_keys": changed_ad}
 
+    old_email = (member.email or "").strip().lower()
     updated_member = serializer.save()
+    new_email = (updated_member.email or "").strip().lower()
+    if "email" in serializer.validated_data and new_email and new_email != old_email:
+        archive_and_reset_member_account(
+            old_email=old_email,
+            new_email=new_email,
+            member=updated_member,
+            change_source=ArchivedAccount.ChangeSource.MEMBER_EDIT,
+        )
+
     create_audit_log(
         AuditLog.Action.MEMBER_UPDATED,
         actor=request.user,
@@ -1255,7 +1308,17 @@ def petitioner_edit_profile_view(request, member_id: int):
             if changed_keys:
                 changes[field_name] = {"updated_keys": changed_keys}
 
+    old_email = (petitioner.email or "").strip().lower()
     updated_petitioner = serializer.save()
+    new_email = (updated_petitioner.email or "").strip().lower()
+    if "email" in serializer.validated_data and new_email and new_email != old_email:
+        archive_and_reset_member_account(
+            old_email=old_email,
+            new_email=new_email,
+            member=updated_petitioner,
+            change_source=ArchivedAccount.ChangeSource.MEMBER_EDIT,
+        )
+
     create_audit_log(
         AuditLog.Action.PETITIONER_UPDATED,
         actor=request.user,
@@ -1398,6 +1461,107 @@ def member_deactivate_login_view(request, member_id: int):
         account.save(update_fields=["is_active"])
     PreidentifiedEmail.objects.filter(email__iexact=email).delete()
     return Response({"status": "deactivated", "message": "Member login deactivated."})
+
+
+def _handle_change_email(request, member: MemberDatabaseRecord, is_petitioner: bool):
+    new_email = str(request.data.get("new_email", "")).strip().lower()
+    if not new_email or "@" not in new_email:
+        return Response(
+            {"code": "INVALID_EMAIL", "message": "Please enter a valid email address."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    old_email = (member.email or "").strip().lower()
+    if new_email == old_email:
+        return Response(
+            {"code": "SAME_EMAIL", "message": "New email must be different from current email."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    old_account = Account.objects.filter(email__iexact=old_email).first() if old_email else None
+    existing_acc = Account.objects.filter(email__iexact=new_email)
+    if old_account:
+        existing_acc = existing_acc.exclude(pk=old_account.pk)
+    if existing_acc.exists():
+        return Response(
+            {"code": "EMAIL_TAKEN", "message": "This email address is already in use by another account."},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    existing_mem = MemberDatabaseRecord.objects.filter(email__iexact=new_email).exclude(pk=member.pk)
+    if existing_mem.exists():
+        return Response(
+            {"code": "EMAIL_TAKEN", "message": "This email address is already registered to another member."},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    with transaction.atomic():
+        member.email = new_email
+        member.save(update_fields=["email", "updated_at"])
+
+        archive_and_reset_member_account(
+            old_email=old_email,
+            new_email=new_email,
+            member=member,
+            change_source=ArchivedAccount.ChangeSource.MEMBER_EDIT,
+        )
+
+        create_audit_log(
+            AuditLog.Action.PETITIONER_UPDATED if is_petitioner else AuditLog.Action.MEMBER_UPDATED,
+            actor=request.user,
+            target_model="MemberDatabaseRecord",
+            target_id=member.pk,
+            changes={"email": {"old": old_email, "new": new_email}},
+            **audit_from_request(request),
+        )
+
+    serializer_class = PetitionerEditableProfileSerializer if is_petitioner else MemberEditableProfileSerializer
+    return Response(
+        {
+            "message": f"Email updated to {new_email}. Member login reset for initial setup.",
+            "member": serializer_class(member, context={"request": request}).data,
+            "email": new_email,
+            "status": "pending",
+            "account_exists": False,
+            "account_is_active": False,
+            "preidentified_exists": True,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def member_change_email_view(request, member_id: int):
+    if not user_can_edit_members(request.user):
+        return Response(
+            {"code": "MEMBER_EDIT_FORBIDDEN", "message": "You do not have permission to edit member records."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    member = regular_member_records().filter(pk=member_id).first()
+    if member is None:
+        return Response(
+            {"code": "MEMBER_PROFILE_NOT_FOUND", "message": "We could not find that member profile."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    return _handle_change_email(request, member, is_petitioner=False)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def petitioner_change_email_view(request, member_id: int):
+    if not user_can_edit_petitioners(request.user):
+        return Response(
+            {"code": "PETITIONER_EDIT_FORBIDDEN", "message": "You do not have permission to edit petitioner records."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    petitioner = petitioner_records().filter(pk=member_id).first()
+    if petitioner is None:
+        return Response(
+            {"code": "PETITIONER_PROFILE_NOT_FOUND", "message": "We could not find that petitioner profile."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    return _handle_change_email(request, petitioner, is_petitioner=True)
 
 
 @api_view(["GET"])

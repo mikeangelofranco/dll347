@@ -16,6 +16,7 @@ from django.db import transaction
 
 from .models import (
     Account,
+    ArchivedAccount,
     ArchivedMemberRecord,
     BallotingCoinRecord,
     LodgeVisitorRecord,
@@ -23,6 +24,8 @@ from .models import (
     MembersWorkbookImport,
     MembersWorkbookSheetSchema,
 )
+from .account_services import archive_and_reset_member_account
+
 
 
 MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
@@ -644,52 +647,22 @@ def find_member_for_account(account: Account) -> MemberDatabaseRecord | None:
 
 
 def _sync_member_accounts(updated_records: list[MemberDatabaseRecord], old_emails: dict[int, str]) -> None:
-    accounts_by_old_email: dict[str, Account] = {}
-    old_emails_set = {old_email for old_email in old_emails.values() if old_email}
-    if old_emails_set:
-        for account in Account.objects.all():
-            key = account.email.strip().casefold()
-            if key in old_emails_set:
-                accounts_by_old_email[key] = account
-
-    accounts_by_new_email: dict[str, Account] = {}
-    new_emails_set = {record.email.strip().casefold() for record in updated_records if record.email.strip()}
-    if new_emails_set:
-        for account in Account.objects.all():
-            key = account.email.strip().casefold()
-            if key in new_emails_set:
-                accounts_by_new_email[key] = account
-
-    accounts_to_update: list[Account] = []
-
     for record in updated_records:
         new_email = record.email.strip().casefold() if record.email else ""
         old_email = old_emails.get(record.pk, "")
 
-        if not new_email:
-            continue
-        if new_email == old_email:
+        if not new_email or new_email == old_email:
             continue
 
-        account = accounts_by_old_email.get(old_email) if old_email else None
-
-        if account is None:
-            continue
-
-        if new_email in accounts_by_new_email:
-            if account.is_active:
-                account.is_active = False
-                accounts_to_update.append(account)
-            continue
-
-        account.email = record.email.strip()
-        accounts_to_update.append(account)
-        accounts_by_new_email[new_email] = account
-
-    if accounts_to_update:
-        Account.objects.bulk_update(accounts_to_update, ["email", "is_active", "updated_at"])
+        archive_and_reset_member_account(
+            old_email=old_email,
+            new_email=record.email.strip(),
+            member=record,
+            change_source=ArchivedAccount.ChangeSource.WORKBOOK_IMPORT,
+        )
 
     _sync_account_glp_ids(updated_records)
+
 
 
 def _sync_account_glp_ids(updated_records: list[MemberDatabaseRecord]) -> None:

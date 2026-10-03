@@ -147,6 +147,24 @@ export type MemberAccountActionResponse = {
   message: string;
 };
 
+export type EmailChangeNoticeResponse = {
+  has_notice: boolean;
+  notice_id?: number;
+  old_email?: string;
+  new_email?: string;
+  message?: string;
+};
+
+export type MemberChangeEmailResponse = {
+  message: string;
+  member: MemberEditableProfile | PetitionerEditableProfile;
+  email: string;
+  status: string;
+  account_exists: boolean;
+  account_is_active: boolean;
+  preidentified_exists: boolean;
+};
+
 export type MemberSummaryGroup = {
   key: string;
   label: string;
@@ -823,6 +841,25 @@ export async function deactivatePetitionerLogin(
 ): Promise<MemberAccountActionResponse> {
   await prepareSessionCsrf();
   return apiPost<MemberAccountActionResponse>(`/petitioners/${petitionerId}/deactivate-login/`, {});
+}
+
+export async function checkEmailChangeNotice(
+  email: string,
+): Promise<EmailChangeNoticeResponse> {
+  const encoded = encodeURIComponent(email.trim());
+  return apiGet<EmailChangeNoticeResponse>(`/auth/email-change-notice/?email=${encoded}`);
+}
+
+export async function changeMemberEmail(
+  memberId: number,
+  newEmail: string,
+  isPetitioner = false,
+): Promise<MemberChangeEmailResponse> {
+  await prepareSessionCsrf();
+  const endpoint = isPetitioner
+    ? `/petitioners/${memberId}/change-email/`
+    : `/members/${memberId}/change-email/`;
+  return apiPost<MemberChangeEmailResponse>(endpoint, { new_email: newEmail.trim() });
 }
 
 export async function getMemberSummary(): Promise<MemberSummaryResponse> {

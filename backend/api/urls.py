@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    auth_email_change_notice_view,
     create_lodge_activity_view,
     csrf_view,
     current_account_view,
@@ -13,6 +14,7 @@ from .views import (
     managed_lodge_activities_view,
     member_account_status_view,
     member_activate_login_view,
+    member_change_email_view,
     member_deactivate_login_view,
     member_detail_profile_view,
     member_edit_profile_view,
@@ -28,6 +30,7 @@ from .views import (
     petitioner_profile_photo_edit_view,
     petitioner_account_status_view,
     petitioner_activate_login_view,
+    petitioner_change_email_view,
     petitioner_deactivate_login_view,
     next_lodge_activity_view,
     preidentified_emails_view,
@@ -46,6 +49,7 @@ app_name = "api"
 urlpatterns = [
     path("health/", healthcheck, name="healthcheck"),
     path("auth/csrf/", csrf_view, name="csrf"),
+    path("auth/email-change-notice/", auth_email_change_notice_view, name="auth-email-change-notice"),
     path("auth/forgot-password/", forgot_password_view, name="forgot-password"),
     path("auth/login/", login_view, name="login"),
     path("auth/reset-password/validate/", validate_reset_password_token_view, name="validate-reset-password-token"),
@@ -60,6 +64,7 @@ urlpatterns = [
     path("members/<int:member_id>/account-status/", member_account_status_view, name="member-account-status"),
     path("members/<int:member_id>/activate-login/", member_activate_login_view, name="member-activate-login"),
     path("members/<int:member_id>/deactivate-login/", member_deactivate_login_view, name="member-deactivate-login"),
+    path("members/<int:member_id>/change-email/", member_change_email_view, name="member-change-email"),
     path("members/me/positions-held/", member_positions_held_view, name="member-positions-held"),
     path("members/me/profile-photo/", member_profile_photo_view, name="member-profile-photo"),
     path("members/<int:member_id>/profile-photo/", member_profile_photo_edit_view, name="member-profile-photo-edit"),
@@ -72,6 +77,7 @@ urlpatterns = [
     path("petitioners/<int:member_id>/account-status/", petitioner_account_status_view, name="petitioner-account-status"),
     path("petitioners/<int:member_id>/activate-login/", petitioner_activate_login_view, name="petitioner-activate-login"),
     path("petitioners/<int:member_id>/deactivate-login/", petitioner_deactivate_login_view, name="petitioner-deactivate-login"),
+    path("petitioners/<int:member_id>/change-email/", petitioner_change_email_view, name="petitioner-change-email"),
     path("secretary/dashboard-summary/", secretary_dashboard_summary_view, name="secretary-dashboard-summary"),
     path("documents/", lodge_documents_view, name="lodge-documents"),
     path("documents/<int:document_id>/", lodge_document_detail_view, name="lodge-document-detail"),

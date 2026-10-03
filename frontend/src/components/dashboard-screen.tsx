@@ -929,6 +929,9 @@ export function DashboardScreen() {
       try {
         const currentAccount = await getCurrentAccount();
         setAccount(currentAccount);
+        if (currentAccount?.email && typeof window !== "undefined") {
+          window.localStorage.setItem("dll347_last_login_email", currentAccount.email.trim().toLowerCase());
+        }
         if (currentAccount.role !== "member") {
           await refreshDashboardSummaries();
         }

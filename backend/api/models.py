@@ -714,3 +714,37 @@ class ArchivedMemberRecord(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} (Archived: {self.archive_reason})"
+
+
+class ArchivedAccount(models.Model):
+    class ChangeSource(models.TextChoices):
+        MEMBER_EDIT = "member_edit", "Member Edit"
+        WORKBOOK_IMPORT = "workbook_import", "Workbook Import"
+        ADMIN = "admin", "Admin"
+
+    original_account_id = models.IntegerField(null=True, blank=True)
+    old_email = models.EmailField(db_index=True)
+    new_email = models.EmailField(db_index=True)
+    member_record = models.ForeignKey(
+        MemberDatabaseRecord,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="archived_accounts",
+    )
+    glp_id_number = models.CharField(max_length=100, blank=True)
+    role = models.CharField(max_length=20, default=Account.Role.MEMBER)
+    change_source = models.CharField(
+        max_length=50,
+        choices=ChangeSource.choices,
+        default=ChangeSource.MEMBER_EDIT,
+    )
+    archived_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        db_table = "dll347_archived_accounts"
+        ordering = ["-archived_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"{self.old_email} -> {self.new_email} ({self.change_source})"
+
