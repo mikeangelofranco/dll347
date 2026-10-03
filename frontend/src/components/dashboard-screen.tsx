@@ -1098,11 +1098,13 @@ export function DashboardScreen() {
     }, 230);
   }
 
-  async function openMemberProfile(memberId: number) {
+  async function openMemberProfile(memberId: number, memberName?: string) {
     if (isSelectedMemberProfileLoading || openingMemberProfileId !== null) {
       return;
     }
-    trackUserAction(activeView === "dues" ? "Dues" : "Members", "View Member Profile");
+    const resolvedName = memberName || memberList.find((m) => m.id === memberId)?.name || "";
+    trackScreenView("Member Profile", resolvedName, resolvedName ? `Viewed member: ${resolvedName}` : "Viewed member profile");
+    trackUserAction(activeView === "dues" ? "Dues" : "Members", "View Member Profile", resolvedName);
     setOpeningMemberProfileId(memberId);
     setSelectedMemberProfile(null);
     setSelectedMemberProfileError("");
@@ -1335,7 +1337,7 @@ export function DashboardScreen() {
                       key={member.id}
                       type="button"
                       disabled={isSelectedMemberProfileLoading}
-                      onClick={() => void openMemberProfile(member.id)}
+                      onClick={() => void openMemberProfile(member.id, member.name)}
                       className={`flex w-full items-center gap-2.5 rounded-[0.85rem] px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] transition-all duration-150 active:scale-[0.985] active:bg-amber-50/70 select-none ${
                         openingMemberProfileId === member.id
                           ? "bg-amber-50/90 ring-2 ring-[#c08200]/40 shadow-[0_4px_12px_rgba(192,130,0,0.15)]"
@@ -1483,7 +1485,7 @@ export function DashboardScreen() {
                       key={member.id}
                       type="button"
                       disabled={isSelectedMemberProfileLoading}
-                      onClick={() => void openMemberProfile(member.id)}
+                      onClick={() => void openMemberProfile(member.id, member.name)}
                       className={`flex w-full items-center gap-2.5 rounded-[0.85rem] px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] transition-all duration-150 active:scale-[0.985] active:bg-amber-50/70 select-none ${
                         openingMemberProfileId === member.id
                           ? "bg-amber-50/90 ring-2 ring-[#c08200]/40 shadow-[0_4px_12px_rgba(192,130,0,0.15)]"

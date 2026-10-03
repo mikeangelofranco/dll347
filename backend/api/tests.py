@@ -39,6 +39,7 @@ from .models import (
     MembersWorkbookImport,
     PersonalInformationVisibility,
     PreidentifiedEmail,
+    ScreenLog,
     ToolAccessLog,
     TreasurerReportSummary,
 )
@@ -662,6 +663,68 @@ class AuthApiTests(TestCase):
         self.assertEqual(unknown_screen.status_code, 400)
         self.assertEqual(unknown_action.status_code, 400)
         self.assertFalse(AuditLog.objects.filter(actor=self.user).exists())
+
+    def test_screen_log_records_screen_and_member_name(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("api:user-activity"),
+            {
+                "event_type": "screen_view",
+                "screen": "Member Profile",
+                "member_name": "Bro. John Doe",
+                "details": "Viewed member: Bro. John Doe",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+
+        screen_log = ScreenLog.objects.filter(account=self.user).first()
+        self.assertIsNotNone(screen_log)
+        self.assertEqual(screen_log.screen, "Member Profile")
+        self.assertEqual(screen_log.member_name, "Bro. John Doe")
+        self.assertEqual(screen_log.details, "Viewed member: Bro. John Doe")
+
+        audit_log = AuditLog.objects.filter(actor=self.user, screen="Member Profile").first()
+        self.assertIsNotNone(audit_log)
+        self.assertEqual(audit_log.changes.get("member_name"), "Bro. John Doe")
+
+    def test_screen_log_maintains_200_rolling_records_per_account(self):
+        self.client.force_login(self.user)
+        from api.views import record_screen_log
+        for i in range(205):
+            record_screen_log(
+                account=self.user,
+                screen="Members",
+                member_name=f"Member {i}",
+                details=f"Viewed member {i}",
+            )
+
+        self.assertEqual(ScreenLog.objects.filter(account=self.user).count(), 200)
+        self.assertFalse(ScreenLog.objects.filter(account=self.user, member_name="Member 0").exists())
+        self.assertTrue(ScreenLog.objects.filter(account=self.user, member_name="Member 204").exists())
+
+    def test_audit_log_maintains_5000_rolling_records(self):
+        from api.views import prune_audit_logs
+        now = timezone.now()
+        logs = [
+            AuditLog(
+                actor=self.user,
+                action=AuditLog.Action.SCREEN_VIEW,
+                screen="Dashboard",
+                event_label=f"Event {i}",
+                created_at=now + timezone.timedelta(seconds=i),
+            )
+            for i in range(5005)
+        ]
+        AuditLog.objects.bulk_create(logs)
+        self.assertEqual(AuditLog.objects.count(), 5005)
+
+        prune_audit_logs(max_records=5000)
+        self.assertEqual(AuditLog.objects.count(), 5000)
+        self.assertFalse(AuditLog.objects.filter(event_label="Event 0").exists())
+        self.assertTrue(AuditLog.objects.filter(event_label="Event 5004").exists())
+
 
     def test_current_account_returns_member_profile_matched_by_email(self):
         member_user = get_user_model().objects.create_user(
@@ -2569,6 +2632,39 @@ class PreidentifiedEmailAdminApiTests(TestCase):
         self.assertEqual(response.context["active_users"], 1)
         self.assertEqual(response.context["top_screens"][0]["screen"], "Documents")
         self.assertEqual(response.context["top_actions"][0]["label"], "View Member Profile")
+
+    def test_admin_account_change_page_displays_screen_logs_inline(self):
+        from api.views import record_screen_log
+        record_screen_log(
+            account=self.developer,
+            screen="Member Profile",
+            member_name="Bro. Test Brother",
+            details="Viewed member: Bro. Test Brother",
+            ip_address="127.0.0.1",
+            user_agent="TestAgent/1.0",
+        )
+        self.client.force_login(self.developer)
+        response = self.client.get(reverse("admin:api_account_change", args=[self.developer.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Screen logs")
+        self.assertContains(response, "Bro. Test Brother")
+        self.assertContains(response, "Member Profile")
+
+    def test_admin_screen_log_changelist(self):
+        from api.views import record_screen_log
+        record_screen_log(
+            account=self.developer,
+            screen="Petitioners",
+            member_name="Mr. Petitioner",
+            details="Viewed petitioner: Mr. Petitioner",
+            ip_address="127.0.0.1",
+            user_agent="TestAgent/1.0",
+        )
+        self.client.force_login(self.developer)
+        response = self.client.get(reverse("admin:api_screenlog_changelist"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Mr. Petitioner")
+        self.assertContains(response, "Petitioners")
 
     def test_preidentified_emails_requires_developer_role(self):
         self.client.force_login(self.member)

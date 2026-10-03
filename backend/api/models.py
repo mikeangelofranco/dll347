@@ -324,6 +324,33 @@ class AuditLog(models.Model):
         return f"{self.get_action_display()} at {self.created_at}"
 
 
+class ScreenLog(models.Model):
+    account = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="screen_logs",
+    )
+    screen = models.CharField(max_length=120)
+    member_name = models.CharField(max_length=255, blank=True)
+    details = models.CharField(max_length=255, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        db_table = "dll347_screen_logs"
+        ordering = ["-created_at", "-id"]
+        verbose_name = "Screen log"
+        verbose_name_plural = "Screen logs"
+        indexes = [
+            models.Index(fields=["account", "-created_at"], name="screenlog_acc_created_idx"),
+            models.Index(fields=["screen", "-created_at"], name="screenlog_screen_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.account.email} - {self.screen} at {self.created_at}"
+
+
 class PreidentifiedEmail(models.Model):
     ROLE_CHOICES = [
         (Account.Role.MEMBER, Account.Role.MEMBER.label),

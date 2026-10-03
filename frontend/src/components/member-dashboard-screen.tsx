@@ -2333,11 +2333,13 @@ export function MemberDashboardScreen({
     }
   }
 
-  async function openMemberProfile(memberId: number) {
+  async function openMemberProfile(memberId: number, memberName?: string) {
     if (isSelectedMemberProfileLoading || openingMemberProfileId !== null) {
       return;
     }
-    trackUserAction("Members", "View Member Profile");
+    const resolvedName = memberName || memberList.find((m) => m.id === memberId)?.name || "";
+    trackScreenView("Member Profile", resolvedName, resolvedName ? `Viewed member: ${resolvedName}` : "Viewed member profile");
+    trackUserAction("Members", "View Member Profile", resolvedName);
     setOpeningMemberProfileId(memberId);
     setSelectedMemberProfile(null);
     setSelectedMemberProfileError("");
@@ -3407,8 +3409,8 @@ export function MemberDashboardScreen({
                       key={member.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => void openMemberProfile(member.id)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { void openMemberProfile(member.id); } }}
+                      onClick={() => void openMemberProfile(member.id, member.name)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { void openMemberProfile(member.id, member.name); } }}
                       className={`flex w-full items-center gap-2.5 rounded-[0.85rem] px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] cursor-pointer transition-all duration-150 active:scale-[0.985] active:bg-amber-50/70 select-none ${
                         openingMemberProfileId === member.id
                           ? "bg-amber-50/90 ring-2 ring-[#c08200]/40 shadow-[0_4px_12px_rgba(192,130,0,0.15)]"
@@ -3585,8 +3587,8 @@ export function MemberDashboardScreen({
                       key={member.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => void openMemberProfile(member.id)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { void openMemberProfile(member.id); } }}
+                      onClick={() => void openMemberProfile(member.id, member.name)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { void openMemberProfile(member.id, member.name); } }}
                       className={`flex w-full items-center gap-2.5 rounded-[0.85rem] px-2.5 py-2.5 text-left shadow-[0_8px_20px_rgba(75,48,20,0.045)] cursor-pointer transition-all duration-150 active:scale-[0.985] active:bg-amber-50/70 select-none ${
                         openingMemberProfileId === member.id
                           ? "bg-amber-50/90 ring-2 ring-[#c08200]/40 shadow-[0_4px_12px_rgba(192,130,0,0.15)]"

@@ -30,6 +30,7 @@ from .models import (
     MemberPositionHeld,
     MembersWorkbookImport,
     PreidentifiedEmail,
+    ScreenLog,
     ToolAccessLog,
     TreasurerReportSummary,
 )
@@ -85,6 +86,9 @@ LOCKOUT_DURATION_MINUTES = 15
 TRACKABLE_SCREENS = {
     "Dashboard",
     "Members",
+    "Member Profile",
+    "Petitioners",
+    "Petitioner Profile",
     "Dues",
     "My Profile",
     "Documents",
@@ -97,6 +101,7 @@ TRACKABLE_USER_ACTIONS = {
     "View Member Profile",
     "View Activity Details",
     "Add Activity to Calendar",
+    "View Petitioner Profile",
 }
 DOCUMENT_EXTRACTION_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="document-extraction")
 logger = logging.getLogger(__name__)
@@ -319,6 +324,63 @@ def record_tool_access(request, tool: str) -> None:
         )
 
 
+def prune_audit_logs(max_records: int = 5000) -> None:
+    try:
+        total = AuditLog.objects.count()
+        if total > max_records:
+            excess = total - max_records
+            old_ids = list(
+                AuditLog.objects.order_by("created_at", "id")
+                .values_list("id", flat=True)[:excess]
+            )
+            if old_ids:
+                AuditLog.objects.filter(id__in=old_ids).delete()
+    except Exception:
+        logger.exception("Failed to prune audit logs")
+
+
+def prune_screen_logs(account_id: int, max_records: int = 200) -> None:
+    try:
+        total = ScreenLog.objects.filter(account_id=account_id).count()
+        if total > max_records:
+            excess = total - max_records
+            old_ids = list(
+                ScreenLog.objects.filter(account_id=account_id)
+                .order_by("created_at", "id")
+                .values_list("id", flat=True)[:excess]
+            )
+            if old_ids:
+                ScreenLog.objects.filter(id__in=old_ids).delete()
+    except Exception:
+        logger.exception("Failed to prune screen logs for account %s", account_id)
+
+
+def record_screen_log(
+    account,
+    screen: str,
+    member_name: str = "",
+    details: str = "",
+    ip_address: str = "",
+    user_agent: str = "",
+) -> ScreenLog | None:
+    if account is None or not getattr(account, "is_authenticated", False):
+        return None
+    try:
+        log = ScreenLog.objects.create(
+            account=account,
+            screen=screen[:120],
+            member_name=member_name[:255],
+            details=details[:255],
+            ip_address=ip_address[:39] if ip_address else None,
+            user_agent=user_agent[:255] if user_agent else "",
+        )
+        prune_screen_logs(account.pk, max_records=200)
+        return log
+    except Exception:
+        logger.exception("Failed to record screen log for account %s", account)
+        return None
+
+
 def create_audit_log(
     action: str,
     actor=None,
@@ -341,6 +403,7 @@ def create_audit_log(
         ip_address=ip_address[:39] if ip_address else "",
         user_agent=user_agent[:255] if user_agent else "",
     )
+    prune_audit_logs(max_records=5000)
 
 
 def audit_from_request(request) -> dict:
@@ -899,6 +962,8 @@ def user_activity_view(request):
     event_type = str(request.data.get("event_type", "")).strip()
     screen = str(request.data.get("screen", "")).strip()
     event_label = str(request.data.get("event_label", "")).strip()
+    member_name = str(request.data.get("member_name", "")).strip()
+    details = str(request.data.get("details", "")).strip()
 
     if screen not in TRACKABLE_SCREENS:
         return Response(
@@ -906,26 +971,58 @@ def user_activity_view(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    req_audit = audit_from_request(request)
+
     if event_type == AuditLog.Action.APP_OPEN:
         action = AuditLog.Action.APP_OPEN
         event_label = "Returned to DLL347 app"
     elif event_type == AuditLog.Action.SCREEN_VIEW:
         action = AuditLog.Action.SCREEN_VIEW
-        event_label = event_label or f"Viewed {screen}"
+        if member_name and not details:
+            details = f"Viewed member: {member_name}"
+        if not details:
+            details = event_label or f"Viewed {screen}"
+        if member_name and not event_label:
+            event_label = f"Viewed member: {member_name}"
+        else:
+            event_label = event_label or f"Viewed {screen}"
+
+        record_screen_log(
+            account=request.user,
+            screen=screen,
+            member_name=member_name,
+            details=details,
+            **req_audit,
+        )
     elif event_type == AuditLog.Action.USER_ACTION and event_label in TRACKABLE_USER_ACTIONS:
         action = AuditLog.Action.USER_ACTION
+        if member_name or event_label in {"View Member Profile", "View Petitioner Profile"}:
+            if member_name and not details:
+                details = f"Viewed member: {member_name}"
+            record_screen_log(
+                account=request.user,
+                screen=screen if screen != "Dashboard" else "Member Profile",
+                member_name=member_name,
+                details=details or event_label,
+                **req_audit,
+            )
     else:
         return Response(
             {"code": "INVALID_ACTIVITY", "message": "Please provide a valid activity event."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    changes = {}
+    if member_name:
+        changes["member_name"] = member_name
+
     create_audit_log(
         action,
         actor=request.user,
         screen=screen,
         event_label=event_label,
-        **audit_from_request(request),
+        changes=changes,
+        **req_audit,
     )
     return Response({"message": "Activity recorded."}, status=status.HTTP_201_CREATED)
 

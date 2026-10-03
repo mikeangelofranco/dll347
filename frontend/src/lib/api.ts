@@ -101,7 +101,9 @@ export type LogoutResponse = {
 export type ActivityScreen =
   | "Dashboard"
   | "Members"
+  | "Member Profile"
   | "Petitioners"
+  | "Petitioner Profile"
   | "Dues"
   | "My Profile"
   | "Documents"
@@ -112,6 +114,7 @@ export type ActivityScreen =
 
 export type UserActionLabel =
   | "View Member Profile"
+  | "View Petitioner Profile"
   | "View Activity Details"
   | "Add Activity to Calendar";
 
@@ -727,7 +730,9 @@ export async function getCurrentAccount(): Promise<CurrentAccountResponse> {
 async function recordActivity(payload: {
   event_type: "app_open" | "screen_view" | "user_action";
   screen: ActivityScreen;
-  event_label?: UserActionLabel;
+  event_label?: UserActionLabel | string;
+  member_name?: string;
+  details?: string;
 }): Promise<void> {
   try {
     await apiPost<{ message: string }>("/activity/", payload);
@@ -740,16 +745,27 @@ async function recordActivity(payload: {
   }
 }
 
-export function trackScreenView(screen: ActivityScreen): void {
-  void recordActivity({ event_type: "screen_view", screen }).catch(() => undefined);
+export function trackScreenView(screen: ActivityScreen | string, memberName?: string, details?: string): void {
+  void recordActivity({
+    event_type: "screen_view",
+    screen: screen as ActivityScreen,
+    member_name: memberName,
+    details,
+  }).catch(() => undefined);
 }
 
 export function trackAppOpen(screen: ActivityScreen = "Dashboard"): void {
   void recordActivity({ event_type: "app_open", screen }).catch(() => undefined);
 }
 
-export function trackUserAction(screen: ActivityScreen, eventLabel: UserActionLabel): void {
-  void recordActivity({ event_type: "user_action", screen, event_label: eventLabel }).catch(() => undefined);
+export function trackUserAction(screen: ActivityScreen, eventLabel: UserActionLabel | string, memberName?: string, details?: string): void {
+  void recordActivity({
+    event_type: "user_action",
+    screen,
+    event_label: eventLabel,
+    member_name: memberName,
+    details,
+  }).catch(() => undefined);
 }
 
 export async function logoutCurrentSession(): Promise<LogoutResponse> {

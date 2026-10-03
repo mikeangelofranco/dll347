@@ -7,6 +7,7 @@ import { ThemedLoader } from "@/components/themed-loader";
 import {
   getPetitionerList,
   getPetitionerProfile,
+  trackScreenView,
   type PetitionerFullProfile,
   type PetitionerListItem,
   type PetitionerStage,
@@ -70,6 +71,10 @@ export function PetitionerListScreen({ initialStage, navigationItems, onBack, on
   const [openingPetitionerId, setOpeningPetitionerId] = useState<number | null>(null);
 
   useEffect(() => {
+    trackScreenView("Petitioners");
+  }, []);
+
+  useEffect(() => {
     let isMounted = true;
     const debounce = window.setTimeout(() => {
       async function loadPetitioners() {
@@ -109,6 +114,7 @@ export function PetitionerListScreen({ initialStage, navigationItems, onBack, on
     if (isProfileLoading || openingPetitionerId !== null) {
       return;
     }
+    trackScreenView("Petitioner Profile", petitioner.name, `Viewed petitioner: ${petitioner.name}`);
     setOpeningPetitionerId(petitioner.id);
     setSelectedProfile(null);
     setSelectedProfileStage(petitioner.petitioner_stage);

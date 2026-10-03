@@ -1,7 +1,9 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.db.models import Count, OuterRef, Subquery
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import format_html
 
 from .models import (
     Account,
@@ -18,8 +20,31 @@ from .models import (
     PasswordResetToken,
     PersonalInformationVisibility,
     PreidentifiedEmail,
+    ScreenLog,
     ToolAccessLog,
 )
+
+
+class ScreenLogInline(admin.TabularInline):
+    model = ScreenLog
+    extra = 0
+    can_delete = False
+    max_num = 0
+    fields = ("formatted_created_at", "screen", "member_name", "details", "ip_address", "user_agent")
+    readonly_fields = ("formatted_created_at", "screen", "member_name", "details", "ip_address", "user_agent")
+    ordering = ("-created_at", "-id")
+    verbose_name = "Screen log"
+    verbose_name_plural = "Screen logs"
+
+    @admin.display(description="Timestamp", ordering="created_at")
+    def formatted_created_at(self, obj):
+        if not obj or not obj.created_at:
+            return "—"
+        return timezone.localtime(obj.created_at).strftime("%Y-%m-%d %H:%M:%S")
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
 
 
 @admin.register(Account)
@@ -29,6 +54,7 @@ class AccountAdmin(UserAdmin):
     list_filter = ("role", "can_manage_activities", "can_edit_members", "can_edit_petitioners", "is_active", "is_staff")
     search_fields = ("email",)
     actions = ("unlock_accounts",)
+    inlines = (ScreenLogInline,)
 
     fieldsets = (
         (None, {"fields": ("email", "password")}),
@@ -201,12 +227,18 @@ class BallotingCoinRecordAdmin(admin.ModelAdmin):
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
     change_list_template = "admin/api/auditlog/change_list.html"
-    list_display = ("actor_email", "created_at", "action", "screen", "event_label", "target_model", "target_id")
+    list_display = ("actor_email", "created_at", "action", "screen", "member_name_display", "event_label", "target_model", "target_id")
     list_display_links = ("actor_email", "created_at")
     list_filter = ("actor", "action", "screen", "target_model")
     search_fields = ("actor__email", "screen", "event_label", "ip_address", "user_agent")
     readonly_fields = ("created_at", "actor_link", "action_badge", "target_link", "changes_display", "ip_address", "user_agent")
     date_hierarchy = "created_at"
+
+    @admin.display(description="Member")
+    def member_name_display(self, obj):
+        if obj.changes and isinstance(obj.changes, dict) and "member_name" in obj.changes:
+            return obj.changes["member_name"]
+        return "—"
 
     fieldsets = (
         (None, {
@@ -373,3 +405,48 @@ class ArchivedMemberRecordAdmin(admin.ModelAdmin):
     list_filter = ("section", "archived_at")
     search_fields = ("name", "email", "glp_id_number")
     readonly_fields = [f.name for f in ArchivedMemberRecord._meta.fields]
+
+
+@admin.register(ScreenLog)
+class ScreenLogAdmin(admin.ModelAdmin):
+    list_display = ("formatted_created_at", "account_email", "screen", "member_name", "details", "ip_address")
+    list_display_links = ("formatted_created_at", "account_email")
+    list_filter = ("screen", "created_at")
+    search_fields = ("account__email", "screen", "member_name", "details", "ip_address", "user_agent")
+    readonly_fields = ("formatted_created_at", "account_link", "screen", "member_name", "details", "ip_address", "user_agent")
+    date_hierarchy = "created_at"
+    ordering = ("-created_at", "-id")
+
+    fieldsets = (
+        (None, {
+            "fields": ("formatted_created_at", "account_link", "screen", "member_name", "details")
+        }),
+        ("Request", {
+            "fields": ("ip_address", "user_agent"),
+            "classes": ("collapse",),
+        }),
+    )
+
+    @admin.display(description="Timestamp", ordering="created_at")
+    def formatted_created_at(self, obj):
+        if not obj or not obj.created_at:
+            return "—"
+        return timezone.localtime(obj.created_at).strftime("%Y-%m-%d %H:%M:%S")
+
+    @admin.display(description="Account", ordering="account__email")
+    def account_email(self, obj):
+        return obj.account.email if obj.account else "—"
+
+    @admin.display(description="Account")
+    def account_link(self, obj):
+        if obj.account:
+            url = reverse("admin:api_account_change", args=[obj.account.pk])
+            return format_html('<a href="{}">{}</a>', url, obj.account.email)
+        return "—"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
