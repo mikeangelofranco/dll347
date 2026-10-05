@@ -582,25 +582,22 @@ type MemberGroupDisplay = MemberSummaryGroup & {
   dashboardLabel: string;
 };
 
-const GROUP_ORDER: string[] = [
-  "Regular",
-  "Dual/Plural",
-  "Affiliated",
-  "Honorary",
-  "Demit",
-  "Suspended",
-  "Dropped Working Tools",
+const CANONICAL_MEMBER_TILES: { key: string; label: string; section: string }[] = [
+  { key: "regular", label: "Regular", section: "REGULAR" },
+  { key: "dual_plural", label: "Dual/Plural", section: "DUAL/PLURAL" },
+  { key: "affiliated", label: "Affiliated", section: "AFFILIATED" },
+  { key: "honorary", label: "Honorary", section: "HONORARY" },
+  { key: "demit", label: "Demit", section: "DEMIT" },
+  { key: "suspended", label: "Suspended", section: "SUSPENDED" },
+  { key: "dropped_working_tools", label: "Dropped Working Tools", section: "DROPED THE WORKING TOOLS" },
 ];
 
-const fallbackMemberSummaryGroups: MemberSummaryGroup[] = [
-  { key: "regular", label: "Regular", section: "REGULAR", count: 0 },
-  { key: "dual_plural", label: "Dual/Plural", section: "DUAL/PLURAL", count: 0 },
-  { key: "affiliated", label: "Affiliated", section: "AFFILIATED", count: 0 },
-  { key: "honorary", label: "Honorary", section: "HONORARY", count: 0 },
-  { key: "demit", label: "Demit", section: "DEMIT", count: 0 },
-  { key: "suspended", label: "Suspended", section: "SUSPENDED", count: 0 },
-  { key: "dropped_working_tools", label: "Dropped Working Tools", section: "DROPED THE WORKING TOOLS", count: 0 },
-];
+const fallbackMemberSummaryGroups: MemberSummaryGroup[] = CANONICAL_MEMBER_TILES.map((tile) => ({
+  key: tile.key,
+  label: tile.label,
+  section: tile.section,
+  count: 0,
+}));
 
 function groupPresentationForLabel(label: string): {
   color: string;
@@ -652,11 +649,31 @@ function groupPresentationForLabel(label: string): {
 }
 
 function buildMemberDisplayGroups(groups: MemberSummaryGroup[] | null): MemberGroupDisplay[] {
-  const sourceGroups = groups && groups.length > 0 ? groups : fallbackMemberSummaryGroups;
-  const displayGroups: MemberGroupDisplay[] = sourceGroups.map((group) => {
-    const pres = groupPresentationForLabel(group.label);
+  return CANONICAL_MEMBER_TILES.map((tile) => {
+    const matched = groups?.find((g) => {
+      const gLabel = g.label.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const tLabel = tile.label.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const gKey = g.key.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const tKey = tile.key.toLowerCase().replace(/[^a-z0-9]/g, "");
+      return (
+        gLabel === tLabel ||
+        gKey === tKey ||
+        (tKey === "regular" && (gKey.includes("regular") || gKey.includes("active") || gLabel === "active")) ||
+        (tKey === "dual_plural" && (gKey.includes("dual") || gLabel.includes("dual"))) ||
+        (tKey === "affiliated" && (gKey.includes("affiliat") || gLabel.includes("affiliat"))) ||
+        (tKey === "honorary" && (gKey.includes("honor") || gLabel.includes("honor"))) ||
+        (tKey === "demit" && (gKey.includes("demit") || gLabel.includes("demit"))) ||
+        (tKey === "suspended" && (gKey.includes("suspend") || gLabel.includes("suspend"))) ||
+        (tKey === "dropped_working_tools" && (gKey.includes("drop") || gKey.includes("working") || gLabel.includes("working")))
+      );
+    });
+
+    const pres = groupPresentationForLabel(tile.label);
     return {
-      ...group,
+      key: matched?.key || tile.key,
+      label: tile.label,
+      section: matched?.section || tile.section,
+      count: matched?.count ?? 0,
       heading: pres.heading,
       color: pres.color,
       tint: pres.tint,
@@ -665,14 +682,6 @@ function buildMemberDisplayGroups(groups: MemberSummaryGroup[] | null): MemberGr
       dashboardLabel: pres.dashboardLabel,
     };
   });
-  const orderIndex: Record<string, number> = {};
-  GROUP_ORDER.forEach((name, i) => { orderIndex[name] = i; });
-  displayGroups.sort((a, b) => {
-    const ai = orderIndex[a.label] ?? GROUP_ORDER.length;
-    const bi = orderIndex[b.label] ?? GROUP_ORDER.length;
-    return ai - bi;
-  });
-  return displayGroups;
 }
 
 function minimumLoadingDelay(ms = 250): Promise<void> {
@@ -802,7 +811,10 @@ function memberGroupFromSection(section: string): MemberGroupKey {
   if (normalized.includes("HONORARY")) {
     return "honorary";
   }
-  if (normalized.includes("DUAL") || normalized.includes("PLURAL") || normalized.includes("AFFILIATED")) {
+  if (normalized.includes("AFFILIAT")) {
+    return "affiliated";
+  }
+  if (normalized.includes("DUAL") || normalized.includes("PLURAL")) {
     return "dual_plural";
   }
   return "regular";

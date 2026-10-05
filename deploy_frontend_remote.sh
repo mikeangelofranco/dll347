@@ -12,6 +12,7 @@ sudo rsync -a --delete \
   --exclude='.next' \
   "$TMPDIR"/ "$APP"/
 rm -f "$ZIP"
+sudo chown -R ubuntu:ubuntu "$APP"
 cd "$APP"
 
 # Pre-build guardrail: ensure no local dev overrides exist on production
