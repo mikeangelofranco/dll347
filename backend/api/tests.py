@@ -25,6 +25,7 @@ from .excel_members import (
     is_petitioner_section,
     build_member_column_map,
     is_imes_header,
+    is_valid_section_name,
     member_name_match_key,
     members_section_rows,
     normalize_member_name,
@@ -211,19 +212,58 @@ class ExcelMemberImportHelpersTests(SimpleTestCase):
     def test_members_section_rows_handles_various_merge_widths(self):
         sheet = ParsedSheet(
             name="Test",
-            dimension="A1:R10",
+            dimension="A1:R20",
             cells={
-                "B5": ParsedCell("TRESTLE BOARD - ACTIVE", None, 0, "builtin:0"),
-                "B8": ParsedCell("TRESTLE BOARD - NOT ACTIVE", None, 0, "builtin:0"),
+                "B15": ParsedCell("TRESTLE BOARD - ACTIVE", None, 0, "builtin:0"),
+                "B18": ParsedCell("TRESTLE BOARD - NOT ACTIVE", None, 0, "builtin:0"),
             },
-            merged_ranges=["B5:Q5", "B8:R8"],
+            merged_ranges=["B15:Q15", "B18:R18"],
             columns=[],
             row_formats=[],
             freeze_panes={},
         )
         sections = members_section_rows(sheet)
-        self.assertEqual(sections[5], "TRESTLE BOARD - ACTIVE")
-        self.assertEqual(sections[8], "TRESTLE BOARD - NOT ACTIVE")
+        self.assertEqual(sections[15], "TRESTLE BOARD - ACTIVE")
+        self.assertEqual(sections[18], "TRESTLE BOARD - NOT ACTIVE")
+
+    def test_members_section_rows_ignores_header_banners_and_pre_table_rows(self):
+        sheet = ParsedSheet(
+            name="Test",
+            dimension="A1:R20",
+            cells={
+                "B2": ParsedCell("Most Worshipful Grand Lodge Of The Philippines", None, 0, "builtin:0"),
+                "B3": ParsedCell("DATU LAPU-LAPU MASONIC LODGE NO. 347 F. & A.M.", None, 0, "builtin:0"),
+                "B4": ParsedCell("Masonic District R7 Cebu", None, 0, "builtin:0"),
+                "B5": ParsedCell("Pilipog Cordova, Cebu Philippines", None, 0, "builtin:0"),
+                "B7": ParsedCell("MEMBERS DIRECTORY", None, 0, "builtin:0"),
+                "B11": ParsedCell("REGULAR", None, 0, "builtin:0"),
+            },
+            merged_ranges=[
+                "B2:O2",
+                "B3:O3",
+                "B4:O4",
+                "B5:O5",
+                "B7:O7",
+                "B11:R11",
+            ],
+            columns=[],
+            row_formats=[],
+            freeze_panes={},
+        )
+        sections = members_section_rows(sheet, min_row=11)
+        self.assertEqual(sections, {11: "REGULAR"})
+
+    def test_is_valid_section_name(self):
+        self.assertTrue(is_valid_section_name("REGULAR"))
+        self.assertTrue(is_valid_section_name("DROPED THE WORKING TOOLS"))
+        self.assertTrue(is_valid_section_name("LODGE AFFILIATE - ACTIVE"))
+        self.assertTrue(is_valid_section_name("EMERITUS MEMBERS"))
+        self.assertFalse(is_valid_section_name("MEMBERS DIRECTORY"))
+        self.assertFalse(is_valid_section_name("DATU LAPU-LAPU MASONIC LODGE NO. 347 F. & A.M."))
+        self.assertFalse(is_valid_section_name("Masonic District R7 Cebu"))
+        self.assertFalse(is_valid_section_name("Most Worshipful Grand Lodge Of The Philippines"))
+        self.assertFalse(is_valid_section_name("Pilipog Cordova, Cebu Philippines"))
+        self.assertFalse(is_valid_section_name(""))
 
 
 class TreasurerReportExtractionTests(SimpleTestCase):
@@ -1276,7 +1316,6 @@ class AuthApiTests(TestCase):
             name="Test Record",
             email="testrecord@dll347.org",
             section="MASTER MASONS - ACTIVE",
-            is_test_record=True,
         )
 
         response = self.client.get(reverse("api:member-summary"))

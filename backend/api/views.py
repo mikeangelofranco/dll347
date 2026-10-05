@@ -18,7 +18,14 @@ from rest_framework.response import Response
 from .auth_tokens import build_password_reset_token, build_password_reset_url, invalidate_password_reset_tokens
 from .email_service import EmailDeliveryError, send_password_reset_email
 from .document_extraction import extract_treasurer_report
-from .excel_members import MembersWorkbookFormatError, build_member_name_index, find_member_for_account, resolve_member_name_match, update_existing_members_from_workbook
+from .excel_members import (
+    MembersWorkbookFormatError,
+    build_member_name_index,
+    find_member_for_account,
+    is_valid_section_name,
+    resolve_member_name_match,
+    update_existing_members_from_workbook,
+)
 from .member_groups import member_display_group_from_section
 from .models import (
     Account,
@@ -1781,6 +1788,8 @@ def member_summary_view(request):
         .order_by("source_row", "id")
     )
     for record in records:
+        if not is_valid_section_name(record.section):
+            continue
         group = member_display_group_from_section(record.section)
         if group.key not in groups:
             groups[group.key] = {
@@ -1796,7 +1805,7 @@ def member_summary_view(request):
         member_sheet = latest_import.sheet_summaries.get("DLL 347 Members Database", {})
         section_names = member_sheet.get("sections", []) if isinstance(member_sheet, dict) else []
         for section_name in section_names:
-            if is_trestle_board_member(section_name):
+            if is_trestle_board_member(section_name) or not is_valid_section_name(section_name):
                 continue
             group = member_display_group_from_section(section_name)
             if group.key not in groups:

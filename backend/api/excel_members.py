@@ -474,16 +474,35 @@ def sheet_columns(
     return definitions
 
 
-def members_section_rows(sheet: ParsedSheet) -> dict[int, str]:
+def is_valid_section_name(value: str) -> bool:
+    clean = re.sub(r"[^A-Za-z0-9]", "", value or "").upper()
+    if not clean:
+        return False
+    disallowed_fragments = (
+        "MEMBERSDIRECTORY",
+        "DATULAPULAPU",
+        "LODGENO347",
+        "MASONICDISTRICT",
+        "GRANDLODGE",
+        "PILIPOGCORDOVA",
+    )
+    if any(fragment in clean for fragment in disallowed_fragments):
+        return False
+    return True
+
+
+def members_section_rows(sheet: ParsedSheet, min_row: int = 11) -> dict[int, str]:
     sections = {}
     for merged_range in sheet.merged_ranges:
         match = re.fullmatch(r"B(\d+):([A-Z]+)\1", merged_range)
         if match:
             row = int(match.group(1))
+            if row < min_row:
+                continue
             end_column = match.group(2)
             if column_number(end_column) >= 12:
                 value = text_value(sheet.value(f"B{row}"))
-                if value:
+                if value and is_valid_section_name(value):
                     sections[row] = value
     return sections
 
@@ -692,7 +711,7 @@ def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDa
     layout = find_member_sheet_layout(members)
     member_columns = sheet_columns(members, "B", "GZ", (layout.header_row, layout.subheader_row))
     col_map = build_member_column_map(member_columns)
-    member_sections = members_section_rows(members)
+    member_sections = members_section_rows(members, min_row=layout.subheader_row + 1)
     max_row = max(
         [row for _column, row in (split_reference(reference) for reference in members.cells)]
         or [layout.first_data_row]
@@ -748,7 +767,13 @@ def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDa
         members.name: {
             "records": len(member_records),
             "columns": len(member_columns),
-            "sections": sorted({s.strip() for s in member_sections.values() if s.strip()}),
+            "sections": sorted(
+                {
+                    s.strip()
+                    for s in member_sections.values()
+                    if s.strip() and is_valid_section_name(s)
+                }
+            ),
         },
     }
 
@@ -1078,7 +1103,7 @@ def import_members_workbook(path: str | Path) -> MembersWorkbookImport:
     member_columns = sheet_columns(members, "B", "GZ", (9, 10))
     visitor_columns = sheet_columns(visitors, "B", "E", (3,))
     balloting_columns = sheet_columns(balloting, "B", "Z", (3, 4))
-    member_sections = members_section_rows(members)
+    member_sections = members_section_rows(members, min_row=11)
     balloting_sections = {
         row: text_value(balloting.value(f"B{row}"))
         for row in (5, 63, 73)
