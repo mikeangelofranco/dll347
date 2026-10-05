@@ -547,6 +547,56 @@ function formatPesoAmount(value: string | null): string {
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
+function getFinancialAmountClass(text: string): string {
+  const len = text.length;
+  if (len >= 14) {
+    return "text-[0.48rem] min-[360px]:text-[0.52rem] sm:text-[0.60rem]";
+  }
+  if (len >= 12) {
+    return "text-[0.52rem] min-[360px]:text-[0.56rem] sm:text-[0.64rem]";
+  }
+  if (len >= 10) {
+    return "text-[0.56rem] min-[360px]:text-[0.60rem] sm:text-[0.68rem]";
+  }
+  if (len >= 8) {
+    return "text-[0.62rem] min-[360px]:text-[0.66rem] sm:text-[0.72rem]";
+  }
+  return "text-[0.68rem] min-[360px]:text-[0.72rem] sm:text-[0.76rem]";
+}
+
+interface FinancialStatColumnProps {
+  labelLine1: string;
+  labelLine2: string;
+  value: string | null;
+  textColor: string;
+  borderClass?: string;
+}
+
+function FinancialStatColumn({
+  labelLine1,
+  labelLine2,
+  value,
+  textColor,
+  borderClass = "",
+}: FinancialStatColumnProps) {
+  const formatted = formatPesoAmount(value);
+  const sizeClass = getFinancialAmountClass(formatted);
+
+  return (
+    <div className={`flex min-w-0 flex-col items-center justify-center px-0.5 sm:px-1 ${borderClass}`}>
+      <div className="text-[0.52rem] min-[360px]:text-[0.55rem] font-medium leading-tight text-[#18130f] text-center">
+        {labelLine1}<br/>{labelLine2}
+      </div>
+      <div
+        title={formatted}
+        className={`mt-1.5 w-full min-w-0 max-w-full text-center font-extrabold leading-tight tabular-nums tracking-[-0.02em] whitespace-nowrap overflow-hidden text-ellipsis ${textColor} ${sizeClass}`}
+      >
+        {formatted}
+      </div>
+    </div>
+  );
+}
+
 function formatSourceDate(value: string | null): string {
   if (!value) {
     return "";
@@ -4259,30 +4309,32 @@ export function MemberDashboardScreen({
             </div>
 
             <div className="mt-5 grid grid-cols-4 rounded-[1.15rem] bg-[#fdf9f3] px-1 py-4 text-center shadow-[inset_0_0_0_1px_rgba(246,238,226,0.55)]">
-              <div className="flex flex-col items-center px-1">
-                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Previous<br/>Balance</div>
-                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#168234] tracking-[-0.02em]">
-                  {formatPesoAmount(dashboardSummary.finances.previous_balance)}
-                </div>
-              </div>
-              <div className="flex flex-col items-center border-x border-[#eadfd6] px-1">
-                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Cash<br/>Received</div>
-                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#cf8c00] tracking-[-0.02em]">
-                  {formatPesoAmount(dashboardSummary.finances.cash_received)}
-                </div>
-              </div>
-              <div className="flex flex-col items-center px-1">
-                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Cash<br/>Outflow</div>
-                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#cc1313] tracking-[-0.02em]">
-                  {formatPesoAmount(dashboardSummary.finances.cash_outflow)}
-                </div>
-              </div>
-              <div className="flex flex-col items-center border-l border-[#eadfd6] px-1">
-                <div className="text-[0.55rem] font-medium leading-tight text-[#18130f]">Cash On<br/>Hand</div>
-                <div className="mt-1.5 text-[0.7rem] font-extrabold leading-tight text-[#168234] tracking-[-0.02em]">
-                  {formatPesoAmount(dashboardSummary.finances.cash_on_hand)}
-                </div>
-              </div>
+              <FinancialStatColumn
+                labelLine1="Previous"
+                labelLine2="Balance"
+                value={dashboardSummary.finances.previous_balance}
+                textColor="text-[#168234]"
+              />
+              <FinancialStatColumn
+                labelLine1="Cash"
+                labelLine2="Received"
+                value={dashboardSummary.finances.cash_received}
+                textColor="text-[#cf8c00]"
+                borderClass="border-x border-[#eadfd6]"
+              />
+              <FinancialStatColumn
+                labelLine1="Cash"
+                labelLine2="Outflow"
+                value={dashboardSummary.finances.cash_outflow}
+                textColor="text-[#cc1313]"
+              />
+              <FinancialStatColumn
+                labelLine1="Cash On"
+                labelLine2="Hand"
+                value={dashboardSummary.finances.cash_on_hand}
+                textColor="text-[#168234]"
+                borderClass="border-l border-[#eadfd6]"
+              />
             </div>
           </section>
           ) : null}

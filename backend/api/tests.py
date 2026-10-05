@@ -300,6 +300,31 @@ class TreasurerReportExtractionTests(SimpleTestCase):
         self.assertEqual(result.values["remaining_cash"], Decimal("60.00"))
         self.assertTrue(result.is_complete)
 
+    @patch("api.document_extraction.read_document_text")
+    def test_reconciles_cash_to_date_when_corrupted_by_distant_zero_subtotal(self, read_text):
+        read_text.return_value = """
+        TREASURER'S FINANCIAL REPORT
+        For the month of September, 2026
+        CASH BALANCE per last report dated August 6, 2026 P 252,225.86
+        Add: Cash Receipt per Deposit Slip from Secretary
+        Petition Fee P 20,000.00
+        Membership Dues 5,000.00
+        Almoner's Fund 6,400.00
+        TOTAL CASH ACCOUNTABILITY P 283 625-86
+        Sub-total Bi 0.00 P 0.00
+        TOTAL CASH DISBURSEMENTS P 18,400.00
+        CASH IN BANK AT THE END OF THE MONTH P 265,225.86
+        """
+
+        result = extract_treasurer_report(SimpleUploadedFile("report.pdf", b"pdf"), "application/pdf")
+
+        self.assertEqual(result.values["cash_balance_last_report"], Decimal("252225.86"))
+        self.assertEqual(result.values["cash_disbursements"], Decimal("18400.00"))
+        self.assertEqual(result.values["remaining_cash"], Decimal("265225.86"))
+        self.assertEqual(result.values["cash_to_date"], Decimal("283625.86"))
+        self.assertEqual(result.values["cash_received_month"], Decimal("31400.00"))
+        self.assertTrue(result.is_complete)
+
 
 class HealthcheckTests(SimpleTestCase):
     def test_healthcheck_returns_ok(self):
@@ -1913,6 +1938,35 @@ class AuthApiTests(TestCase):
         self.assertEqual(finances["report_year"], 2025)
         self.assertEqual(finances["report_period_label"], "December 2025")
         self.assertEqual(finances["cash_on_hand"], "348304.51")
+
+    def test_secretary_dashboard_summary_finances_payload_reconciliation(self):
+        self.client.force_login(self.user)
+        doc = LodgeDocument.objects.create(
+            category=LodgeDocument.Category.TREASURERS_REPORT,
+            original_filename="09 DLL 347 Treasurers Report Sep 2026.pdf",
+            content_type="application/pdf",
+            size_bytes=100,
+            uploaded_by=self.user,
+            extraction_status=LodgeDocument.ExtractionStatus.EXTRACTED,
+        )
+        TreasurerReportSummary.objects.create(
+            document=doc,
+            report_month=9,
+            report_year=2026,
+            cash_balance_last_report=Decimal("252225.86"),
+            cash_to_date=Decimal("0.00"),  # corrupted
+            cash_disbursements=Decimal("18400.00"),
+            remaining_cash=Decimal("265225.86"),
+            cash_received_month=Decimal("-252225.86"),  # corrupted
+        )
+
+        response = self.client.get(reverse("api:secretary-dashboard-summary"))
+        self.assertEqual(response.status_code, 200)
+        finances = response.json()["finances"]
+        self.assertEqual(finances["previous_balance"], "252225.86")
+        self.assertEqual(finances["cash_received"], "31400.00")
+        self.assertEqual(finances["cash_outflow"], "18400.00")
+        self.assertEqual(finances["cash_on_hand"], "265225.86")
 
     def test_next_lodge_activity_returns_nearest_upcoming_published_activity(self):
         self.client.force_login(self.user)

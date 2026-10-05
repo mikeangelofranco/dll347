@@ -303,6 +303,19 @@ def extract_treasurer_report(upload: BinaryIO, content_type: str) -> TreasurerEx
             result.values[field_name] = amount
             result.raw_values[field_name] = str(amount)
 
+    disbursements = result.values.get("cash_disbursements")
+    remaining = result.values.get("remaining_cash")
+    if disbursements is not None and remaining is not None:
+        expected_accountability = disbursements + remaining
+        current_accountability = result.values.get("cash_to_date")
+        if (
+            current_accountability is None
+            or current_accountability <= disbursements
+            or current_accountability < remaining
+        ):
+            result.values["cash_to_date"] = expected_accountability
+            result.raw_values["cash_to_date"] = str(expected_accountability)
+
     if "cash_to_date" in result.values and "cash_balance_last_report" in result.values:
         result.values["cash_received_month"] = (
             result.values["cash_to_date"] - result.values["cash_balance_last_report"]

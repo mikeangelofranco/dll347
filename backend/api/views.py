@@ -246,19 +246,35 @@ def financial_summary_payload() -> dict:
         net_direction = "up" if net_trend > 0 else "down"
     latest_month, latest_year = summary_report_period(latest)
 
+    prev_balance = latest.cash_balance_last_report
+    outflow = latest.cash_disbursements
+    on_hand = latest.remaining_cash
+    cash_to_date = latest.cash_to_date
+
+    # Reconcile if cash_to_date was missing or corrupted by OCR subtotal matching:
+    if (cash_to_date is None or cash_to_date <= (outflow or 0)) and on_hand is not None and outflow is not None:
+        cash_to_date = on_hand + outflow
+
+    cash_received = latest.cash_received_month
+    if prev_balance is not None and cash_to_date is not None:
+        if cash_received is None or cash_received < 0:
+            cash_received = cash_to_date - prev_balance
+    elif cash_received is not None and cash_to_date is not None and prev_balance is None:
+        prev_balance = cash_to_date - cash_received
+
     return {
-        "percent": max(0, min(100, round(float(latest.remaining_cash / latest.cash_to_date * 100)))) if latest.cash_to_date else 0,
+        "percent": max(0, min(100, round(float(on_hand / cash_to_date * 100)))) if cash_to_date and on_hand else 0,
         "status": "Cash position is up" if net_direction == "up" else "Cash position is down" if net_direction == "down" else "Cash position is flat",
         "has_data": True,
         "report_month": latest_month,
         "report_year": latest_year,
         "report_period_label": report_period_label(latest_month, latest_year),
         "source_date": latest.document.created_at.date().isoformat(),
-        "cash_accountability": money_payload(latest.cash_to_date),
-        "previous_balance": money_payload(latest.cash_to_date - (latest.cash_received_month or 0) if latest.cash_to_date else None),
-        "cash_received": money_payload(latest.cash_received_month),
-        "cash_outflow": money_payload(latest.cash_disbursements),
-        "cash_on_hand": money_payload(latest.remaining_cash),
+        "cash_accountability": money_payload(cash_to_date),
+        "previous_balance": money_payload(prev_balance),
+        "cash_received": money_payload(cash_received),
+        "cash_outflow": money_payload(outflow),
+        "cash_on_hand": money_payload(on_hand),
     }
 
 
