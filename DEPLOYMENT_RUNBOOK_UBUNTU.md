@@ -301,8 +301,23 @@ sudo rsync -a --delete \
 rm -f "$ZIP"
 
 cd "$APP"
+
+# Pre-build guardrail: ensure no local dev overrides exist on production
+sudo rm -f "$APP"/.env.local "$APP"/.env*.local
+
+# Ensure production environment file is in place
+if [ ! -f "$APP/.env.production" ]; then
+  echo "NEXT_PUBLIC_API_BASE_URL=/api" | sudo tee "$APP/.env.production" > /dev/null
+fi
+
 npm install
 npm run build
+
+# Post-build guardrail: verify localhost:8000 was NOT baked into client JS bundle
+if grep -r "127.0.0.1:8000" "$APP"/.next/static/ >/dev/null 2>&1; then
+  echo "CRITICAL ERROR: Found 127.0.0.1:8000 baked into client static bundle! Aborting deploy." >&2
+  exit 1
+fi
 ```
 
 ## systemd Services
@@ -486,3 +501,78 @@ Use:
 - browser/public: `https://dll347.org`
 - server-internal backend: `127.0.0.1:8001`
 - server-internal frontend: `127.0.0.1:3000`
+
+---
+
+## Production Incident Playbook & Guardrails
+
+### 1. Incident: Sign-in Failure on Mobile / Outside Devices ("Unable to complete sign in right now")
+
+* **Root Cause:** A local development `.env.local` containing `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api` was synced to `/srv/dll347/frontend/.env.local`. Because Next.js prioritizes `.env.local` over `.env.production`, this hardcoded loopback address was baked into the static client JavaScript bundle during `npm run build`. Remote client browsers (e.g. phones, tablets, external laptops) attempted to fetch `http://127.0.0.1:8000/api/auth/csrf/` on their own local device, causing `TypeError: Failed to fetch`.
+* **Prevention Rules:**
+  1. Never deploy `.env.local` or `.env*.local` to production.
+  2. In `frontend/.gitignore`, always ignore `.env*.local`.
+  3. Pre-build check: Always run `sudo rm -f /srv/dll347/frontend/.env.local /srv/dll347/frontend/.env*.local` before building.
+  4. Post-build verification: Always run:
+     ```bash
+     grep -rn "127.0.0.1:8000" /srv/dll347/frontend/.next/static/
+     ```
+     This command MUST output nothing.
+
+---
+
+### 2. Incident: Django Backend Fails on Restart with Error 127 ("No such file or directory")
+
+* **Root Cause:** Running `rsync` from a local macOS machine without excluding `venv` overwrites the Linux ELF binaries in `/srv/dll347/backend/venv/bin` with macOS Mach-O binaries. Systemd then fails to execute `/srv/dll347/backend/venv/bin/gunicorn` with exit code 127.
+* **Prevention Rules:**
+  1. When using `rsync` for backend code, ALWAYS pass:
+     `--exclude='venv' --exclude='.venv' --exclude='uploads' --exclude='.postgres-data' --exclude='__pycache__'`
+  2. If accidentally overwritten, recreate the virtual environment on Ubuntu in seconds:
+     ```bash
+     cd /srv/dll347/backend
+     rm -rf venv
+     python3 -m venv venv
+     ./venv/bin/pip install -r requirements.txt
+     sudo systemctl restart dll347-backend
+     ```
+
+---
+
+### 3. Incident: Member Workbook Upload Silently Fails ("Nothing Happens")
+
+* **Root Cause:** When updating existing records from an uploaded Excel file, the database threw:
+  `duplicate key value violates unique constraint "dll347_member_database_records_source_row_key" (DETAIL: Key (source_row)=(1190) already exists)`.
+  This happened because temporary row shuffling used `highest_source_row + offset`, which collided with bottom-placed unmatched records (`max_incoming_row + 1000 + offset`). The exception caused the database transaction to roll back, leaving all records untouched while the frontend only received a generic upload acknowledgement.
+* **Prevention Rules:**
+  1. Temporary row shifting in `excel_members.py` must use a base of `10,000,000+`, ensuring temporary keys never collide with sheet rows (1..500) or unmatched rows (1000..2000).
+  2. In case of unexpected upload behavior, always inspect `LodgeDocument` extraction status in Django shell:
+     ```python
+     from api.models import LodgeDocument
+     doc = LodgeDocument.objects.order_by("-id").first()
+     print(doc.extraction_status, doc.extraction_errors)
+     ```
+
+---
+
+### 4. Mandatory Post-Deployment Smoke Test Protocol
+
+After ANY production deployment, run this exact sequence of smoke tests:
+
+```bash
+# 1. Version verification
+curl -s https://dll347.org/version.json
+
+# 2. Backend health
+curl -s https://dll347.org/api/health/
+
+# 3. CSRF token generation (HTTP 200 + Set-Cookie)
+curl -i -s https://dll347.org/api/auth/csrf/ | grep -E "HTTP/|set-cookie|message"
+
+# 4. Auth evaluation test (should return 403 NOT_AUTHORIZED, NOT connection refused or 500)
+curl -i -s -X POST https://dll347.org/api/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"email":"invalid@dll347.org","password":"test"}' | grep -E "HTTP/|code"
+
+# 5. Service statuses
+ssh ubuntu@51.75.77.80 "sudo systemctl is-active dll347-backend dll347-frontend"
+```
