@@ -182,9 +182,9 @@ class MembersWorkbookSheetSchemaAdmin(admin.ModelAdmin):
 
 @admin.register(MemberDatabaseRecord)
 class MemberDatabaseRecordAdmin(admin.ModelAdmin):
-    list_display = ("source_row", "name", "glp_id_number", "section", "email")
+    list_display = ("source_row", "name", "glp_id_number", "section", "email", "imes")
     list_filter = ("section",)
-    search_fields = ("name", "glp_id_number", "email")
+    search_fields = ("name", "glp_id_number", "email", "imes")
 
 
 @admin.register(LodgeVisitorRecord)

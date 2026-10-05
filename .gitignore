@@ -7,8 +7,8 @@ backend/.env
 backend/.postgres-data/
 backend/.postgres.log
 backend/uploads/
-backend/**/__pycache__/
-backend/**/*.pyc
+**/__pycache__/
+**/*.pyc
 
 .DS_Store
 Thumbs.db

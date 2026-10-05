@@ -105,6 +105,16 @@ function formatDate(value: string | null | undefined): string {
   }
 }
 
+function formatImes(value: string | null | undefined): string {
+  if (!value) return "–";
+  const trimmed = value.trim();
+  if (!trimmed) return "–";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return formatDate(trimmed);
+  }
+  return trimmed;
+}
+
 function memberGroupLabel(status: string): string {
   const normalized = status.toUpperCase();
   if (normalized.includes("DROPED") || normalized.includes("DROPPED") || normalized.includes("WORKING TOOLS")) {
@@ -306,9 +316,15 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                     </div>
                   ))}
                 </div>
-                <div className="mt-4 border-t border-[#e9e1d8] pt-3 text-center">
-                  <div className="text-[0.72rem] font-bold text-[#c77800]">Proficiency</div>
-                  <div className="mt-1 text-[0.68rem] font-semibold text-[#4f4843]">{formatDate(profile.proficiency_date)}</div>
+                <div className="mt-4 grid grid-cols-2 divide-x divide-[#e9e1d8] border-t border-[#e9e1d8] pt-3 text-center">
+                  <div className="px-2">
+                    <div className="text-[0.72rem] font-bold text-[#c77800]">Proficiency</div>
+                    <div className="mt-1 text-[0.68rem] font-semibold text-[#4f4843]">{formatDate(profile.proficiency_date)}</div>
+                  </div>
+                  <div className="px-2">
+                    <div className="text-[0.72rem] font-bold text-[#c77800]">IMES</div>
+                    <div className="mt-1 text-[0.68rem] font-semibold text-[#4f4843]">{formatImes(profile.imes)}</div>
+                  </div>
                 </div>
               </section>
 

@@ -22,7 +22,10 @@ from .excel_members import (
     excel_date,
     is_numbered_record,
     is_petitioner_section,
+    build_member_column_map,
+    is_imes_header,
     member_name_match_key,
+    members_section_rows,
     normalize_member_name,
     sheet_columns,
     update_existing_members_from_workbook,
@@ -142,6 +145,71 @@ class ExcelMemberImportHelpersTests(SimpleTestCase):
         self.assertFalse(was_good_standing_member_by_year(new_member, 2025))
         self.assertFalse(was_good_standing_member_by_year(fcm, 2025))
         self.assertEqual(growth_percent(86, 80), 7.5)
+
+    def test_dynamic_column_map_detects_standard_layout(self):
+        columns = [
+            {"column": "B", "header_parts": ["NO."]},
+            {"column": "C", "header_parts": ["NAME"]},
+            {"column": "D", "header_parts": ["GLP ID NUMBER"]},
+            {"column": "E", "header_parts": ["DATE OF BIRTH"]},
+            {"column": "F", "header_parts": ["INITIATION"]},
+            {"column": "G", "header_parts": ["PASSING"]},
+            {"column": "H", "header_parts": ["RAISING"]},
+            {"column": "I", "header_parts": ["PROFECIENCY"]},
+            {"column": "J", "header_parts": ["SUSPEND"]},
+            {"column": "Q", "header_parts": ["CONTACT / EMAIL"]},
+            {"column": "AC", "header_parts": ["BLOOD TYPE"]},
+        ]
+        col_map = build_member_column_map(columns)
+        self.assertIsNone(col_map.imes_col)
+        self.assertEqual(col_map.proficiency_col, "I")
+        self.assertEqual(col_map.suspension_col, "J")
+        self.assertEqual(col_map.email_col, "Q")
+        self.assertEqual(col_map.blood_type_col, "AC")
+
+    def test_dynamic_column_map_detects_imes_and_shifted_columns(self):
+        columns = [
+            {"column": "B", "header_parts": ["NO."]},
+            {"column": "C", "header_parts": ["NAME"]},
+            {"column": "D", "header_parts": ["GLP ID NUMBER"]},
+            {"column": "E", "header_parts": ["DATE OF BIRTH"]},
+            {"column": "F", "header_parts": ["INITIATION"]},
+            {"column": "G", "header_parts": ["PASSING"]},
+            {"column": "H", "header_parts": ["RAISING"]},
+            {"column": "I", "header_parts": ["PROFICIENCY"]},
+            {"column": "J", "header_parts": ["IMES"]},
+            {"column": "K", "header_parts": ["SUSPEND"]},
+            {"column": "R", "header_parts": ["CONTACT / EMAIL"]},
+            {"column": "AD", "header_parts": ["BLOOD TYPE"]},
+        ]
+        col_map = build_member_column_map(columns)
+        self.assertEqual(col_map.imes_col, "J")
+        self.assertEqual(col_map.proficiency_col, "I")
+        self.assertEqual(col_map.suspension_col, "K")
+        self.assertEqual(col_map.email_col, "R")
+        self.assertEqual(col_map.blood_type_col, "AD")
+
+    def test_is_imes_header_handles_casing_and_typos(self):
+        for variant in ("IMES", "imes", "I.M.E.S.", "IMES Date", "IMSE", "IEMS", "Institute of Masonic Education and Studies"):
+            clean = variant.replace(" ", "").upper().replace(".", "")
+            self.assertTrue(is_imes_header(clean), f"Failed for {variant}")
+
+    def test_members_section_rows_handles_various_merge_widths(self):
+        sheet = ParsedSheet(
+            name="Test",
+            dimension="A1:R10",
+            cells={
+                "B5": ParsedCell("TRESTLE BOARD - ACTIVE", None, 0, "builtin:0"),
+                "B8": ParsedCell("TRESTLE BOARD - NOT ACTIVE", None, 0, "builtin:0"),
+            },
+            merged_ranges=["B5:Q5", "B8:R8"],
+            columns=[],
+            row_formats=[],
+            freeze_panes={},
+        )
+        sections = members_section_rows(sheet)
+        self.assertEqual(sections[5], "TRESTLE BOARD - ACTIVE")
+        self.assertEqual(sections[8], "TRESTLE BOARD - NOT ACTIVE")
 
 
 class TreasurerReportExtractionTests(SimpleTestCase):

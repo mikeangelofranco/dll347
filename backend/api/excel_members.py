@@ -6,7 +6,7 @@ import re
 import unicodedata
 import zipfile
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -125,6 +125,15 @@ def text_value(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip()
+
+
+def date_or_text_value(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    d = excel_date(value)
+    if d is not None:
+        return d.isoformat()
+    return text_value(value)
 
 
 def normalized_header_value(value: Any) -> str:
@@ -443,12 +452,14 @@ def sheet_columns(
 def members_section_rows(sheet: ParsedSheet) -> dict[int, str]:
     sections = {}
     for merged_range in sheet.merged_ranges:
-        match = re.fullmatch(r"B(\d+):Q\1", merged_range)
+        match = re.fullmatch(r"B(\d+):([A-Z]+)\1", merged_range)
         if match:
             row = int(match.group(1))
-            value = text_value(sheet.value(f"B{row}"))
-            if value:
-                sections[row] = value
+            end_column = match.group(2)
+            if column_number(end_column) >= 12:
+                value = text_value(sheet.value(f"B{row}"))
+                if value:
+                    sections[row] = value
     return sections
 
 
@@ -462,27 +473,141 @@ def is_petitioner_section(section: str) -> bool:
     return normalized.startswith("TRESTLE BOARD") or "PETITIONER" in normalized
 
 
+def is_imes_header(norm_header: str) -> bool:
+    if "IMES" in norm_header or "IMSE" in norm_header or "IEMS" in norm_header:
+        return True
+    if "INSTITUTEOFMASONICEDUCATION" in norm_header:
+        return True
+    return False
+
+
+@dataclass
+class DynamicMemberColumnMap:
+    number_col: str = "B"
+    name_col: str = "C"
+    glp_id_col: str = "D"
+    dob_col: str = "E"
+    initiation_col: str = "F"
+    passing_col: str = "G"
+    raising_col: str = "H"
+    proficiency_col: str = "I"
+    imes_col: str | None = None
+    suspension_col: str = "J"
+    restored_col: str = "K"
+    demit_col: str = "L"
+    lml_col: str = "M"
+    dual_plural_col: str = "N"
+    address_col: str = "O"
+    telephone_col: str = "P"
+    email_col: str = "Q"
+    blood_type_col: str = "AC"
+    widow_sister_col: str = "AD"
+    widow_dob_col: str = "AE"
+    appendant_cols: set[str] = field(default_factory=set)
+    meeting_attendance_cols: set[str] = field(default_factory=set)
+    monthly_attendance_cols: set[str] = field(default_factory=set)
+    annual_dues_cols: set[str] = field(default_factory=set)
+
+
+def build_member_column_map(member_columns: list[dict[str, Any]]) -> DynamicMemberColumnMap:
+    col_map = DynamicMemberColumnMap()
+    appendant_candidates: set[str] = set()
+    annual_dues_candidates: set[str] = set()
+
+    for col_def in member_columns:
+        col = col_def["column"]
+        parts = col_def.get("header_parts", [])
+        norm = normalized_header_value(" ".join(parts))
+        norm_top = normalized_header_value(parts[0]) if parts else ""
+
+        if norm in {"NO", "NUMBER", "MEMBERNO", "NUM"}:
+            col_map.number_col = col
+        elif norm in {"NAME", "MEMBERNAME", "FULLNAME"}:
+            col_map.name_col = col
+        elif "GLPID" in norm or norm in {"GLP", "GLPNUMBER", "GLPIDNUMBER"}:
+            col_map.glp_id_col = col
+        elif ("DATEOFBIRTH" in norm or norm in {"DOB", "BIRTHDATE"}) and "WIDOW" not in norm:
+            col_map.dob_col = col
+        elif "INITIAT" in norm or "1STDEGREE" in norm:
+            col_map.initiation_col = col
+        elif "PASS" in norm or "2NDDEGREE" in norm:
+            col_map.passing_col = col
+        elif "RAIS" in norm or "3RDDEGREE" in norm:
+            col_map.raising_col = col
+        elif any(token in norm for token in ("PROFECIEN", "PROFICIEN", "PROFIECIEN")):
+            col_map.proficiency_col = col
+        elif is_imes_header(norm):
+            col_map.imes_col = col
+        elif "SUSPEND" in norm:
+            col_map.suspension_col = col
+        elif "RESTORE" in norm:
+            col_map.restored_col = col
+        elif "DEMIT" in norm or "DIMIT" in norm:
+            col_map.demit_col = col
+        elif norm == "LML" or "LIFEMEMBER" in norm:
+            col_map.lml_col = col
+        elif "DUAL" in norm or "PLURAL" in norm:
+            col_map.dual_plural_col = col
+        elif "ADDRESS" in norm or "LOCATION" in norm:
+            col_map.address_col = col
+        elif "TELEPHONE" in norm or "PHONE" in norm or "CONTACTTEL" in norm or "MOBILE" in norm:
+            col_map.telephone_col = col
+        elif "EMAIL" in norm:
+            col_map.email_col = col
+        elif "BLOOD" in norm:
+            col_map.blood_type_col = col
+        elif "WIDOW" in norm and not ("BIRTH" in norm or "DOB" in norm):
+            col_map.widow_sister_col = col
+        elif "WIDOW" in norm and ("BIRTH" in norm or "DOB" in norm):
+            col_map.widow_dob_col = col
+
+        if ("APPENDANT" in norm or "CLUB" in norm) and not is_imes_header(norm):
+            appendant_candidates.add(col)
+        if "ANNUALDUES" in norm or "DUES" in norm_top:
+            annual_dues_candidates.add(col)
+
+    offset = column_number(col_map.blood_type_col) - 29
+
+    col_map.appendant_cols = appendant_candidates or {column_name(i + offset) for i in range(19, 28)}
+    col_map.meeting_attendance_cols = {column_name(i + offset) for i in range(33, 81)}
+    col_map.monthly_attendance_cols = {column_name(i + offset) for i in range(83, 175)}
+    col_map.annual_dues_cols = annual_dues_candidates or {column_name(i + offset) for i in range(177, 208)}
+
+    return col_map
+
+
 def find_member_sheet_layout(sheet: ParsedSheet) -> MemberSheetLayout:
-    required_headers = {
-        "B": "NO",
-        "C": "NAME",
-        "D": "GLPIDNUMBER",
-        "E": "DATEOFBIRTH",
-    }
     for row in range(1, 25):
-        if all(normalized_header_value(sheet.value(f"{column}{row}")) == expected for column, expected in required_headers.items()):
+        headers_in_row = {
+            column_name(c): normalized_header_value(sheet.value(f"{column_name(c)}{row}"))
+            for c in range(2, 20)
+        }
+        vals = set(headers_in_row.values())
+        has_no = any(v in {"NO", "NUMBER", "MEMBERNO", "NUM"} for v in vals)
+        has_name = any(v in {"NAME", "MEMBERNAME", "FULLNAME"} for v in vals)
+        has_glp = any("GLPID" in v or v in {"GLP", "GLPNUMBER"} for v in vals)
+        has_dob = any("DATEOFBIRTH" in v or v in {"DOB", "BIRTHDATE"} for v in vals)
+
+        if has_no and has_name and has_glp and has_dob:
             subheader_row = row + 1
+            header_cells = [
+                normalized_header_value(sheet.value(f"{column_name(c)}{r}"))
+                for r in (row, subheader_row)
+                for c in range(2, 60)
+            ]
+            has_email = any("EMAIL" in h for h in header_cells)
+            has_blood = any("BLOOD" in h for h in header_cells)
+
             missing_helpful_headers = []
-            email_header = normalized_header_value(sheet.value(f"Q{subheader_row}"))
-            if email_header not in {"EMAIL", "EMAILADDRESS"}:
-                missing_helpful_headers.append(f"Q{subheader_row}")
-            blood_type_header = normalized_header_value(sheet.value(f"AC{row}"))
-            if blood_type_header != "BLOODTYPE":
-                missing_helpful_headers.append(f"AC{row}")
+            if not has_email:
+                missing_helpful_headers.append("EMAIL")
+            if not has_blood:
+                missing_helpful_headers.append("BLOOD TYPE")
+
             if missing_helpful_headers:
                 raise MembersWorkbookFormatError(
                     [
-                        "Members Data format issue: the member table was found, but expected supporting columns are missing or moved "
+                        "Members Data format issue: the member table was found, but expected supporting columns are missing "
                         f"({', '.join(missing_helpful_headers)}). Please use the DLL 347 Members workbook template."
                     ]
                 )
@@ -541,6 +666,7 @@ def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDa
 
     layout = find_member_sheet_layout(members)
     member_columns = sheet_columns(members, "B", "GZ", (layout.header_row, layout.subheader_row))
+    col_map = build_member_column_map(member_columns)
     member_sections = members_section_rows(members)
     max_row = max(
         [row for _column, row in (split_reference(reference) for reference in members.cells)]
@@ -549,45 +675,43 @@ def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDa
 
     member_records = []
     for row in range(layout.first_data_row, max_row + 1):
-        if not is_numbered_record(members, row, "B", "C"):
+        if not is_numbered_record(members, row, col_map.number_col, col_map.name_col):
             continue
-        name = text_value(members.value(f"C{row}"))
+        name = text_value(members.value(f"{col_map.name_col}{row}"))
         section = current_section(member_sections, row)
+        imes_val = (
+            date_or_text_value(members.value(f"{col_map.imes_col}{row}"))
+            if col_map.imes_col
+            else ""
+        )
         member_records.append(
             MemberDatabaseRecord(
                 source_row=row,
                 section=section,
-                member_number=text_value(members.value(f"B{row}")),
+                member_number=text_value(members.value(f"{col_map.number_col}{row}")),
                 name=name,
-                glp_id_number="" if is_petitioner_section(section) else text_value(members.value(f"D{row}")),
-                date_of_birth=excel_date(members.value(f"E{row}")),
-                initiation_date=excel_date(members.value(f"F{row}")),
-                passing_date=excel_date(members.value(f"G{row}")),
-                raising_date=excel_date(members.value(f"H{row}")),
-                proficiency_date=excel_date(members.value(f"I{row}")),
-                suspension=text_value(members.value(f"J{row}")),
-                restored=text_value(members.value(f"K{row}")),
-                demit=text_value(members.value(f"L{row}")),
-                lml=text_value(members.value(f"M{row}")),
-                dual_plural_honorary_date=text_value(members.value(f"N{row}")),
-                address=text_value(members.value(f"O{row}")),
-                telephone=text_value(members.value(f"P{row}")),
-                email=text_value(members.value(f"Q{row}")),
-                appendant_bodies=keyed_values(
-                    members, row, member_columns, set(column_name(i) for i in range(19, 28))
-                ),
-                blood_type=text_value(members.value(f"AC{row}")),
-                widow_or_sister=text_value(members.value(f"AD{row}")),
-                widow_or_sister_date_of_birth=excel_date(members.value(f"AE{row}")),
-                meeting_attendance=keyed_values(
-                    members, row, member_columns, set(column_name(i) for i in range(33, 81))
-                ),
-                monthly_attendance=keyed_values(
-                    members, row, member_columns, set(column_name(i) for i in range(83, 175))
-                ),
-                annual_dues=keyed_values(
-                    members, row, member_columns, set(column_name(i) for i in range(177, 208))
-                ),
+                glp_id_number="" if is_petitioner_section(section) else text_value(members.value(f"{col_map.glp_id_col}{row}")),
+                date_of_birth=excel_date(members.value(f"{col_map.dob_col}{row}")),
+                initiation_date=excel_date(members.value(f"{col_map.initiation_col}{row}")),
+                passing_date=excel_date(members.value(f"{col_map.passing_col}{row}")),
+                raising_date=excel_date(members.value(f"{col_map.raising_col}{row}")),
+                proficiency_date=excel_date(members.value(f"{col_map.proficiency_col}{row}")),
+                imes=imes_val,
+                suspension=text_value(members.value(f"{col_map.suspension_col}{row}")),
+                restored=text_value(members.value(f"{col_map.restored_col}{row}")),
+                demit=text_value(members.value(f"{col_map.demit_col}{row}")),
+                lml=text_value(members.value(f"{col_map.lml_col}{row}")),
+                dual_plural_honorary_date=text_value(members.value(f"{col_map.dual_plural_col}{row}")),
+                address=text_value(members.value(f"{col_map.address_col}{row}")),
+                telephone=text_value(members.value(f"{col_map.telephone_col}{row}")),
+                email=text_value(members.value(f"{col_map.email_col}{row}")),
+                appendant_bodies=keyed_values(members, row, member_columns, col_map.appendant_cols),
+                blood_type=text_value(members.value(f"{col_map.blood_type_col}{row}")),
+                widow_or_sister=text_value(members.value(f"{col_map.widow_sister_col}{row}")),
+                widow_or_sister_date_of_birth=excel_date(members.value(f"{col_map.widow_dob_col}{row}")),
+                meeting_attendance=keyed_values(members, row, member_columns, col_map.meeting_attendance_cols),
+                monthly_attendance=keyed_values(members, row, member_columns, col_map.monthly_attendance_cols),
+                annual_dues=keyed_values(members, row, member_columns, col_map.annual_dues_cols),
                 raw_cells=raw_row(members, row, "B", "GZ"),
             )
         )
@@ -731,6 +855,7 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
         "passing_date",
         "raising_date",
         "proficiency_date",
+        "imes",
         "date_presented",
         "date_balloted",
         "suspension",
@@ -834,6 +959,7 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
                     passing_date=record.passing_date,
                     raising_date=record.raising_date,
                     proficiency_date=record.proficiency_date,
+                    imes=record.imes,
                     date_presented=record.date_presented,
                     date_balloted=record.date_balloted,
                     suspension=record.suspension,
@@ -931,47 +1057,46 @@ def import_members_workbook(path: str | Path) -> MembersWorkbookImport:
         if text_value(balloting.value(f"B{row}"))
     }
 
+    col_map = build_member_column_map(member_columns)
     member_records = []
     for row in range(12, 179):
-        if not is_numbered_record(members, row, "B", "C"):
+        if not is_numbered_record(members, row, col_map.number_col, col_map.name_col):
             continue
-        name = text_value(members.value(f"C{row}"))
+        name = text_value(members.value(f"{col_map.name_col}{row}"))
         section = current_section(member_sections, row)
+        imes_val = (
+            date_or_text_value(members.value(f"{col_map.imes_col}{row}"))
+            if col_map.imes_col
+            else ""
+        )
         member_records.append(
             MemberDatabaseRecord(
                 source_row=row,
                 section=section,
-                member_number=text_value(members.value(f"B{row}")),
+                member_number=text_value(members.value(f"{col_map.number_col}{row}")),
                 name=name,
-                glp_id_number="" if is_petitioner_section(section) else text_value(members.value(f"D{row}")),
-                date_of_birth=excel_date(members.value(f"E{row}")),
-                initiation_date=excel_date(members.value(f"F{row}")),
-                passing_date=excel_date(members.value(f"G{row}")),
-                raising_date=excel_date(members.value(f"H{row}")),
-                proficiency_date=excel_date(members.value(f"I{row}")),
-                suspension=text_value(members.value(f"J{row}")),
-                restored=text_value(members.value(f"K{row}")),
-                demit=text_value(members.value(f"L{row}")),
-                lml=text_value(members.value(f"M{row}")),
-                dual_plural_honorary_date=text_value(members.value(f"N{row}")),
-                address=text_value(members.value(f"O{row}")),
-                telephone=text_value(members.value(f"P{row}")),
-                email=text_value(members.value(f"Q{row}")),
-                appendant_bodies=keyed_values(
-                    members, row, member_columns, set(column_name(i) for i in range(19, 28))
-                ),
-                blood_type=text_value(members.value(f"AC{row}")),
-                widow_or_sister=text_value(members.value(f"AD{row}")),
-                widow_or_sister_date_of_birth=excel_date(members.value(f"AE{row}")),
-                meeting_attendance=keyed_values(
-                    members, row, member_columns, set(column_name(i) for i in range(33, 81))
-                ),
-                monthly_attendance=keyed_values(
-                    members, row, member_columns, set(column_name(i) for i in range(83, 175))
-                ),
-                annual_dues=keyed_values(
-                    members, row, member_columns, set(column_name(i) for i in range(177, 208))
-                ),
+                glp_id_number="" if is_petitioner_section(section) else text_value(members.value(f"{col_map.glp_id_col}{row}")),
+                date_of_birth=excel_date(members.value(f"{col_map.dob_col}{row}")),
+                initiation_date=excel_date(members.value(f"{col_map.initiation_col}{row}")),
+                passing_date=excel_date(members.value(f"{col_map.passing_col}{row}")),
+                raising_date=excel_date(members.value(f"{col_map.raising_col}{row}")),
+                proficiency_date=excel_date(members.value(f"{col_map.proficiency_col}{row}")),
+                imes=imes_val,
+                suspension=text_value(members.value(f"{col_map.suspension_col}{row}")),
+                restored=text_value(members.value(f"{col_map.restored_col}{row}")),
+                demit=text_value(members.value(f"{col_map.demit_col}{row}")),
+                lml=text_value(members.value(f"{col_map.lml_col}{row}")),
+                dual_plural_honorary_date=text_value(members.value(f"{col_map.dual_plural_col}{row}")),
+                address=text_value(members.value(f"{col_map.address_col}{row}")),
+                telephone=text_value(members.value(f"{col_map.telephone_col}{row}")),
+                email=text_value(members.value(f"{col_map.email_col}{row}")),
+                appendant_bodies=keyed_values(members, row, member_columns, col_map.appendant_cols),
+                blood_type=text_value(members.value(f"{col_map.blood_type_col}{row}")),
+                widow_or_sister=text_value(members.value(f"{col_map.widow_sister_col}{row}")),
+                widow_or_sister_date_of_birth=excel_date(members.value(f"{col_map.widow_dob_col}{row}")),
+                meeting_attendance=keyed_values(members, row, member_columns, col_map.meeting_attendance_cols),
+                monthly_attendance=keyed_values(members, row, member_columns, col_map.monthly_attendance_cols),
+                annual_dues=keyed_values(members, row, member_columns, col_map.annual_dues_cols),
                 raw_cells=raw_row(members, row, "B", "GZ"),
             )
         )

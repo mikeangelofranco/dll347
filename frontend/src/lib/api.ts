@@ -64,6 +64,7 @@ export type MemberDashboardProfile = {
   six_meetings_rule: boolean;
   six_meeting_attendance: number;
   proficiency_date: string | null;
+  imes?: string;
   years_of_membership: number | null;
   member_since: string | null;
   profile_photo_url: string | null;
@@ -272,6 +273,7 @@ export type MemberProfileUpdatePayload = {
   passing_date: string | null;
   raising_date: string | null;
   proficiency_date: string | null;
+  imes?: string;
   date_presented: string | null;
   date_balloted: string | null;
   suspension: string;

@@ -787,6 +787,20 @@ function formatDate(value: string | null): string {
   }).format(new Date(`${value}T00:00:00Z`));
 }
 
+function formatImes(value: string | null | undefined): string {
+  if (!value) {
+    return "-";
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "-";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return formatDate(trimmed);
+  }
+  return trimmed;
+}
+
 function formatActivityDate(value: string): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "long",
@@ -1025,6 +1039,7 @@ function editableMemberForm(profile: MemberEditableProfile | PetitionerEditableP
     passing_date: profile.passing_date,
     raising_date: profile.raising_date,
     proficiency_date: profile.proficiency_date,
+    imes: "imes" in profile && profile.imes ? profile.imes : "",
     date_presented: "date_presented" in profile ? profile.date_presented : null,
     date_balloted: "date_balloted" in profile ? profile.date_balloted : null,
     suspension: profile.suspension,
@@ -2142,6 +2157,7 @@ export function MemberDashboardScreen({
       passing_date: editMemberForm.passing_date,
       raising_date: editMemberForm.raising_date,
       proficiency_date: editMemberForm.proficiency_date,
+      imes: editMemberForm.imes || "",
       suspension: editMemberForm.suspension,
       restored: editMemberForm.restored,
       demit: editMemberForm.demit,
@@ -2769,6 +2785,7 @@ export function MemberDashboardScreen({
                     {!isPetitionerEdit ? <label className={labelClass}>Date Balloted<input type="date" value={dateInputValue(editMemberForm.date_balloted)} onChange={(event) => updateEditMemberField("date_balloted", nullableDate(event.target.value))} className={textInputClass} /></label> : null}
                     <label className={labelClass}>Raised<input type="date" value={dateInputValue(editMemberForm.raising_date)} onChange={(event) => updateEditMemberField("raising_date", nullableDate(event.target.value))} className={textInputClass} /></label>
                     <label className={labelClass}>Proficiency<input type="date" value={dateInputValue(editMemberForm.proficiency_date)} onChange={(event) => updateEditMemberField("proficiency_date", nullableDate(event.target.value))} className={textInputClass} /></label>
+                    {!isPetitionerEdit ? <label className={labelClass}>IMES<input type="text" value={editMemberForm.imes || ""} onChange={(event) => updateEditMemberField("imes", event.target.value)} placeholder="e.g. Graduate or Date" className={textInputClass} /></label> : null}
                     <label className={labelClass}>Suspension<input type="date" value={dateInputValue(editMemberForm.suspension)} onChange={(event) => updateEditMemberField("suspension", event.target.value)} className={textInputClass} /></label>
                     <label className={labelClass}>Restored<input type="date" value={dateInputValue(editMemberForm.restored)} onChange={(event) => updateEditMemberField("restored", event.target.value)} className={textInputClass} /></label>
                     <label className={labelClass}>Demit<input type="date" value={dateInputValue(editMemberForm.demit)} onChange={(event) => updateEditMemberField("demit", event.target.value)} className={textInputClass} /></label>
@@ -3722,9 +3739,15 @@ export function MemberDashboardScreen({
                   </div>
                 ))}
               </div>
-              <div className="mt-4 border-t border-[#e9e1d8] pt-3 text-center">
-                <div className="text-[0.72rem] font-bold text-[#c77800]">Proficiency</div>
-                <div className="mt-1 text-[0.68rem] font-semibold text-[#4f4843]">{formatDate(fullProfile.proficiency_date)}</div>
+              <div className="mt-4 grid grid-cols-2 divide-x divide-[#e9e1d8] border-t border-[#e9e1d8] pt-3 text-center">
+                <div className="px-2">
+                  <div className="text-[0.72rem] font-bold text-[#c77800]">Proficiency</div>
+                  <div className="mt-1 text-[0.68rem] font-semibold text-[#4f4843]">{formatDate(fullProfile.proficiency_date)}</div>
+                </div>
+                <div className="px-2">
+                  <div className="text-[0.72rem] font-bold text-[#c77800]">IMES</div>
+                  <div className="mt-1 text-[0.68rem] font-semibold text-[#4f4843]">{formatImes(fullProfile.imes)}</div>
+                </div>
               </div>
             </section>
 
