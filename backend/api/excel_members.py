@@ -1020,9 +1020,12 @@ def update_existing_members_from_workbook(path: str | Path) -> MembersWorkbookUp
 
         # Shift all remaining records out of the incoming row range so
         # inserts and row shifts cannot trip the unique source_row index.
+        # Use a high temporary base (10,000,000) well above any workbook or unmatched rows
+        # to guarantee no overlap with max_incoming_row + 1000 + offset.
         highest_source_row = max(
             [record.source_row for record in existing_records]
             + [record.source_row for record in incoming_records]
+            + [10_000_000]
         )
         for offset, record in enumerate(remaining_existing, start=1):
             record.source_row = highest_source_row + offset
