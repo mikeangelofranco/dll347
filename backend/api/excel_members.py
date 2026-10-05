@@ -130,10 +130,35 @@ def text_value(value: Any) -> str:
 def date_or_text_value(value: Any) -> str:
     if value in (None, ""):
         return ""
-    d = excel_date(value)
-    if d is not None:
-        return d.isoformat()
-    return text_value(value)
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", cleaned):
+            return cleaned
+        m = re.match(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$", cleaned)
+        if m:
+            m_val, d_val, y_val = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            try:
+                return date(y_val, m_val, d_val).isoformat()
+            except ValueError:
+                return cleaned
+        return cleaned
+    if isinstance(value, (int, float)):
+        # Excel date serials for years 1970 to 2090 are ~25569 to ~70000.
+        # Small integers (e.g. batch number 14) or years (e.g. 2024) are preserved as exact text.
+        if 20000 <= value <= 70000:
+            try:
+                d = (datetime(1899, 12, 30) + timedelta(days=float(value))).date()
+                return d.isoformat()
+            except Exception:
+                pass
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+    return str(value).strip()
 
 
 def normalized_header_value(value: Any) -> str:

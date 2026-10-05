@@ -19,6 +19,7 @@ from .excel_members import (
     ParsedSheet,
     column_name,
     column_number,
+    date_or_text_value,
     excel_date,
     is_numbered_record,
     is_petitioner_section,
@@ -193,6 +194,19 @@ class ExcelMemberImportHelpersTests(SimpleTestCase):
         for variant in ("IMES", "imes", "I.M.E.S.", "IMES Date", "IMSE", "IEMS", "Institute of Masonic Education and Studies"):
             clean = variant.replace(" ", "").upper().replace(".", "")
             self.assertTrue(is_imes_header(clean), f"Failed for {variant}")
+
+    def test_date_or_text_value_preserves_unrestricted_source_values(self):
+        self.assertEqual(date_or_text_value("Graduate"), "Graduate")
+        self.assertEqual(date_or_text_value("Batch 14"), "Batch 14")
+        self.assertEqual(date_or_text_value("14"), "14")
+        self.assertEqual(date_or_text_value(14), "14")
+        self.assertEqual(date_or_text_value(2024), "2024")
+        self.assertEqual(date_or_text_value("2024"), "2024")
+        self.assertEqual(date_or_text_value(45422), "2024-05-10")
+        self.assertEqual(date_or_text_value("2024-05-10"), "2024-05-10")
+        self.assertEqual(date_or_text_value("05/10/2024"), "2024-05-10")
+        self.assertEqual(date_or_text_value("Level 1 & 2 Completed"), "Level 1 & 2 Completed")
+        self.assertEqual(date_or_text_value(None), "")
 
     def test_members_section_rows_handles_various_merge_widths(self):
         sheet = ParsedSheet(
