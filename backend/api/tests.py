@@ -33,6 +33,7 @@ from .excel_members import (
     update_existing_members_from_workbook,
 )
 from .models import (
+    Account,
     ArchivedAccount,
     ArchivedMemberRecord,
     AuditLog,
@@ -44,6 +45,8 @@ from .models import (
     MembersWorkbookImport,
     PersonalInformationVisibility,
     PreidentifiedEmail,
+    ProfileAlertWebhookConfig,
+    ProfileAlertWebhookLog,
     ScreenLog,
     ToolAccessLog,
     TreasurerReportSummary,
@@ -2978,4 +2981,133 @@ class EmailChangeAndArchiveTests(TestCase):
         )
         self.assertEqual(resp_unknown.status_code, 200)
         self.assertFalse(resp_unknown.json()["has_notice"])
+
+
+class ProfileAlertWebhookTests(TestCase):
+    def setUp(self):
+        self.config = ProfileAlertWebhookConfig.get_solo()
+        self.config.is_enabled = True
+        self.config.watched_member_id = 588
+        self.config.watched_name = "Mike Angelo Franco"
+        self.config.search_keywords = "mike, mic"
+        self.config.cooldown_seconds = 30
+        self.config.ignore_self = True
+        self.config.self_email = "mikeangelofranco@outlook.com"
+        self.config.save()
+
+        # Create members
+        self.mike_account = Account.objects.create_user(
+            email="mikeangelofranco@outlook.com",
+            password="Password123!",
+            role=Account.Role.DEVELOPER,
+        )
+        self.other_account = Account.objects.create_user(
+            email="eugene@dll347.org",
+            password="Password123!",
+            role=Account.Role.MEMBER,
+        )
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="test.xlsx",
+            file_sha256="b" * 64,
+        )
+        self.other_member = MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            name="Espinosa, Eugene Paul P.",
+            email="eugene@dll347.org",
+            section="REGULAR - ACTIVE",
+            source_row=1,
+        )
+        self.mike_petitioner = MemberDatabaseRecord.objects.create(
+            pk=588,
+            workbook_import=workbook_import,
+            name="Mr. Franco, Mike Angelo M.",
+            email="mikeangelofranco@gmail.com",
+            section="PETITIONER - ACTIVE",
+            source_row=2,
+        )
+
+    def test_search_detection_logic(self):
+        from .profile_alert import is_watched_search
+
+        self.assertTrue(is_watched_search("mike", self.config))
+        self.assertTrue(is_watched_search("Mike", self.config))
+        self.assertTrue(is_watched_search("mic", self.config))
+        self.assertTrue(is_watched_search("Mic", self.config))
+        self.assertTrue(is_watched_search("franco", self.config))
+        self.assertTrue(is_watched_search("Franco", self.config))
+        self.assertTrue(is_watched_search("mike franco", self.config))
+
+        self.assertFalse(is_watched_search("john", self.config))
+        self.assertFalse(is_watched_search("michael", self.config))
+        self.assertFalse(is_watched_search("alvin", self.config))
+        self.assertFalse(is_watched_search("", self.config))
+
+    def test_profile_view_detection_logic(self):
+        from .profile_alert import is_watched_profile
+
+        self.assertTrue(is_watched_profile(target_member_id=588, config=self.config))
+        self.assertTrue(is_watched_profile(target_name="Mr. Franco, Mike Angelo M.", config=self.config))
+        self.assertTrue(is_watched_profile(target_name="Mike Angelo Franco", config=self.config))
+
+        self.assertFalse(is_watched_profile(target_member_id=123, config=self.config))
+        self.assertFalse(is_watched_profile(target_name="Bro. John Doe", config=self.config))
+
+    def test_format_alert_message(self):
+        from .profile_alert import format_alert_message
+
+        test_time = timezone.datetime(2026, 10, 8, 19, 15, tzinfo=timezone.get_current_timezone())
+        msg = format_alert_message("Eugene Paul P. Espinosa", test_time)
+        self.assertEqual(
+            msg,
+            "Your profile has been checked by Eugene Paul P. Espinosa - October 08, 2026, 07:15 PM",
+        )
+
+    def test_member_searching_mike_triggers_webhook(self):
+        from unittest.mock import patch
+        from .profile_alert import ProfileAlertWebhookLog
+
+        self.client.force_login(self.other_account)
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_resp = mock_urlopen.return_value.__enter__.return_value
+            mock_resp.status = 204
+
+            response = self.client.get(reverse("api:member-list"), {"search": "mike"})
+            self.assertEqual(response.status_code, 200)
+
+            # Check that log was created
+            log = ProfileAlertWebhookLog.objects.filter(actor_email="eugene@dll347.org").first()
+            self.assertIsNotNone(log)
+            self.assertEqual(log.member_name, "Eugene Paul P. Espinosa")
+            self.assertEqual(log.trigger_type, "search")
+            self.assertIn("Your profile has been checked by Eugene Paul P. Espinosa", log.message)
+
+    def test_self_search_is_skipped_and_not_sent(self):
+        from unittest.mock import patch
+        from .profile_alert import ProfileAlertWebhookLog
+
+        self.client.force_login(self.mike_account)
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            response = self.client.get(reverse("api:member-list"), {"search": "mike"})
+            self.assertEqual(response.status_code, 200)
+            mock_urlopen.assert_not_called()
+
+            log = ProfileAlertWebhookLog.objects.filter(actor_email="mikeangelofranco@outlook.com").first()
+            self.assertIsNotNone(log)
+            self.assertEqual(log.status, ProfileAlertWebhookLog.Status.SKIPPED_SELF)
+
+    def test_opening_petitioner_profile_triggers_webhook(self):
+        from .profile_alert import ProfileAlertWebhookLog
+
+        self.client.force_login(self.other_account)
+        response = self.client.get(reverse("api:petitioner-detail-profile", args=[588]))
+        self.assertEqual(response.status_code, 200)
+
+        log = ProfileAlertWebhookLog.objects.filter(
+            actor_email="eugene@dll347.org",
+            trigger_type="profile_view",
+        ).first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.member_name, "Eugene Paul P. Espinosa")
+        self.assertIn("Your profile has been checked by Eugene Paul P. Espinosa", log.message)
+
 

@@ -20,6 +20,8 @@ from .models import (
     PasswordResetToken,
     PersonalInformationVisibility,
     PreidentifiedEmail,
+    ProfileAlertWebhookConfig,
+    ProfileAlertWebhookLog,
     ScreenLog,
     ToolAccessLog,
 )
@@ -449,4 +451,176 @@ class ScreenLogAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+class ProfileAlertWebhookLogInline(admin.TabularInline):
+    model = ProfileAlertWebhookLog
+    extra = 0
+    can_delete = False
+    max_num = 0
+    fields = (
+        "formatted_created_at",
+        "member_name",
+        "actor_email",
+        "trigger_type",
+        "detail",
+        "status_badge",
+        "error_message",
+    )
+    readonly_fields = (
+        "formatted_created_at",
+        "member_name",
+        "actor_email",
+        "trigger_type",
+        "detail",
+        "status_badge",
+        "error_message",
+    )
+    ordering = ("-created_at", "-id")
+    verbose_name = "Trigger event log"
+    verbose_name_plural = "Recent Trigger Events (Last 100)"
+
+    @admin.display(description="Timestamp", ordering="created_at")
+    def formatted_created_at(self, obj):
+        if not obj or not obj.created_at:
+            return "—"
+        return timezone.localtime(obj.created_at).strftime("%Y-%m-%d %I:%M:%S %p")
+
+    @admin.display(description="Status")
+    def status_badge(self, obj):
+        if obj.status == ProfileAlertWebhookLog.Status.SUCCESS:
+            return format_html('<span style="color: green; font-weight: bold;">✔ Sent to Discord</span>')
+        elif obj.status == ProfileAlertWebhookLog.Status.SKIPPED_SELF:
+            return format_html('<span style="color: #6c757d;">⏭ Skipped (Self View)</span>')
+        elif obj.status == ProfileAlertWebhookLog.Status.SKIPPED_COOLDOWN:
+            return format_html('<span style="color: #d97706;">⏱ Skipped (Cooldown)</span>')
+        elif obj.status == ProfileAlertWebhookLog.Status.FAILED:
+            return format_html('<span style="color: red; font-weight: bold;">✖ Failed ({})</span>', obj.status_code or "Err")
+        return obj.status
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProfileAlertWebhookConfig)
+class ProfileAlertWebhookConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        "name_display",
+        "is_enabled_badge",
+        "total_triggers",
+        "formatted_last_triggered",
+        "last_triggered_by",
+        "last_status_badge",
+    )
+    readonly_fields = (
+        "total_triggers",
+        "formatted_last_triggered",
+        "last_triggered_by",
+        "last_status_code",
+        "last_error",
+        "created_at",
+        "updated_at",
+    )
+    inlines = (ProfileAlertWebhookLogInline,)
+    actions = ("send_test_alert", "reset_stats")
+
+    fieldsets = (
+        (
+            "Webhook Setup",
+            {
+                "fields": (
+                    "is_enabled",
+                    "webhook_url",
+                    "watched_member_id",
+                    "watched_name",
+                    "search_keywords",
+                    "cooldown_seconds",
+                    "ignore_self",
+                    "self_email",
+                ),
+                "description": "Configure the Discord webhook URL, watched member record, and keywords.",
+            },
+        ),
+        (
+            "Current Status & Diagnostics",
+            {
+                "fields": (
+                    "total_triggers",
+                    "formatted_last_triggered",
+                    "last_triggered_by",
+                    "last_status_code",
+                    "last_error",
+                    "created_at",
+                    "updated_at",
+                ),
+            },
+        ),
+    )
+
+    @admin.display(description="Webhook Profile Alert")
+    def name_display(self, obj):
+        return "Profile Alert & Search Watch Setup"
+
+    @admin.display(description="Active", boolean=True)
+    def is_enabled_badge(self, obj):
+        return obj.is_enabled
+
+    @admin.display(description="Last Triggered")
+    def formatted_last_triggered(self, obj):
+        if not obj or not obj.last_triggered_at:
+            return "Never"
+        return timezone.localtime(obj.last_triggered_at).strftime("%Y-%m-%d %I:%M:%S %p")
+
+    @admin.display(description="Last Status")
+    def last_status_badge(self, obj):
+        if not obj.last_status_code:
+            return "—"
+        if 200 <= obj.last_status_code < 300:
+            return format_html('<span style="color: green; font-weight: bold;">✔ HTTP {}</span>', obj.last_status_code)
+        return format_html('<span style="color: red; font-weight: bold;">✖ HTTP {}</span>', obj.last_status_code)
+
+    @admin.action(description="🔔 Send Test Alert to Discord Webhook")
+    def send_test_alert(self, request, queryset):
+        for config in queryset:
+            from .profile_alert import send_test_discord_alert
+
+            ok, msg = send_test_discord_alert(config, request.user)
+            if ok:
+                self.message_user(request, f"Test alert sent successfully to Discord ({msg})")
+            else:
+                self.message_user(request, f"Failed to send test alert: {msg}", level="error")
+
+    @admin.action(description="Reset Trigger Counter & Errors")
+    def reset_stats(self, request, queryset):
+        queryset.update(total_triggers=0, last_error="", last_status_code=None)
+        self.message_user(request, "Trigger stats reset.")
+
+    def has_add_permission(self, request):
+        return not ProfileAlertWebhookConfig.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+# Ensure ProfileAlertWebhookConfig is placed at the very last option in Django Admin app list
+_original_get_app_list = admin.site.get_app_list
+
+
+def _custom_get_app_list(request, app_label=None):
+    app_list = _original_get_app_list(request, app_label=app_label)
+    for app in app_list:
+        if app.get("app_label") == "api":
+            last_models = []
+            other_models = []
+            for m in app.get("models", []):
+                if m.get("object_name") == "ProfileAlertWebhookConfig":
+                    last_models.append(m)
+                else:
+                    other_models.append(m)
+            app["models"] = other_models + last_models
+    return app_list
+
+
+admin.site.get_app_list = _custom_get_app_list
+
 

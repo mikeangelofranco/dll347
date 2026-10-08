@@ -43,6 +43,7 @@ from .models import (
 )
 from .account_services import archive_and_reset_member_account
 from .permissions import IsDeveloper
+from .profile_alert import trigger_profile_search_alert, trigger_profile_view_alert
 from .serializers import (
     AccountSerializer,
     LoginSerializer,
@@ -1038,6 +1039,7 @@ def user_activity_view(request):
     changes = {}
     if member_name:
         changes["member_name"] = member_name
+        trigger_profile_view_alert(request, target_name=member_name)
 
     create_audit_log(
         action,
@@ -1202,6 +1204,7 @@ def member_full_profile_view(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def member_detail_profile_view(request, member_id: int):
+    trigger_profile_view_alert(request, target_member_id=member_id)
     member = (
         MemberDatabaseRecord.objects.exclude(Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER"))
         .filter(pk=member_id)
@@ -1225,6 +1228,7 @@ def member_detail_profile_view(request, member_id: int):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def petitioner_detail_profile_view(request, member_id: int):
+    trigger_profile_view_alert(request, target_member_id=member_id)
     member = (
         MemberDatabaseRecord.objects.filter(
             Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER"),
@@ -2207,6 +2211,7 @@ def member_list_view(request):
         requested_group = "active" if "active" in available_groups else next(iter(sorted(available_groups)), "")
 
     if search:
+        trigger_profile_search_alert(request, search)
         records = records.filter(name__icontains=search)
 
     if not search and not dues_filter:
@@ -2267,6 +2272,7 @@ def petitioner_list_view(request):
         )
     )
     if search:
+        trigger_profile_search_alert(request, search)
         normalized_search = search.casefold()
         records = [record for record in records if normalized_search in record.name.casefold()]
     else:

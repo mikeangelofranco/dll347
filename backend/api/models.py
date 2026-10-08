@@ -777,3 +777,103 @@ class ArchivedAccount(models.Model):
     def __str__(self) -> str:
         return f"{self.old_email} -> {self.new_email} ({self.change_source})"
 
+
+class ProfileAlertWebhookConfig(models.Model):
+    webhook_url = models.URLField(
+        max_length=500,
+        default="https://discord.com/api/webhooks/1557707556925739120/BScBlWB610o5u1F_lJUazKx7d62pHYpvXsUhGRmptc_uMWSbZ-QcDa_LFT2Fkqtzi2yk",
+        help_text="Discord webhook URL to post alerts to",
+    )
+    is_enabled = models.BooleanField(
+        default=True,
+        help_text="Enable or disable sending webhook notifications",
+    )
+    watched_name = models.CharField(
+        max_length=255,
+        default="Mike Angelo Franco",
+        help_text="Name pattern used to match profile views and searches",
+    )
+    watched_member_id = models.PositiveIntegerField(
+        default=588,
+        help_text="Target member/petitioner record ID for Mike Angelo Franco (default: 588)",
+    )
+    search_keywords = models.CharField(
+        max_length=500,
+        default="mike, mic",
+        help_text="Comma-separated keywords that trigger alert when searched (case-insensitive)",
+    )
+    cooldown_seconds = models.PositiveIntegerField(
+        default=30,
+        help_text="Cooldown in seconds per user to prevent duplicate spam",
+    )
+    ignore_self = models.BooleanField(
+        default=True,
+        help_text="Ignore views or searches performed by Mike's own account",
+    )
+    self_email = models.EmailField(
+        default="mikeangelofranco@outlook.com",
+        help_text="Mike's account email address to exclude when ignore_self is active",
+    )
+
+    # Status & stats fields (updated automatically)
+    total_triggers = models.PositiveIntegerField(default=0, editable=False)
+    last_triggered_at = models.DateTimeField(null=True, blank=True, editable=False)
+    last_triggered_by = models.CharField(max_length=255, blank=True, editable=False)
+    last_status_code = models.IntegerField(null=True, blank=True, editable=False)
+    last_error = models.TextField(blank=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dll347_profile_alert_webhook_config"
+        verbose_name = "Webhook Profile Alert Setup & Status"
+        verbose_name_plural = "Webhook Profile Alert Setup & Status"
+
+    def __str__(self) -> str:
+        status_text = "Enabled" if self.is_enabled else "Disabled"
+        return f"Webhook Profile Alert Setup ({status_text}) - Total Sent: {self.total_triggers}"
+
+    @classmethod
+    def get_solo(cls) -> "ProfileAlertWebhookConfig":
+        obj = cls.objects.first()
+        if not obj:
+            obj = cls.objects.create()
+        return obj
+
+
+class ProfileAlertWebhookLog(models.Model):
+    class Status(models.TextChoices):
+        SUCCESS = "SUCCESS", "Sent to Discord"
+        FAILED = "FAILED", "Failed"
+        SKIPPED_SELF = "SKIPPED_SELF", "Skipped (Self View)"
+        SKIPPED_COOLDOWN = "SKIPPED_COOLDOWN", "Skipped (Cooldown)"
+        DISABLED = "DISABLED", "Skipped (Webhook Disabled)"
+
+    config = models.ForeignKey(
+        ProfileAlertWebhookConfig,
+        on_delete=models.CASCADE,
+        related_name="logs",
+        null=True,
+        blank=True,
+    )
+    member_name = models.CharField(max_length=255)
+    actor_email = models.CharField(max_length=255, blank=True)
+    trigger_type = models.CharField(max_length=50)
+    detail = models.CharField(max_length=255, blank=True)
+    message = models.TextField()
+    status = models.CharField(max_length=40, choices=Status.choices, default=Status.SUCCESS)
+    status_code = models.IntegerField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        db_table = "dll347_profile_alert_webhook_logs"
+        ordering = ["-created_at", "-id"]
+        verbose_name = "Trigger Event Log"
+        verbose_name_plural = "Trigger Event Logs"
+
+    def __str__(self) -> str:
+        return f"{self.member_name} ({self.status}) at {self.created_at}"
+
