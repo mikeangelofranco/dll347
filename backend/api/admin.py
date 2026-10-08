@@ -507,6 +507,7 @@ class ProfileAlertWebhookConfigAdmin(admin.ModelAdmin):
     list_display = (
         "name_display",
         "is_enabled_badge",
+        "webhook_url_status",
         "total_triggers",
         "formatted_last_triggered",
         "last_triggered_by",
@@ -564,6 +565,14 @@ class ProfileAlertWebhookConfigAdmin(admin.ModelAdmin):
     @admin.display(description="Active", boolean=True)
     def is_enabled_badge(self, obj):
         return obj.is_enabled
+
+    @admin.display(description="Webhook URL")
+    def webhook_url_status(self, obj):
+        url = (obj.webhook_url or "").strip()
+        if url:
+            masked = url[:35] + "..." if len(url) > 35 else url
+            return format_html('<span style="color: green; font-weight: bold;">✔ Configured</span> <span style="color: gray; font-size: 0.85em;">({})</span>', masked)
+        return format_html('<span style="color: #b45309; font-weight: bold;">⚠ Not Configured</span>')
 
     @admin.display(description="Last Triggered")
     def formatted_last_triggered(self, obj):

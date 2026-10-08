@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             name='ProfileAlertWebhookConfig',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('webhook_url', models.URLField(default='https://discord.com/api/webhooks/1557707556925739120/BScBlWB610o5u1F_lJUazKx7d62pHYpvXsUhGRmptc_uMWSbZ-QcDa_LFT2Fkqtzi2yk', help_text='Discord webhook URL to post alerts to', max_length=500)),
+                ('webhook_url', models.URLField(blank=True, default='', help_text='Discord webhook URL to post alerts to (configured via Django Admin)', max_length=500)),
                 ('is_enabled', models.BooleanField(default=True, help_text='Enable or disable sending webhook notifications')),
                 ('watched_name', models.CharField(default='Mike Angelo Franco', help_text='Name pattern used to match profile views and searches', max_length=255)),
                 ('watched_member_id', models.PositiveIntegerField(default=588, help_text='Target member/petitioner record ID for Mike Angelo Franco (default: 588)')),

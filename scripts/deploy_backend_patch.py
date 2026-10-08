@@ -26,6 +26,10 @@ FILES_TO_DEPLOY = [
         ROOT / "backend" / "api" / "views.py",
         "/srv/dll347/backend/api/views.py",
     ),
+    (
+        ROOT / "backend" / "config" / "settings.py",
+        "/srv/dll347/backend/config/settings.py",
+    ),
 ]
 
 SSH_HOST = "ubuntu@51.75.77.80"

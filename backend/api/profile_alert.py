@@ -204,6 +204,13 @@ def dispatch_profile_alert(
         if not config.is_enabled:
             return
 
+        webhook_url = (config.webhook_url or "").strip()
+        if not webhook_url:
+            webhook_url = getattr(settings, "PROFILE_ALERT_WEBHOOK_URL", "").strip()
+        if not webhook_url:
+            logger.info("Profile alert skipped: no webhook_url configured in Django Admin or settings.")
+            return
+
         # Capture actual view/search timestamp if not provided
         if event_time is None:
             event_time = timezone.localtime(timezone.now())
@@ -353,13 +360,19 @@ def trigger_profile_view_alert(
 
 def send_test_discord_alert(config: ProfileAlertWebhookConfig, admin_user) -> tuple[bool, str]:
     """Synchronously send a test alert from Django admin to verify webhook setup."""
+    webhook_url = (config.webhook_url or "").strip()
+    if not webhook_url:
+        webhook_url = getattr(settings, "PROFILE_ALERT_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return False, "Webhook URL is not configured. Please enter the Discord Webhook URL in the Django Admin setup form."
+
     test_time = timezone.localtime(timezone.now())
     member_name = format_actor_name(admin_user)
     message = format_alert_message(member_name, trigger_time=test_time)
     try:
         payload = json.dumps({"content": f"🔔 [TEST ALERT] {message}"}).encode("utf-8")
         req = urllib.request.Request(
-            config.webhook_url,
+            webhook_url,
             data=payload,
             headers={
                 "Content-Type": "application/json",

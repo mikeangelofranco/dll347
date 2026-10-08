@@ -192,3 +192,6 @@ REST_FRAMEWORK = {
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Optional environment fallback for Profile Alert Discord Webhook URL (primary config is in Django Admin)
+PROFILE_ALERT_WEBHOOK_URL = os.getenv("PROFILE_ALERT_WEBHOOK_URL", "")

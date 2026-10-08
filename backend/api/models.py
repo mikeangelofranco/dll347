@@ -781,8 +781,9 @@ class ArchivedAccount(models.Model):
 class ProfileAlertWebhookConfig(models.Model):
     webhook_url = models.URLField(
         max_length=500,
-        default="https://discord.com/api/webhooks/1557707556925739120/BScBlWB610o5u1F_lJUazKx7d62pHYpvXsUhGRmptc_uMWSbZ-QcDa_LFT2Fkqtzi2yk",
-        help_text="Discord webhook URL to post alerts to",
+        blank=True,
+        default="",
+        help_text="Discord webhook URL to post alerts to (configured via Django Admin)",
     )
     is_enabled = models.BooleanField(
         default=True,

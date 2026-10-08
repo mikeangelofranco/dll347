@@ -2993,6 +2993,7 @@ class ProfileAlertWebhookTests(TestCase):
 
         self.config = ProfileAlertWebhookConfig.get_solo()
         self.config.is_enabled = True
+        self.config.webhook_url = "https://example.com/mock-webhook"
         self.config.watched_member_id = 588
         self.config.watched_name = "Mike Angelo Franco"
         self.config.search_keywords = "mike, mic"
@@ -3117,5 +3118,30 @@ class ProfileAlertWebhookTests(TestCase):
 
         logs = ProfileAlertWebhookLog.objects.filter(detail__contains="99999")
         self.assertEqual(logs.count(), 0)
+
+    def test_empty_webhook_url_skips_dispatch(self):
+        from .profile_alert import ProfileAlertWebhookLog
+
+        self.config.webhook_url = ""
+        self.config.save()
+
+        self.client.force_login(self.other_account)
+        response = self.client.get(reverse("api:petitioner-detail-profile", args=[588]))
+        self.assertEqual(response.status_code, 200)
+
+        # No webhook log created when URL is not configured
+        logs = ProfileAlertWebhookLog.objects.filter(trigger_type="profile_view")
+        self.assertEqual(logs.count(), 0)
+
+    def test_send_test_alert_without_url_fails_gracefully(self):
+        from .profile_alert import send_test_discord_alert
+
+        self.config.webhook_url = ""
+        self.config.save()
+
+        ok, msg = send_test_discord_alert(self.config, self.mike_account)
+        self.assertFalse(ok)
+        self.assertIn("Webhook URL is not configured", msg)
+
 
 
