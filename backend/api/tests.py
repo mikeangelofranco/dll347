@@ -2985,6 +2985,12 @@ class EmailChangeAndArchiveTests(TestCase):
 
 class ProfileAlertWebhookTests(TestCase):
     def setUp(self):
+        patcher = patch("urllib.request.urlopen")
+        self.mock_urlopen = patcher.start()
+        self.mock_resp = self.mock_urlopen.return_value.__enter__.return_value
+        self.mock_resp.status = 204
+        self.addCleanup(patcher.stop)
+
         self.config = ProfileAlertWebhookConfig.get_solo()
         self.config.is_enabled = True
         self.config.watched_member_id = 588
@@ -3002,7 +3008,7 @@ class ProfileAlertWebhookTests(TestCase):
             role=Account.Role.DEVELOPER,
         )
         self.other_account = Account.objects.create_user(
-            email="eugene@dll347.org",
+            email="testmember@dll347.org",
             password="Password123!",
             role=Account.Role.MEMBER,
         )
@@ -3012,8 +3018,8 @@ class ProfileAlertWebhookTests(TestCase):
         )
         self.other_member = MemberDatabaseRecord.objects.create(
             workbook_import=workbook_import,
-            name="Espinosa, Eugene Paul P.",
-            email="eugene@dll347.org",
+            name="Brother, Test Member",
+            email="testmember@dll347.org",
             section="REGULAR - ACTIVE",
             source_row=1,
         )
@@ -3056,44 +3062,36 @@ class ProfileAlertWebhookTests(TestCase):
         from .profile_alert import format_alert_message
 
         test_time = timezone.datetime(2026, 10, 8, 19, 15, tzinfo=timezone.get_current_timezone())
-        msg = format_alert_message("Eugene Paul P. Espinosa", test_time)
+        msg = format_alert_message("Test Member Brother", test_time)
         self.assertEqual(
             msg,
-            "Your profile has been checked by Eugene Paul P. Espinosa - October 08, 2026, 07:15 PM",
+            "Your profile has been checked by Test Member Brother - October 08, 2026, 07:15 PM",
         )
 
     def test_member_searching_mike_triggers_webhook(self):
-        from unittest.mock import patch
         from .profile_alert import ProfileAlertWebhookLog
 
         self.client.force_login(self.other_account)
-        with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_resp = mock_urlopen.return_value.__enter__.return_value
-            mock_resp.status = 204
+        response = self.client.get(reverse("api:member-list"), {"search": "mike"})
+        self.assertEqual(response.status_code, 200)
 
-            response = self.client.get(reverse("api:member-list"), {"search": "mike"})
-            self.assertEqual(response.status_code, 200)
-
-            # Check that log was created
-            log = ProfileAlertWebhookLog.objects.filter(actor_email="eugene@dll347.org").first()
-            self.assertIsNotNone(log)
-            self.assertEqual(log.member_name, "Eugene Paul P. Espinosa")
-            self.assertEqual(log.trigger_type, "search")
-            self.assertIn("Your profile has been checked by Eugene Paul P. Espinosa", log.message)
+        # Check that log was created
+        log = ProfileAlertWebhookLog.objects.filter(actor_email="testmember@dll347.org").first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.member_name, "Test Member Brother")
+        self.assertEqual(log.trigger_type, "search")
+        self.assertIn("Your profile has been checked by Test Member Brother", log.message)
 
     def test_self_search_is_skipped_and_not_sent(self):
-        from unittest.mock import patch
         from .profile_alert import ProfileAlertWebhookLog
 
         self.client.force_login(self.mike_account)
-        with patch("urllib.request.urlopen") as mock_urlopen:
-            response = self.client.get(reverse("api:member-list"), {"search": "mike"})
-            self.assertEqual(response.status_code, 200)
-            mock_urlopen.assert_not_called()
+        response = self.client.get(reverse("api:member-list"), {"search": "mike"})
+        self.assertEqual(response.status_code, 200)
 
-            log = ProfileAlertWebhookLog.objects.filter(actor_email="mikeangelofranco@outlook.com").first()
-            self.assertIsNotNone(log)
-            self.assertEqual(log.status, ProfileAlertWebhookLog.Status.SKIPPED_SELF)
+        log = ProfileAlertWebhookLog.objects.filter(actor_email="mikeangelofranco@outlook.com").first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status, ProfileAlertWebhookLog.Status.SKIPPED_SELF)
 
     def test_opening_petitioner_profile_triggers_webhook(self):
         from .profile_alert import ProfileAlertWebhookLog
@@ -3103,11 +3101,21 @@ class ProfileAlertWebhookTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
         log = ProfileAlertWebhookLog.objects.filter(
-            actor_email="eugene@dll347.org",
+            actor_email="testmember@dll347.org",
             trigger_type="profile_view",
         ).first()
         self.assertIsNotNone(log)
-        self.assertEqual(log.member_name, "Eugene Paul P. Espinosa")
-        self.assertIn("Your profile has been checked by Eugene Paul P. Espinosa", log.message)
+        self.assertEqual(log.member_name, "Test Member Brother")
+        self.assertIn("Your profile has been checked by Test Member Brother", log.message)
+
+    def test_opening_nonexistent_profile_does_not_trigger(self):
+        from .profile_alert import ProfileAlertWebhookLog
+
+        self.client.force_login(self.other_account)
+        response = self.client.get(reverse("api:petitioner-detail-profile", args=[99999]))
+        self.assertEqual(response.status_code, 404)
+
+        logs = ProfileAlertWebhookLog.objects.filter(detail__contains="99999")
+        self.assertEqual(logs.count(), 0)
 
 

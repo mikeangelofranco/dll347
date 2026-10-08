@@ -1039,7 +1039,6 @@ def user_activity_view(request):
     changes = {}
     if member_name:
         changes["member_name"] = member_name
-        trigger_profile_view_alert(request, target_name=member_name)
 
     create_audit_log(
         action,
@@ -1204,10 +1203,10 @@ def member_full_profile_view(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def member_detail_profile_view(request, member_id: int):
-    trigger_profile_view_alert(request, target_member_id=member_id)
+    view_time = timezone.localtime(timezone.now())
     member = (
         MemberDatabaseRecord.objects.exclude(Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER"))
-        .filter(pk=member_id)
+        .filter(pk=member_id, is_test_record=False)
         .first()
     )
     if member is None:
@@ -1219,6 +1218,14 @@ def member_detail_profile_view(request, member_id: int):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    # Actual profile view confirmed
+    trigger_profile_view_alert(
+        request,
+        target_member_id=member.pk,
+        target_name=member.name,
+        event_time=view_time,
+    )
+
     return Response(
         MemberFullProfileSerializer(member, context={"request": request}).data,
         status=status.HTTP_200_OK,
@@ -1228,7 +1235,7 @@ def member_detail_profile_view(request, member_id: int):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def petitioner_detail_profile_view(request, member_id: int):
-    trigger_profile_view_alert(request, target_member_id=member_id)
+    view_time = timezone.localtime(timezone.now())
     member = (
         MemberDatabaseRecord.objects.filter(
             Q(section__istartswith="TRESTLE BOARD") | Q(section__icontains="PETITIONER"),
@@ -1244,6 +1251,14 @@ def petitioner_detail_profile_view(request, member_id: int):
             },
             status=status.HTTP_404_NOT_FOUND,
         )
+
+    # Actual profile view confirmed
+    trigger_profile_view_alert(
+        request,
+        target_member_id=member.pk,
+        target_name=member.name,
+        event_time=view_time,
+    )
 
     return Response(
         PetitionerFullProfileSerializer(member, context={"request": request}).data,
@@ -2211,7 +2226,8 @@ def member_list_view(request):
         requested_group = "active" if "active" in available_groups else next(iter(sorted(available_groups)), "")
 
     if search:
-        trigger_profile_search_alert(request, search)
+        search_time = timezone.localtime(timezone.now())
+        trigger_profile_search_alert(request, search, event_time=search_time)
         records = records.filter(name__icontains=search)
 
     if not search and not dues_filter:
@@ -2272,7 +2288,8 @@ def petitioner_list_view(request):
         )
     )
     if search:
-        trigger_profile_search_alert(request, search)
+        search_time = timezone.localtime(timezone.now())
+        trigger_profile_search_alert(request, search, event_time=search_time)
         normalized_search = search.casefold()
         records = [record for record in records if normalized_search in record.name.casefold()]
     else:

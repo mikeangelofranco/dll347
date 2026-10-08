@@ -40,16 +40,16 @@ def run_ssh(cmd: str) -> str:
     return res.stdout.strip()
 
 def deploy_file(local_path: Path, remote_path: str):
+    import gzip
     print(f"Deploying {local_path.name} -> {remote_path}...")
     content = local_path.read_bytes()
-    b64_str = base64.b64encode(content).decode("ascii")
+    compressed = gzip.compress(content)
+    b64_str = base64.b64encode(compressed).decode("ascii")
     
-    remote_cmd = (
-        f"python3 -c \"import base64, sys; open('{remote_path}', 'wb').write(base64.b64decode(sys.stdin.read().strip()))\" << 'EOF'\n"
-        f"{b64_str}\n"
-        f"EOF"
-    )
-    run_ssh(remote_cmd)
+    script = f"python3 -c \"import base64, gzip; open('{remote_path}', 'wb').write(gzip.decompress(base64.b64decode('{b64_str}')))\""
+    res = subprocess.run(["ssh", "-o", "ConnectTimeout=20", SSH_HOST, script], capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"Deploying {local_path.name} failed: {res.stderr}")
     
     # Verify file exists and size matches
     remote_size = run_ssh(f"wc -c < '{remote_path}'")
