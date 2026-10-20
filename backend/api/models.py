@@ -291,6 +291,7 @@ class AuditLog(models.Model):
         DOCUMENT_UPLOADED = "document_uploaded", "Document Uploaded"
         DOCUMENT_DELETED = "document_deleted", "Document Deleted"
         ACTIVITY_CREATED = "activity_created", "Activity Created"
+        ACTIVITY_UPDATED = "activity_updated", "Activity Updated"
         ACTIVITY_DELETED = "activity_deleted", "Activity Deleted"
 
     actor = models.ForeignKey(

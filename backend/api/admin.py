@@ -4,6 +4,7 @@ from django.db.models import Count, OuterRef, Subquery
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from .models import (
     Account,
@@ -300,7 +301,7 @@ class AuditLogAdmin(admin.ModelAdmin):
                     '</div>',
                     field,
                 ))
-            return format_html("".join(rows)) if rows else "No field-level changes recorded."
+            return mark_safe("".join(rows)) if rows else "No field-level changes recorded."
 
         if isinstance(obj.changes, dict):
             for field, change in obj.changes.items():
@@ -321,7 +322,7 @@ class AuditLogAdmin(admin.ModelAdmin):
                         '</div>',
                         field, str(change),
                     ))
-            return format_html("".join(rows)) if rows else "No changes recorded."
+            return mark_safe("".join(rows)) if rows else "No changes recorded."
 
         return str(obj.changes)
 
@@ -489,11 +490,11 @@ class ProfileAlertWebhookLogInline(admin.TabularInline):
     @admin.display(description="Status")
     def status_badge(self, obj):
         if obj.status == ProfileAlertWebhookLog.Status.SUCCESS:
-            return format_html('<span style="color: green; font-weight: bold;">✔ Sent to Discord</span>')
+            return mark_safe('<span style="color: green; font-weight: bold;">✔ Sent to Discord</span>')
         elif obj.status == ProfileAlertWebhookLog.Status.SKIPPED_SELF:
-            return format_html('<span style="color: #6c757d;">⏭ Skipped (Self View)</span>')
+            return mark_safe('<span style="color: #6c757d;">⏭ Skipped (Self View)</span>')
         elif obj.status == ProfileAlertWebhookLog.Status.SKIPPED_COOLDOWN:
-            return format_html('<span style="color: #d97706;">⏱ Skipped (Cooldown)</span>')
+            return mark_safe('<span style="color: #d97706;">⏱ Skipped (Cooldown)</span>')
         elif obj.status == ProfileAlertWebhookLog.Status.FAILED:
             return format_html('<span style="color: red; font-weight: bold;">✖ Failed ({})</span>', obj.status_code or "Err")
         return obj.status
@@ -504,16 +505,19 @@ class ProfileAlertWebhookLogInline(admin.TabularInline):
 
 @admin.register(ProfileAlertWebhookConfig)
 class ProfileAlertWebhookConfigAdmin(admin.ModelAdmin):
+    change_form_template = "admin/api/profilealertwebhookconfig/change_form.html"
     list_display = (
         "name_display",
         "is_enabled_badge",
         "webhook_url_status",
+        "test_button_display",
         "total_triggers",
         "formatted_last_triggered",
         "last_triggered_by",
         "last_status_badge",
     )
     readonly_fields = (
+        "test_alert_button",
         "total_triggers",
         "formatted_last_triggered",
         "last_triggered_by",
@@ -532,6 +536,7 @@ class ProfileAlertWebhookConfigAdmin(admin.ModelAdmin):
                 "fields": (
                     "is_enabled",
                     "webhook_url",
+                    "test_alert_button",
                     "watched_member_id",
                     "watched_name",
                     "search_keywords",
@@ -572,7 +577,39 @@ class ProfileAlertWebhookConfigAdmin(admin.ModelAdmin):
         if url:
             masked = url[:35] + "..." if len(url) > 35 else url
             return format_html('<span style="color: green; font-weight: bold;">✔ Configured</span> <span style="color: gray; font-size: 0.85em;">({})</span>', masked)
-        return format_html('<span style="color: #b45309; font-weight: bold;">⚠ Not Configured</span>')
+        return mark_safe('<span style="color: #b45309; font-weight: bold;">⚠ Not Configured</span>')
+
+    @admin.display(description="Test Alert")
+    def test_button_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        test_url = reverse("admin:profilealertwebhookconfig_test", args=[obj.pk])
+        return format_html(
+            '<a class="button" href="{}" style="background-color: #2563eb; color: #ffffff !important; font-weight: 600; padding: 4px 10px; border-radius: 4px; text-decoration: none; display: inline-block; white-space: nowrap;">'
+            '🔔 Send Test'
+            '</a>',
+            test_url,
+        )
+
+    @admin.display(description="Test Connection")
+    def test_alert_button(self, obj):
+        if not obj or not obj.pk:
+            return mark_safe('<span style="color: gray;">Save configuration first to enable testing.</span>')
+        test_url = reverse("admin:profilealertwebhookconfig_test", args=[obj.pk])
+        return format_html(
+            '<div style="display: flex; flex-direction: column; gap: 6px; padding: 4px 0;">'
+            '<div style="display: flex; align-items: center; gap: 12px;">'
+            '<a class="button" href="{}" style="background-color: #2563eb; color: #ffffff !important; font-weight: 700; font-size: 13px; padding: 7px 16px; border-radius: 5px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.15);">'
+            '🔔 Send Test Alert to Discord'
+            '</a>'
+            '<span style="color: #64748b; font-size: 12px;">'
+            'Sends a test notification immediately to your Discord webhook.'
+            '</span>'
+            '</div>'
+            '<div style="color: #94a3b8; font-size: 11px;">Note: If you just changed the Webhook URL above, click "Save" first before sending the test.</div>'
+            '</div>',
+            test_url,
+        )
 
     @admin.display(description="Last Triggered")
     def formatted_last_triggered(self, obj):
@@ -587,6 +624,48 @@ class ProfileAlertWebhookConfigAdmin(admin.ModelAdmin):
         if 200 <= obj.last_status_code < 300:
             return format_html('<span style="color: green; font-weight: bold;">✔ HTTP {}</span>', obj.last_status_code)
         return format_html('<span style="color: red; font-weight: bold;">✖ HTTP {}</span>', obj.last_status_code)
+
+    def get_urls(self):
+        from django.urls import path
+
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/test/",
+                self.admin_site.admin_view(self.test_webhook_view),
+                name="profilealertwebhookconfig_test",
+            ),
+        ]
+        return custom_urls + urls
+
+    def test_webhook_view(self, request, object_id):
+        from django.contrib import messages
+        from django.http import HttpResponseRedirect
+        from .profile_alert import send_test_discord_alert
+
+        obj = self.get_object(request, object_id)
+        if not obj:
+            self.message_user(request, "Webhook configuration not found.", level=messages.ERROR)
+            return HttpResponseRedirect(reverse("admin:api_profilealertwebhookconfig_changelist"))
+
+        ok, msg = send_test_discord_alert(obj, request.user)
+        if ok:
+            self.message_user(
+                request,
+                f"🔔 Test alert sent successfully to Discord! ({msg})",
+                level=messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                f"✖ Failed to send test alert to Discord: {msg}",
+                level=messages.ERROR,
+            )
+
+        referer = request.META.get("HTTP_REFERER")
+        if referer and ("profilealertwebhookconfig" in referer):
+            return HttpResponseRedirect(referer)
+        return HttpResponseRedirect(reverse("admin:api_profilealertwebhookconfig_change", args=[object_id]))
 
     @admin.action(description="🔔 Send Test Alert to Discord Webhook")
     def send_test_alert(self, request, queryset):

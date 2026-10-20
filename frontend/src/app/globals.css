@@ -4,6 +4,9 @@
   --background: #faf6f0;
   --foreground: #2a150d;
   --accent: #d18d0e;
+  --font-display-serif: "Cormorant Garamond", Georgia, serif;
+  --font-body-mono: "IBM Plex Mono", monospace;
+  --font-body-sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 @theme inline {

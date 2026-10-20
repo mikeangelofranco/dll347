@@ -1,0 +1,13 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools-items %}
+  {% if original and original.pk %}
+    <li>
+      <a href="{% url 'admin:profilealertwebhookconfig_test' original.pk %}" class="historylink" style="background-color: #2563eb !important; color: #ffffff !important; font-weight: bold; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px;">
+        🔔 Send Test Alert
+      </a>
+    </li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

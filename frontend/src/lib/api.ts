@@ -339,6 +339,21 @@ export type CreateLodgeActivityResponse = {
   activity: LodgeActivity;
 };
 
+export type UpdateLodgeActivityPayload = {
+  title?: string;
+  details?: string;
+  place?: string;
+  starts_at?: string;
+  ends_at?: string | null;
+  status?: "scheduled" | "cancelled" | "completed";
+  is_published?: boolean;
+};
+
+export type UpdateLodgeActivityResponse = {
+  message: string;
+  activity: LodgeActivity;
+};
+
 export type UpcomingLodgeActivitiesResponse = {
   activities: LodgeActivity[];
 };
@@ -985,6 +1000,14 @@ export async function createLodgeActivity(payload: LodgeActivityFormPayload): Pr
 export async function deleteLodgeActivity(activityId: number): Promise<DeleteLodgeActivityResponse> {
   await prepareSessionCsrf();
   return apiPost<DeleteLodgeActivityResponse>(`/lodge-activities/${activityId}/`, undefined, "DELETE");
+}
+
+export async function updateLodgeActivity(
+  activityId: number,
+  payload: UpdateLodgeActivityPayload,
+): Promise<UpdateLodgeActivityResponse> {
+  await prepareSessionCsrf();
+  return apiPost<UpdateLodgeActivityResponse>(`/lodge-activities/${activityId}/`, payload, "PATCH");
 }
 
 export async function getSecretaryDashboardSummary(): Promise<SecretaryDashboardSummaryResponse> {

@@ -1,27 +1,7 @@
 import type { Metadata } from "next";
-import { Cormorant_Garamond, IBM_Plex_Mono, Manrope } from "next/font/google";
-
 import { DevServiceWorkerGuard } from "@/components/dev-service-worker-guard";
 
 import "./globals.css";
-
-const displaySerif = Cormorant_Garamond({
-  variable: "--font-display-serif",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const ibmPlexMono = IBM_Plex_Mono({
-  variable: "--font-body-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
-});
-
-const manrope = Manrope({
-  variable: "--font-body-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
 
 export const metadata: Metadata = {
   title: "DLL347",
@@ -49,10 +29,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${displaySerif.variable} ${ibmPlexMono.variable} ${manrope.variable} h-full antialiased`}
-    >
+    <html lang="en" className="h-full antialiased">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body className="min-h-full">
         <DevServiceWorkerGuard />
         {children}

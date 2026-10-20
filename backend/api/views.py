@@ -48,6 +48,7 @@ from .serializers import (
     AccountSerializer,
     LoginSerializer,
     LodgeActivityCreateSerializer,
+    LodgeActivityUpdateSerializer,
     LodgeActivitySerializer,
     LodgeDocumentSerializer,
     MemberListItemSerializer,
@@ -2410,9 +2411,64 @@ def managed_lodge_activities_view(request):
     )
 
 
-@api_view(["DELETE"])
+@api_view(["DELETE", "PATCH", "PUT"])
 @permission_classes([IsAuthenticated])
 def lodge_activity_detail_view(request, activity_id: int):
+    if request.method in ["PATCH", "PUT"]:
+        if request.user.role != Account.Role.SECRETARY:
+            return Response(
+                {
+                    "code": "ACTIVITY_ACCESS_DENIED",
+                    "message": "Only the Lodge Secretary can edit lodge activities.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        record_tool_access(request, ToolAccessLog.Tool.ACTIVITY)
+
+        activity = LodgeActivity.objects.filter(pk=activity_id).first()
+        if activity is None:
+            return Response(
+                {
+                    "code": "ACTIVITY_NOT_FOUND",
+                    "message": "We could not find that lodge activity.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = LodgeActivityUpdateSerializer(activity, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        old_data = {
+            "title": activity.title,
+            "details": activity.details,
+            "place": activity.place,
+            "starts_at": str(activity.starts_at),
+        }
+        updated_activity = serializer.save()
+        create_audit_log(
+            AuditLog.Action.ACTIVITY_UPDATED,
+            actor=request.user,
+            target_model="LodgeActivity",
+            target_id=updated_activity.pk,
+            changes={
+                "before": old_data,
+                "after": {
+                    "title": updated_activity.title,
+                    "details": updated_activity.details,
+                    "place": updated_activity.place,
+                    "starts_at": str(updated_activity.starts_at),
+                },
+            },
+            **audit_from_request(request),
+        )
+        return Response(
+            {
+                "message": "Activity updated successfully.",
+                "activity": LodgeActivitySerializer(updated_activity).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
     if not user_can_manage_activities(request.user):
         return Response(
             {

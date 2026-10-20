@@ -1,3 +1,4 @@
+from datetime import timedelta
 from urllib.parse import urlencode
 
 from django.contrib.auth.password_validation import validate_password
@@ -491,6 +492,68 @@ class LodgeActivityCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"ends_at": "Ends at is required."})
         if starts_at and ends_at and ends_at <= starts_at:
             raise serializers.ValidationError({"ends_at": "Ends at must be after starts at."})
+        return attrs
+
+
+class LodgeActivityUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LodgeActivity
+        fields = (
+            "title",
+            "details",
+            "place",
+            "starts_at",
+            "ends_at",
+            "status",
+            "is_published",
+        )
+
+    def validate_title(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Title is required.")
+        if len(value) > 100:
+            raise serializers.ValidationError("Title must be 100 characters or fewer.")
+        return value
+
+    def validate_details(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Details are required.")
+        if len(value) > 2000:
+            raise serializers.ValidationError("Details must be 2000 characters or fewer.")
+        return value
+
+    def validate_place(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Place is required.")
+        if len(value) > 255:
+            raise serializers.ValidationError("Place must be 255 characters or fewer.")
+        return value
+
+    def validate(self, attrs):
+        starts_at = attrs.get("starts_at")
+        ends_at = attrs.get("ends_at")
+
+        if starts_at and "ends_at" not in attrs and self.instance:
+            if self.instance.ends_at and self.instance.starts_at:
+                if self.instance.ends_at > self.instance.starts_at:
+                    duration = self.instance.ends_at - self.instance.starts_at
+                    attrs["ends_at"] = starts_at + duration
+                elif self.instance.ends_at <= starts_at:
+                    attrs["ends_at"] = starts_at + timedelta(hours=2)
+
+        resolved_starts_at = starts_at or (self.instance.starts_at if self.instance else None)
+        resolved_ends_at = (
+            ends_at
+            if "ends_at" in attrs
+            else (attrs.get("ends_at") or (self.instance.ends_at if self.instance else None))
+        )
+
+        if resolved_starts_at and resolved_ends_at and resolved_ends_at <= resolved_starts_at:
+            raise serializers.ValidationError({"ends_at": "Ends at must be after starts at."})
+
         return attrs
 
 

@@ -19,6 +19,10 @@ FILES_TO_DEPLOY = [
         "/srv/dll347/backend/api/models.py",
     ),
     (
+        ROOT / "backend" / "api" / "serializers.py",
+        "/srv/dll347/backend/api/serializers.py",
+    ),
+    (
         ROOT / "backend" / "api" / "admin.py",
         "/srv/dll347/backend/api/admin.py",
     ),
@@ -27,8 +31,16 @@ FILES_TO_DEPLOY = [
         "/srv/dll347/backend/api/views.py",
     ),
     (
+        ROOT / "backend" / "api" / "migrations" / "0036_alter_auditlog_action.py",
+        "/srv/dll347/backend/api/migrations/0036_alter_auditlog_action.py",
+    ),
+    (
         ROOT / "backend" / "config" / "settings.py",
         "/srv/dll347/backend/config/settings.py",
+    ),
+    (
+        ROOT / "backend" / "api" / "templates" / "admin" / "api" / "profilealertwebhookconfig" / "change_form.html",
+        "/srv/dll347/backend/api/templates/admin/api/profilealertwebhookconfig/change_form.html",
     ),
 ]
 
@@ -50,7 +62,7 @@ def deploy_file(local_path: Path, remote_path: str):
     compressed = gzip.compress(content)
     b64_str = base64.b64encode(compressed).decode("ascii")
     
-    script = f"python3 -c \"import base64, gzip; open('{remote_path}', 'wb').write(gzip.decompress(base64.b64decode('{b64_str}')))\""
+    script = f"python3 -c \"import base64, gzip, os; os.makedirs(os.path.dirname('{remote_path}'), exist_ok=True); open('{remote_path}', 'wb').write(gzip.decompress(base64.b64decode('{b64_str}')))\""
     res = subprocess.run(["ssh", "-o", "ConnectTimeout=20", SSH_HOST, script], capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError(f"Deploying {local_path.name} failed: {res.stderr}")

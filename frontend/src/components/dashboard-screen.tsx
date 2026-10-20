@@ -6,6 +6,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 
 import { ThemedLoader } from "@/components/themed-loader";
 import { DocumentsScreen } from "@/components/documents-screen";
+import { EditActivityModal } from "@/components/edit-activity-modal";
 import { MemberDashboardScreen } from "@/components/member-dashboard-screen";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
 import { PetitionerDashboardCard } from "@/components/petitioner-dashboard-card";
@@ -53,6 +54,15 @@ function PulseIcon() {
         strokeLinejoin="round"
         strokeWidth="2.2"
       />
+    </svg>
+  );
+}
+
+function PencilIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+      <path d="m15 5 4 4" />
     </svg>
   );
 }
@@ -932,6 +942,7 @@ export function DashboardScreen() {
   const [isUpcomingActivitiesLoading, setIsUpcomingActivitiesLoading] = useState(false);
   const [upcomingActivitiesError, setUpcomingActivitiesError] = useState("");
   const [closingSheet, setClosingSheet] = useState<SecretarySheetName | null>(null);
+  const [isEditActivityModalOpen, setIsEditActivityModalOpen] = useState(false);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [isEventListSheetOpen, setIsEventListSheetOpen] = useState(false);
   const [isPaymentSheetOpen, setIsPaymentSheetOpen] = useState(false);
@@ -1206,6 +1217,17 @@ export function DashboardScreen() {
     }, 200);
   }
 
+  function handleActivityUpdated(updatedActivity: LodgeActivity) {
+    setSelectedActivity(updatedActivity);
+    setNextActivity((current) => (current?.id === updatedActivity.id ? updatedActivity : current));
+    setUpcomingActivities((current) =>
+      current.map((item) => (item.id === updatedActivity.id ? updatedActivity : item))
+    );
+    setEventListActivities((current) =>
+      current.map((item) => (item.id === updatedActivity.id ? updatedActivity : item))
+    );
+  }
+
   async function openActivityDetails(activity: LodgeActivity) {
     trackUserAction("Dashboard", "View Activity Details");
     setClosingSheet(null);
@@ -1261,7 +1283,7 @@ export function DashboardScreen() {
   }
 
   if (account?.role === "member") {
-    return <MemberDashboardScreen profile={account.member_profile} onLogout={handleLogout} canManageActivities={account.can_manage_activities} canEditMembers={account.can_edit_members} canEditPetitioners={account.can_edit_petitioners} dashboardCardVisibility={account.dashboard_card_visibility} />;
+    return <MemberDashboardScreen profile={account.member_profile} onLogout={handleLogout} role={account.role} canManageActivities={account.can_manage_activities} canEditMembers={account.can_edit_members} canEditPetitioners={account.can_edit_petitioners} dashboardCardVisibility={account.dashboard_card_visibility} />;
   }
 
   if (activeView === "profile") {
@@ -1269,6 +1291,7 @@ export function DashboardScreen() {
       <MemberDashboardScreen
         profile={account?.member_profile ?? null}
         onLogout={handleLogout}
+        role={account?.role}
         initialView="profile"
         onDashboardClose={() => setActiveView("home")}
         onProfileClose={() => setActiveView("home")}
@@ -1286,6 +1309,7 @@ export function DashboardScreen() {
       <MemberDashboardScreen
         profile={account?.member_profile ?? null}
         onLogout={handleLogout}
+        role={account?.role}
         initialTab="more"
         onDashboardClose={() => setActiveView("home")}
         onProfileClose={() => setActiveView("home")}
@@ -2039,7 +2063,20 @@ export function DashboardScreen() {
 
               <div className="mt-5 max-h-[calc(82svh-7rem)] space-y-4 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 <section className="rounded-[1.05rem] border border-[#f1e8de] bg-white px-4 py-4 shadow-[0_10px_26px_rgba(75,48,20,0.07)]">
-                  <h3 className="text-[0.82rem] font-bold text-[#423c37]">Details</h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[0.82rem] font-bold text-[#423c37]">Details</h3>
+                    {account?.role === "secretary" ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsEditActivityModalOpen(true)}
+                        className="flex items-center gap-1.5 rounded-[0.55rem] border border-[#d5cbbf] bg-[#fffdfb] px-2.5 py-1 text-[0.72rem] font-semibold text-[#3a342f] shadow-sm transition-all hover:bg-[#fbf7f0] active:scale-95 cursor-pointer"
+                        aria-label="Edit activity"
+                      >
+                        <PencilIcon className="h-3.5 w-3.5 text-[#5f5751]" />
+                        <span>Edit</span>
+                      </button>
+                    ) : null}
+                  </div>
                   <p className="mt-4 text-[0.82rem] leading-6 text-[#151515]">{selectedActivity.details || "No additional details have been recorded for this activity yet."}</p>
                   <div className="mt-5 border-t border-[#e7ddd2]">
                     <div className="flex gap-3 border-b border-[#e7ddd2] py-4">
@@ -2094,6 +2131,13 @@ export function DashboardScreen() {
             </section>
           </div>
         ) : null}
+
+        <EditActivityModal
+          isOpen={isEditActivityModalOpen}
+          activity={selectedActivity}
+          onClose={() => setIsEditActivityModalOpen(false)}
+          onSuccess={handleActivityUpdated}
+        />
         {isEventListSheetOpen ? (
           <div className={`absolute inset-0 z-40 flex items-end bg-[#171717]/58 backdrop-blur-[1px] ${closingSheet === "eventlist" ? "member-sheet-backdrop-exit" : "member-sheet-backdrop-enter"}`}>
             <section className={`flex max-h-[82%] w-full flex-col overflow-hidden rounded-t-[1.35rem] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.24)] ${closingSheet === "eventlist" ? "member-sheet-panel-exit" : "member-sheet-panel-enter"}`}>

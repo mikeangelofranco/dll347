@@ -4,16 +4,18 @@ import Image from "next/image";
 import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { ThemedLoader } from "@/components/themed-loader";
+import { EditActivityModal } from "@/components/edit-activity-modal";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
 import { PetitionerDashboardCard } from "@/components/petitioner-dashboard-card";
 import { PetitionerListScreen } from "@/components/petitioner-list-screen";
 import { timeBasedGreeting } from "@/lib/greeting";
 import { useIdleTimeout } from "@/lib/use-idle-timeout";
-import { ActivityScreen, activateMemberLogin, activatePetitionerLogin, changeMemberEmail, createLodgeActivity, DashboardCardVisibility, defaultDashboardCardVisibility, deactivateMemberLogin, deactivatePetitionerLogin, deleteLodgeActivity, getEditableMemberProfile, getEditablePetitionerProfile, getManagedLodgeActivities, getMemberAccountStatus, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getPetitionerAccountStatus, getPetitionerList, getSecretaryDashboardSummary, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, PetitionerEditableProfile, PetitionerListItem, PetitionerProfileUpdatePayload, PetitionerStage, SecretaryDashboardSummaryResponse, trackScreenView, trackUserAction, updateMemberProfile, updatePetitionerProfile, uploadMemberProfilePhotoById, uploadPetitionerProfilePhotoById } from "@/lib/api";
+import { AccountRole, ActivityScreen, activateMemberLogin, activatePetitionerLogin, changeMemberEmail, createLodgeActivity, DashboardCardVisibility, defaultDashboardCardVisibility, deactivateMemberLogin, deactivatePetitionerLogin, deleteLodgeActivity, getEditableMemberProfile, getEditablePetitionerProfile, getManagedLodgeActivities, getMemberAccountStatus, getMemberList, getMemberProfile, getMemberSummary, getMyMemberProfile, getMyPositionsHeld, getNextLodgeActivity, getPetitionerAccountStatus, getPetitionerList, getSecretaryDashboardSummary, getUpcomingLodgeActivities, getYearActivities, LodgeActivity, LodgeActivityFormPayload, MemberDashboardProfile, MemberEditableProfile, MemberFullProfile, MemberGroupKey, MemberListItem, MemberPositionHeld, MemberPositionHeldPayload, MemberProfileUpdatePayload, MemberSummaryGroup, PetitionerEditableProfile, PetitionerListItem, PetitionerProfileUpdatePayload, PetitionerStage, SecretaryDashboardSummaryResponse, trackScreenView, trackUserAction, updateMemberProfile, updatePetitionerProfile, uploadMemberProfilePhotoById, uploadPetitionerProfilePhotoById } from "@/lib/api";
 
 type MemberDashboardScreenProps = {
   profile: MemberDashboardProfile | null;
   onLogout: () => Promise<void>;
+  role?: AccountRole;
   initialView?: "home" | "profile";
   initialTab?: MemberDashboardTab;
   onDashboardClose?: () => void;
@@ -127,6 +129,15 @@ function ChevronIcon() {
 
 function CheckIcon() {
   return <Icon className="h-6 w-6"><path d="m5 12.5 4.3 4.2L19 7" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" /></Icon>;
+}
+
+function PencilIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+      <path d="m15 5 4 4" />
+    </svg>
+  );
 }
 
 function CameraIcon() {
@@ -1373,6 +1384,7 @@ function WorkbookRowsEditor({
 export function MemberDashboardScreen({
   profile,
   onLogout,
+  role,
   initialView = "home",
   initialTab = "dashboard",
   onDashboardClose,
@@ -1452,6 +1464,7 @@ export function MemberDashboardScreen({
   const [isPaymentSheetOpen, setIsPaymentSheetOpen] = useState(false);
   const [isPositionsSheetOpen, setIsPositionsSheetOpen] = useState(false);
   const [closingSheet, setClosingSheet] = useState<MemberSheetName | null>(null);
+  const [isEditActivityModalOpen, setIsEditActivityModalOpen] = useState(false);
   const [positionsHeld, setPositionsHeld] = useState<MemberPositionHeld[] | null>(null);
   const [isPositionsLoading, setIsPositionsLoading] = useState(false);
   const [positionsError, setPositionsError] = useState("");
@@ -2465,6 +2478,17 @@ export function MemberDashboardScreen({
       }
       setClosingSheet((current) => (current === name ? null : current));
     }, 200);
+  }
+
+  function handleActivityUpdated(updatedActivity: LodgeActivity) {
+    setSelectedActivity(updatedActivity);
+    setNextActivity((current) => (current?.id === updatedActivity.id ? updatedActivity : current));
+    setUpcomingActivities((current) =>
+      current.map((item) => (item.id === updatedActivity.id ? updatedActivity : item))
+    );
+    setManagedActivities((current) =>
+      current.map((item) => (item.id === updatedActivity.id ? updatedActivity : item))
+    );
   }
 
   async function openPositionsSheet() {
@@ -4400,7 +4424,20 @@ export function MemberDashboardScreen({
 
               <div className="mt-5 max-h-[calc(82svh-7rem)] space-y-4 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 <section className="rounded-[1.05rem] border border-[#f1e8de] bg-white px-4 py-4 shadow-[0_10px_26px_rgba(75,48,20,0.07)]">
-                  <h3 className="text-[0.82rem] font-bold text-[#423c37]">Details</h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[0.82rem] font-bold text-[#423c37]">Details</h3>
+                    {role === "secretary" ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsEditActivityModalOpen(true)}
+                        className="flex items-center gap-1.5 rounded-[0.55rem] border border-[#d5cbbf] bg-[#fffdfb] px-2.5 py-1 text-[0.72rem] font-semibold text-[#3a342f] shadow-sm transition-all hover:bg-[#fbf7f0] active:scale-95 cursor-pointer"
+                        aria-label="Edit activity"
+                      >
+                        <PencilIcon className="h-3.5 w-3.5 text-[#5f5751]" />
+                        <span>Edit</span>
+                      </button>
+                    ) : null}
+                  </div>
                   <p className="mt-4 text-[0.82rem] leading-6 text-[#151515]">{selectedActivity.details || "No additional details have been recorded for this activity yet."}</p>
                   <div className="mt-5 border-t border-[#e7ddd2]">
                     <div className="flex gap-3 border-b border-[#e7ddd2] py-4">
@@ -4455,6 +4492,13 @@ export function MemberDashboardScreen({
             </section>
           </div>
         ) : null}
+
+        <EditActivityModal
+          isOpen={isEditActivityModalOpen}
+          activity={selectedActivity}
+          onClose={() => setIsEditActivityModalOpen(false)}
+          onSuccess={handleActivityUpdated}
+        />
         {isEventListSheetOpen ? (
           <div className={`absolute inset-0 z-40 flex items-end bg-[#171717]/58 backdrop-blur-[1px] ${closingSheet === "eventlist" ? "member-sheet-backdrop-exit" : "member-sheet-backdrop-enter"}`}>
             <section className={`flex max-h-[82%] w-full flex-col overflow-hidden rounded-t-[1.35rem] bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_45px_rgba(0,0,0,0.24)] ${closingSheet === "eventlist" ? "member-sheet-panel-exit" : "member-sheet-panel-enter"}`}>
