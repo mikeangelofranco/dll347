@@ -2415,11 +2415,14 @@ def managed_lodge_activities_view(request):
 @permission_classes([IsAuthenticated])
 def lodge_activity_detail_view(request, activity_id: int):
     if request.method in ["PATCH", "PUT"]:
-        if request.user.role != Account.Role.SECRETARY:
+        if (
+            request.user.role not in [Account.Role.SECRETARY, Account.Role.DEVELOPER]
+            and not request.user.is_superuser
+        ):
             return Response(
                 {
                     "code": "ACTIVITY_ACCESS_DENIED",
-                    "message": "Only the Lodge Secretary can edit lodge activities.",
+                    "message": "Only the Lodge Secretary or Developer can edit lodge activities.",
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )

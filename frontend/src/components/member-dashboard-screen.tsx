@@ -1398,6 +1398,7 @@ export function MemberDashboardScreen({
   useIdleTimeout();
 
   const isProfileOnly = initialView === "profile";
+  const canEditActivity = role === "secretary" || role === "developer";
   const usesSecretaryNav = onDashboardClose !== undefined || onProfileClose !== undefined;
   const hasAccountTools = canManageActivities || canEditMembers || canEditPetitioners;
   const contextualNavItems = usesSecretaryNav
@@ -4426,7 +4427,7 @@ export function MemberDashboardScreen({
                 <section className="rounded-[1.05rem] border border-[#f1e8de] bg-white px-4 py-4 shadow-[0_10px_26px_rgba(75,48,20,0.07)]">
                   <div className="flex items-center justify-between">
                     <h3 className="text-[0.82rem] font-bold text-[#423c37]">Details</h3>
-                    {role === "secretary" ? (
+                    {canEditActivity ? (
                       <button
                         type="button"
                         onClick={() => setIsEditActivityModalOpen(true)}

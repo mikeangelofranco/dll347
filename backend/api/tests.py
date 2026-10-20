@@ -2389,21 +2389,17 @@ class AuthApiTests(TestCase):
             starts_at=timezone.now() + timedelta(days=2),
         )
 
-        for role in ["member", "three_lights", "administrator", "developer"]:
-            extra_kwargs = {}
-            if role == "developer":
-                extra_kwargs = {"is_staff": True, "is_superuser": True}
+        for role in ["member", "three_lights", "administrator"]:
             user = get_user_model().objects.create_user(
                 email=f"user-{role}@dll347.org",
                 password=self.password,
                 role=role,
                 can_manage_activities=True,
-                **extra_kwargs,
             )
             self.client.force_login(user)
             response = self.client.patch(
                 reverse("api:lodge-activity-detail", args=[activity.id]),
-                {"details": "Hacked Details"},
+                {"details": "Unauthorized Details"},
                 content_type="application/json",
             )
             self.assertEqual(
@@ -2412,6 +2408,30 @@ class AuthApiTests(TestCase):
                 f"Role {role} should not be allowed to edit activity",
             )
             self.assertEqual(response.json()["code"], "ACTIVITY_ACCESS_DENIED")
+
+    def test_developer_can_update_activity(self):
+        dev = get_user_model().objects.create_user(
+            email="dev-edit-act@dll347.org",
+            password=self.password,
+            role="developer",
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.client.force_login(dev)
+        activity = LodgeActivity.objects.create(
+            title="Developer Clean Up",
+            details="Initial details",
+            place="Initial Place",
+            starts_at=timezone.now() + timedelta(days=3),
+        )
+        response = self.client.patch(
+            reverse("api:lodge-activity-detail", args=[activity.id]),
+            {"details": "Updated by Developer"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        activity.refresh_from_db()
+        self.assertEqual(activity.details, "Updated by Developer")
 
     def test_secretary_update_activity_validation(self):
         secretary = get_user_model().objects.create_user(
