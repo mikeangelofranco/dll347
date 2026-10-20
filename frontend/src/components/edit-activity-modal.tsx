@@ -58,6 +58,7 @@ function parseToInitialValues(activity: LodgeActivity) {
   const timeDisplay = format12HourTime(hours, minutes);
 
   return {
+    title: activity.title || "",
     details: activity.details || "",
     place: activity.place || "",
     dateIso,
@@ -77,6 +78,7 @@ function EditActivityModalForm({
   onSuccess: (updatedActivity: LodgeActivity) => void;
 }) {
   const [initialValues] = useState(() => parseToInitialValues(activity));
+  const [title, setTitle] = useState(initialValues.title);
   const [details, setDetails] = useState(initialValues.details);
   const [place, setPlace] = useState(initialValues.place);
   const [dateIso, setDateIso] = useState(initialValues.dateIso);
@@ -118,12 +120,14 @@ function EditActivityModalForm({
   }
 
   const hasChanges =
+    title.trim() !== initialValues.title.trim() ||
     details.trim() !== initialValues.details.trim() ||
     place.trim() !== initialValues.place.trim() ||
     dateIso !== initialValues.dateIso ||
     time24 !== initialValues.time24;
 
   const isFormComplete =
+    title.trim().length > 0 &&
     details.trim().length > 0 &&
     place.trim().length > 0 &&
     Boolean(dateIso) &&
@@ -151,6 +155,7 @@ function EditActivityModalForm({
 
       const [response] = await Promise.all([
         updateLodgeActivity(activity.id, {
+          title: title.trim(),
           details: details.trim(),
           place: place.trim(),
           starts_at: startsAtIso,
@@ -209,17 +214,37 @@ function EditActivityModalForm({
         </div>
 
         {/* Subheader */}
-        <div className="mt-4">
-          <h3 className="text-[1.05rem] font-bold tracking-[-0.02em] text-[#111111]">
-            {activity.title}
-          </h3>
-          <p className="mt-0.5 text-[0.76rem] text-[#6c6460]">
+        <div className="mt-3">
+          <p className="text-[0.76rem] text-[#6c6460]">
             All fields are required.
           </p>
         </div>
 
         {/* Form fields */}
-        <div className="mt-4 space-y-4 max-h-[calc(78svh-7rem)] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pr-0.5">
+        <div className="mt-4 space-y-3.5 max-h-[calc(78svh-7rem)] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pr-0.5">
+          {/* Title */}
+          <div>
+            <label
+              htmlFor="edit-title-input"
+              className="block text-[0.78rem] font-medium text-[#423c37] mb-1.5"
+            >
+              Title
+            </label>
+            <input
+              id="edit-title-input"
+              type="text"
+              value={title}
+              disabled={isSaving}
+              maxLength={100}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                setErrorMessage("");
+              }}
+              placeholder="Enter activity title"
+              className="w-full rounded-[0.75rem] border border-[#d5cbbf] bg-white px-3.5 py-2.5 text-[0.82rem] font-medium text-[#111111] outline-none transition-colors focus:border-[#c08200] focus:ring-1 focus:ring-[#c08200] disabled:bg-neutral-100"
+            />
+          </div>
+
           {/* Details */}
           <div>
             <label
@@ -230,7 +255,7 @@ function EditActivityModalForm({
             </label>
             <textarea
               id="edit-details-input"
-              rows={4}
+              rows={3}
               value={details}
               disabled={isSaving}
               onChange={(e) => {
@@ -381,7 +406,7 @@ export function EditActivityModal({
 
   return (
     <EditActivityModalForm
-      key={`${activity.id}-${activity.starts_at}`}
+      key={`${activity.id}-${activity.starts_at}-${activity.title}`}
       activity={activity}
       onClose={onClose}
       onSuccess={onSuccess}

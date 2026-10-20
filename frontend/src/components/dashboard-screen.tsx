@@ -1218,15 +1218,49 @@ export function DashboardScreen() {
     }, 200);
   }
 
-  function handleActivityUpdated(updatedActivity: LodgeActivity) {
+  async function handleActivityUpdated(updatedActivity: LodgeActivity) {
     setSelectedActivity(updatedActivity);
     setNextActivity((current) => (current?.id === updatedActivity.id ? updatedActivity : current));
     setUpcomingActivities((current) =>
-      current.map((item) => (item.id === updatedActivity.id ? updatedActivity : item))
+      current
+        .map((item) => (item.id === updatedActivity.id ? updatedActivity : item))
+        .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())
     );
     setEventListActivities((current) =>
-      current.map((item) => (item.id === updatedActivity.id ? updatedActivity : item))
+      current
+        .map((item) => (item.id === updatedActivity.id ? updatedActivity : item))
+        .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())
     );
+
+    try {
+      const nextRes = await getNextLodgeActivity();
+      setNextActivity(nextRes.activity);
+      if (nextRes.activity) {
+        setCalendarAddedActivityId(
+          window.localStorage.getItem(calendarAddedStorageKey(nextRes.activity.id)) === "1"
+            ? nextRes.activity.id
+            : null,
+        );
+      }
+    } catch {
+      // Keep optimistic update
+    }
+
+    try {
+      const upcomingRes = await getUpcomingLodgeActivities(2, updatedActivity.id);
+      setUpcomingActivities(upcomingRes.activities);
+    } catch {
+      // Keep optimistic update
+    }
+
+    if (eventListActivities.length > 0) {
+      try {
+        const yearRes = await getYearActivities();
+        setEventListActivities(yearRes.activities);
+      } catch {
+        // Keep optimistic update
+      }
+    }
   }
 
   async function openActivityDetails(activity: LodgeActivity) {

@@ -42,6 +42,10 @@ FILES_TO_DEPLOY = [
         ROOT / "backend" / "api" / "templates" / "admin" / "api" / "profilealertwebhookconfig" / "change_form.html",
         "/srv/dll347/backend/api/templates/admin/api/profilealertwebhookconfig/change_form.html",
     ),
+    (
+        ROOT / "backend" / "api" / "tests.py",
+        "/srv/dll347/backend/api/tests.py",
+    ),
 ]
 
 SSH_HOST = "ubuntu@51.75.77.80"

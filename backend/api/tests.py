@@ -2358,6 +2358,7 @@ class AuthApiTests(TestCase):
         response = self.client.patch(
             reverse("api:lodge-activity-detail", args=[activity.id]),
             {
+                "title": "Updated Coastal Clean Up",
                 "details": "One of the Three Pillars of Service",
                 "place": "Cordova Wharf",
                 "starts_at": new_starts_at,
@@ -2367,10 +2368,12 @@ class AuthApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
+        self.assertEqual(data["activity"]["title"], "Updated Coastal Clean Up")
         self.assertEqual(data["activity"]["details"], "One of the Three Pillars of Service")
         self.assertEqual(data["activity"]["place"], "Cordova Wharf")
 
         activity.refresh_from_db()
+        self.assertEqual(activity.title, "Updated Coastal Clean Up")
         self.assertEqual(activity.details, "One of the Three Pillars of Service")
         self.assertEqual(activity.place, "Cordova Wharf")
         self.assertTrue(
@@ -2463,6 +2466,14 @@ class AuthApiTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(res_blank.status_code, 400)
+
+        # Blank title validation
+        res_blank_title = self.client.patch(
+            reverse("api:lodge-activity-detail", args=[activity.id]),
+            {"title": "   "},
+            content_type="application/json",
+        )
+        self.assertEqual(res_blank_title.status_code, 400)
 
     def test_member_edit_requires_member_edit_permission(self):
         self.client.force_login(self.user)
