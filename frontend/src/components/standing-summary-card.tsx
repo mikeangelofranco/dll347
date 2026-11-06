@@ -55,14 +55,14 @@ function ChevronRightIcon({ className = "h-3.5 w-3.5" }: { className?: string })
 }
 
 export function StandingSummaryCard({ profile, className = "" }: StandingSummaryCardProps) {
-  // 0 = Current Year, 1 = Previous Year
-  const [slideIndex, setSlideIndex] = useState<0 | 1>(0);
+  // "current" (default, right slide) or "previous" (left slide)
+  const [activeYear, setActiveYear] = useState<"current" | "previous">("current");
   const [prevProfileId, setPrevProfileId] = useState(profile.id);
 
-  // Reset to current year (index 0) whenever profile changes
+  // Reset to current year whenever profile changes
   if (profile.id !== prevProfileId) {
     setPrevProfileId(profile.id);
-    setSlideIndex(0);
+    setActiveYear("current");
   }
 
   // Touch tracking for swipe gestures
@@ -103,12 +103,12 @@ export function StandingSummaryCard({ profile, className = "" }: StandingSummary
 
     // Only swipe if horizontal movement is dominant and exceeds threshold
     if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 35) {
-      if (deltaX < 0) {
-        // Swipe left -> go to previous year
-        setSlideIndex(1);
+      if (deltaX > 0) {
+        // Swiping from left to right reveals previous year
+        setActiveYear("previous");
       } else {
-        // Swipe right -> go to current year
-        setSlideIndex(0);
+        // Swiping from right to left reveals current year
+        setActiveYear("current");
       }
     }
     touchStartX.current = null;
@@ -124,50 +124,52 @@ export function StandingSummaryCard({ profile, className = "" }: StandingSummary
       {/* Header with Title and Year Switcher / Carousel Controls */}
       <div className="flex items-center justify-between">
         <h3 className="text-[0.78rem] font-bold text-[#111111] transition-colors duration-200">
-          {slideIndex === 0 ? "Standing Summary" : `Previous Year (${previousYear})`}
+          {activeYear === "current" ? "Standing Summary" : `Previous Year (${previousYear})`}
         </h3>
 
         <div className="flex items-center gap-1.5">
+          {/* Left Arrow: navigate to Previous Year */}
           <button
             type="button"
-            onClick={() => setSlideIndex(0)}
-            disabled={slideIndex === 0}
+            onClick={() => setActiveYear("previous")}
+            disabled={activeYear === "previous"}
             className={`flex h-6 w-6 items-center justify-center rounded-full text-[#5e554d] transition-opacity ${
-              slideIndex === 0 ? "opacity-25 cursor-default" : "hover:bg-[#f6eee3] active:scale-95"
+              activeYear === "previous" ? "opacity-25 cursor-default" : "hover:bg-[#f6eee3] active:scale-95"
             }`}
-            aria-label="Current year standing"
+            aria-label={`Previous year (${previousYear}) standing`}
           >
             <ChevronLeftIcon />
           </button>
 
-          {/* Indicator Dots */}
+          {/* Indicator Dots: Left is Previous Year, Right is Current Year */}
           <div className="flex items-center gap-1 px-0.5">
             <button
               type="button"
-              onClick={() => setSlideIndex(0)}
+              onClick={() => setActiveYear("previous")}
               className={`h-1.5 rounded-full transition-all duration-300 ${
-                slideIndex === 0 ? "w-4 bg-[#231e19]" : "w-1.5 bg-[#dfd6cb] hover:bg-[#c9bea7]"
+                activeYear === "previous" ? "w-4 bg-[#231e19]" : "w-1.5 bg-[#dfd6cb] hover:bg-[#c9bea7]"
               }`}
-              aria-label="View current year standing"
+              aria-label={`View previous year (${previousYear}) standing`}
             />
             <button
               type="button"
-              onClick={() => setSlideIndex(1)}
+              onClick={() => setActiveYear("current")}
               className={`h-1.5 rounded-full transition-all duration-300 ${
-                slideIndex === 1 ? "w-4 bg-[#231e19]" : "w-1.5 bg-[#dfd6cb] hover:bg-[#c9bea7]"
+                activeYear === "current" ? "w-4 bg-[#231e19]" : "w-1.5 bg-[#dfd6cb] hover:bg-[#c9bea7]"
               }`}
-              aria-label="View previous year standing"
+              aria-label="View current year standing"
             />
           </div>
 
+          {/* Right Arrow: navigate to Current Year */}
           <button
             type="button"
-            onClick={() => setSlideIndex(1)}
-            disabled={slideIndex === 1}
+            onClick={() => setActiveYear("current")}
+            disabled={activeYear === "current"}
             className={`flex h-6 w-6 items-center justify-center rounded-full text-[#5e554d] transition-opacity ${
-              slideIndex === 1 ? "opacity-25 cursor-default" : "hover:bg-[#f6eee3] active:scale-95"
+              activeYear === "current" ? "opacity-25 cursor-default" : "hover:bg-[#f6eee3] active:scale-95"
             }`}
-            aria-label="Previous year standing"
+            aria-label="Current year standing"
           >
             <ChevronRightIcon />
           </button>
@@ -178,83 +180,9 @@ export function StandingSummaryCard({ profile, className = "" }: StandingSummary
       <div className="relative mt-3 overflow-hidden">
         <div
           className="flex transition-transform duration-300 ease-out"
-          style={{ transform: slideIndex === 0 ? "translateX(0%)" : "translateX(-100%)" }}
+          style={{ transform: activeYear === "current" ? "translateX(-100%)" : "translateX(0%)" }}
         >
-          {/* Slide 0: Current Year */}
-          <div className="w-full shrink-0">
-            <div className="grid grid-cols-4 divide-x divide-[#e9e1d8]">
-              {/* 3 Meeting Rule */}
-              <div className="px-1.5 text-center">
-                <span
-                  className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
-                    currentThreeRule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"
-                  }`}
-                >
-                  {currentThreeRule ? <CheckIcon /> : <span className="text-[0.48rem] font-bold">—</span>}
-                </span>
-                <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">3 Meeting Rule</div>
-                <div
-                  className={`text-[0.46rem] font-semibold ${
-                    currentThreeRule ? "text-[#147622]" : "text-[#90887e]"
-                  }`}
-                >
-                  {currentThreeAttendance} Meeting
-                </div>
-              </div>
-
-              {/* 6 Meeting Rule */}
-              <div className="px-1.5 text-center">
-                <span
-                  className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
-                    currentSixRule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"
-                  }`}
-                >
-                  {currentSixRule ? <CheckIcon /> : <span className="text-[0.48rem] font-bold">—</span>}
-                </span>
-                <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">6 Meeting Rule</div>
-                <div
-                  className={`text-[0.46rem] font-semibold ${
-                    currentSixRule ? "text-[#147622]" : "text-[#90887e]"
-                  }`}
-                >
-                  {currentSixAttendance} Meeting
-                </div>
-              </div>
-
-              {/* Dues */}
-              <div className="px-1.5 text-center">
-                <span
-                  className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
-                    currentDuesPaid ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"
-                  }`}
-                >
-                  {currentDuesPaid ? <CheckIcon /> : <span className="text-[0.48rem] font-bold">—</span>}
-                </span>
-                <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Dues</div>
-                <div
-                  className={`text-[0.48rem] font-semibold truncate ${
-                    currentDuesPaid ? "text-[#147622]" : "text-[#938b83]"
-                  }`}
-                >
-                  {currentDuesStatus}
-                </div>
-              </div>
-
-              {/* Proficiency */}
-              <div className="px-1.5 text-center">
-                <span
-                  className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
-                    hasProficiency ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"
-                  }`}
-                >
-                  {hasProficiency ? <CheckIcon /> : <span className="text-[0.48rem] font-bold">—</span>}
-                </span>
-                <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Proficiency</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Slide 1: Previous Year */}
+          {/* Slide: Previous Year (Sitting to the left) */}
           <div className="w-full shrink-0">
             <div className="grid grid-cols-4 divide-x divide-[#e9e1d8]">
               {/* 3 Meeting Rule (Previous Year) */}
@@ -315,6 +243,80 @@ export function StandingSummaryCard({ profile, className = "" }: StandingSummary
               </div>
 
               {/* Proficiency (Consistent Milestone) */}
+              <div className="px-1.5 text-center">
+                <span
+                  className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
+                    hasProficiency ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"
+                  }`}
+                >
+                  {hasProficiency ? <CheckIcon /> : <span className="text-[0.48rem] font-bold">—</span>}
+                </span>
+                <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Proficiency</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Slide: Current Year (Sitting to the right, Default View) */}
+          <div className="w-full shrink-0">
+            <div className="grid grid-cols-4 divide-x divide-[#e9e1d8]">
+              {/* 3 Meeting Rule */}
+              <div className="px-1.5 text-center">
+                <span
+                  className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
+                    currentThreeRule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"
+                  }`}
+                >
+                  {currentThreeRule ? <CheckIcon /> : <span className="text-[0.48rem] font-bold">—</span>}
+                </span>
+                <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">3 Meeting Rule</div>
+                <div
+                  className={`text-[0.46rem] font-semibold ${
+                    currentThreeRule ? "text-[#147622]" : "text-[#90887e]"
+                  }`}
+                >
+                  {currentThreeAttendance} Meeting
+                </div>
+              </div>
+
+              {/* 6 Meeting Rule */}
+              <div className="px-1.5 text-center">
+                <span
+                  className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
+                    currentSixRule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"
+                  }`}
+                >
+                  {currentSixRule ? <CheckIcon /> : <span className="text-[0.48rem] font-bold">—</span>}
+                </span>
+                <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">6 Meeting Rule</div>
+                <div
+                  className={`text-[0.46rem] font-semibold ${
+                    currentSixRule ? "text-[#147622]" : "text-[#90887e]"
+                  }`}
+                >
+                  {currentSixAttendance} Meeting
+                </div>
+              </div>
+
+              {/* Dues */}
+              <div className="px-1.5 text-center">
+                <span
+                  className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
+                    currentDuesPaid ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"
+                  }`}
+                >
+                  {currentDuesPaid ? <CheckIcon /> : <span className="text-[0.48rem] font-bold">—</span>}
+                </span>
+                <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Dues</div>
+                <div
+                  className={`text-[0.48rem] font-semibold truncate ${
+                    currentDuesPaid ? "text-[#147622]" : "text-[#938b83]"
+                  }`}
+                >
+                  {currentDuesStatus}
+                </div>
+              </div>
+
+              {/* Proficiency */}
               <div className="px-1.5 text-center">
                 <span
                   className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
