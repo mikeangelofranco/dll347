@@ -6,6 +6,7 @@ import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "re
 import { ThemedLoader } from "@/components/themed-loader";
 import { EditActivityModal } from "@/components/edit-activity-modal";
 import { MemberProfileSheet } from "@/components/member-profile-sheet";
+import { StandingSummaryCard } from "@/components/standing-summary-card";
 import { PetitionerDashboardCard } from "@/components/petitioner-dashboard-card";
 import { PetitionerListScreen } from "@/components/petitioner-list-screen";
 import { timeBasedGreeting } from "@/lib/greeting";
@@ -3898,58 +3899,7 @@ export function MemberDashboardScreen({
               </button>
             </section>
 
-            <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 p-3.5 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
-              <h3 className="text-[0.78rem] font-bold">Standing Summary</h3>
-              <div className="mt-3 grid grid-cols-4 divide-x divide-[#e9e1d8]">
-                <div className="px-1.5 text-center">
-                  <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                    {fullProfile.three_meetings_rule ? (
-                      <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                    ) : (
-                      <span className="text-[0.48rem] font-bold">—</span>
-                    )}
-                  </span>
-                  <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">3 Meeting Rule</div>
-                  <div className={`text-[0.46rem] font-semibold ${fullProfile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
-                    {fullProfile.attendance_this_year} Meeting
-                  </div>
-                </div>
-                <div className="px-1.5 text-center">
-                  <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.six_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                    {fullProfile.six_meetings_rule ? (
-                      <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                    ) : (
-                      <span className="text-[0.48rem] font-bold">—</span>
-                    )}
-                  </span>
-                  <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">6 Meeting Rule</div>
-                  <div className={`text-[0.46rem] font-semibold ${fullProfile.six_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>{fullProfile.six_meeting_attendance} Meeting</div>
-                </div>
-                <div className="px-1.5 text-center">
-                  <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                    {fullProfile.dues_status.startsWith("Paid") ? (
-                      <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                    ) : (
-                      <span className="text-[0.48rem] font-bold">—</span>
-                    )}
-                  </span>
-                  <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Dues</div>
-                  <div className={`text-[0.48rem] font-semibold ${fullProfile.dues_status.startsWith("Paid") ? "text-[#147622]" : "text-[#938b83]"}`}>
-                    {fullProfile.dues_status}
-                  </div>
-                </div>
-                <div className="px-1.5 text-center">
-                  <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${fullProfile.proficiency_date ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                    {fullProfile.proficiency_date ? (
-                      <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                    ) : (
-                      <span className="text-[0.48rem] font-bold">—</span>
-                    )}
-                  </span>
-                  <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Proficiency</div>
-                </div>
-              </div>
-            </section>
+            <StandingSummaryCard profile={fullProfile} />
           </div>
 
           <nav className="absolute inset-x-0 bottom-0 z-20 rounded-t-[1.35rem] border border-[#eee8e1] bg-white/95 px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-7px_24px_rgba(75,48,20,0.07)] backdrop-blur-xl">

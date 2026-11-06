@@ -94,6 +94,13 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
     three_meetings_rule = serializers.SerializerMethodField()
     six_meetings_rule = serializers.SerializerMethodField()
     six_meeting_attendance = serializers.SerializerMethodField()
+    current_year = serializers.SerializerMethodField()
+    previous_year = serializers.SerializerMethodField()
+    attendance_previous_year = serializers.SerializerMethodField()
+    three_meetings_rule_previous_year = serializers.SerializerMethodField()
+    six_meetings_rule_previous_year = serializers.SerializerMethodField()
+    six_meeting_attendance_previous_year = serializers.SerializerMethodField()
+    dues_status_previous_year = serializers.SerializerMethodField()
     proficiency_date = serializers.DateField()
     years_of_membership = serializers.SerializerMethodField()
     member_since = serializers.SerializerMethodField()
@@ -115,6 +122,13 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
             "three_meetings_rule",
             "six_meetings_rule",
             "six_meeting_attendance",
+            "current_year",
+            "previous_year",
+            "attendance_previous_year",
+            "three_meetings_rule_previous_year",
+            "six_meetings_rule_previous_year",
+            "six_meeting_attendance_previous_year",
+            "dues_status_previous_year",
             "proficiency_date",
             "imes",
             "years_of_membership",
@@ -154,10 +168,40 @@ class MemberDashboardProfileSerializer(serializers.ModelSerializer):
         return len(_months_attended(obj, current_year)) >= 3
 
     def get_six_meetings_rule(self, obj: MemberDatabaseRecord) -> bool:
-        return _months_attended_past_twelve(obj) >= 6
+        current_year = str(timezone.localdate().year)
+        return len(_months_attended(obj, current_year)) >= 6
 
     def get_six_meeting_attendance(self, obj: MemberDatabaseRecord) -> int:
-        return _months_attended_past_twelve(obj)
+        current_year = str(timezone.localdate().year)
+        return len(_months_attended(obj, current_year))
+
+    def get_current_year(self, obj: MemberDatabaseRecord) -> int:
+        return timezone.localdate().year
+
+    def get_previous_year(self, obj: MemberDatabaseRecord) -> int:
+        return timezone.localdate().year - 1
+
+    def get_attendance_previous_year(self, obj: MemberDatabaseRecord) -> int:
+        previous_year = str(timezone.localdate().year - 1)
+        return len(_months_attended(obj, previous_year))
+
+    def get_three_meetings_rule_previous_year(self, obj: MemberDatabaseRecord) -> bool:
+        previous_year = str(timezone.localdate().year - 1)
+        return len(_months_attended(obj, previous_year)) >= 3
+
+    def get_six_meetings_rule_previous_year(self, obj: MemberDatabaseRecord) -> bool:
+        previous_year = str(timezone.localdate().year - 1)
+        return len(_months_attended(obj, previous_year)) >= 6
+
+    def get_six_meeting_attendance_previous_year(self, obj: MemberDatabaseRecord) -> int:
+        previous_year = str(timezone.localdate().year - 1)
+        return len(_months_attended(obj, previous_year))
+
+    def get_dues_status_previous_year(self, obj: MemberDatabaseRecord) -> str:
+        previous_year = timezone.localdate().year - 1
+        if has_paid_annual_dues_for_year(obj, previous_year):
+            return f"Paid {previous_year}"
+        return f"Unpaid {previous_year}"
 
     def get_member_since(self, obj: MemberDatabaseRecord):
         return obj.raising_date or obj.initiation_date

@@ -39,6 +39,14 @@ FRONTEND_FILES = [
         ROOT / "frontend" / "src" / "components" / "member-dashboard-screen.tsx",
         "/srv/dll347/frontend/src/components/member-dashboard-screen.tsx",
     ),
+    (
+        ROOT / "frontend" / "src" / "components" / "member-profile-sheet.tsx",
+        "/srv/dll347/frontend/src/components/member-profile-sheet.tsx",
+    ),
+    (
+        ROOT / "frontend" / "src" / "components" / "standing-summary-card.tsx",
+        "/srv/dll347/frontend/src/components/standing-summary-card.tsx",
+    ),
 ]
 
 SSH_HOST = "ubuntu@51.75.77.80"

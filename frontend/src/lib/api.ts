@@ -63,6 +63,13 @@ export type MemberDashboardProfile = {
   three_meetings_rule: boolean;
   six_meetings_rule: boolean;
   six_meeting_attendance: number;
+  current_year?: number;
+  previous_year?: number;
+  attendance_previous_year?: number;
+  three_meetings_rule_previous_year?: boolean;
+  six_meetings_rule_previous_year?: boolean;
+  six_meeting_attendance_previous_year?: number;
+  dues_status_previous_year?: string;
   proficiency_date: string | null;
   imes?: string;
   years_of_membership: number | null;

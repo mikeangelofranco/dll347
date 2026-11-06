@@ -3,6 +3,7 @@
 import { type ReactNode } from "react";
 
 import { MemberFullProfile } from "@/lib/api";
+import { StandingSummaryCard } from "./standing-summary-card";
 
 type MemberProfileSheetProps = {
   profile: MemberFullProfile | null;
@@ -382,58 +383,7 @@ export function MemberProfileSheet({ profile, isLoading, error, onClose, canEdit
                 </div>
               </section>
 
-              <section className="mt-3 rounded-[1rem] border border-white/80 bg-white/88 p-3.5 shadow-[0_10px_24px_rgba(74,48,19,0.06)]">
-                <h3 className="text-[0.78rem] font-bold">Standing Summary</h3>
-                <div className="mt-3 grid grid-cols-4 divide-x divide-[#e9e1d8]">
-                  <div className="px-1.5 text-center">
-                    <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${profile.three_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                      {profile.three_meetings_rule ? (
-                        <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                      ) : (
-                        <span className="text-[0.48rem] font-bold">—</span>
-                      )}
-                    </span>
-                    <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">3 Meeting Rule</div>
-                    <div className={`text-[0.46rem] font-semibold ${profile.three_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>
-                      {profile.attendance_this_year} Meeting
-                    </div>
-                  </div>
-                  <div className="px-1.5 text-center">
-                    <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${profile.six_meetings_rule ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                      {profile.six_meetings_rule ? (
-                        <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                      ) : (
-                        <span className="text-[0.48rem] font-bold">—</span>
-                      )}
-                    </span>
-                    <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">6 Meeting Rule</div>
-                    <div className={`text-[0.46rem] font-semibold ${profile.six_meetings_rule ? "text-[#147622]" : "text-[#90887e]"}`}>{profile.six_meeting_attendance} Meeting</div>
-                  </div>
-                  <div className="px-1.5 text-center">
-                    <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${profile.dues_status.startsWith("Paid") ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                      {profile.dues_status.startsWith("Paid") ? (
-                        <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                      ) : (
-                        <span className="text-[0.48rem] font-bold">—</span>
-                      )}
-                    </span>
-                    <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Dues</div>
-                    <div className={`text-[0.48rem] font-semibold ${profile.dues_status.startsWith("Paid") ? "text-[#147622]" : "text-[#938b83]"}`}>
-                      {profile.dues_status}
-                    </div>
-                  </div>
-                  <div className="px-1.5 text-center">
-                    <span className={`mx-auto flex h-5 w-5 items-center justify-center rounded-full ${profile.proficiency_date ? "bg-[#168129] text-white" : "bg-[#d9d0c7] text-white"}`}>
-                      {profile.proficiency_date ? (
-                        <Icon className="h-3 w-3"><path d="m4.5 12 3.5 3.5 7-7.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" /></Icon>
-                      ) : (
-                        <span className="text-[0.48rem] font-bold">—</span>
-                      )}
-                    </span>
-                    <div className="mt-1 text-[0.52rem] font-bold text-[#3a342f]">Proficiency</div>
-                  </div>
-                </div>
-              </section>
+              <StandingSummaryCard profile={profile} />
             </>
           ) : null}
         </div>
