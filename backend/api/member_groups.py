@@ -40,6 +40,26 @@ LEGACY_SECTION_GROUPS = {
         label="Dropped Working Tools",
         section="DROPED THE WORKING TOOLS",
     ),
+    "AFFILIATED": MemberDisplayGroup(
+        key="affiliated",
+        label="Affiliated",
+        section="AFFILIATED",
+    ),
+    "MASTER MASONS (AFFILIATED)": MemberDisplayGroup(
+        key="affiliated",
+        label="Affiliated",
+        section="MASTER MASONS (AFFILIATED)",
+    ),
+    "MASTER MASONS - AFFILIATED": MemberDisplayGroup(
+        key="affiliated",
+        label="Affiliated",
+        section="MASTER MASONS - AFFILIATED",
+    ),
+    "MASTER MASONS (AFFILIATED) - ACTIVE": MemberDisplayGroup(
+        key="affiliated",
+        label="Affiliated",
+        section="MASTER MASONS (AFFILIATED) - ACTIVE",
+    ),
 }
 
 

@@ -1878,6 +1878,82 @@ class AuthApiTests(TestCase):
         self.assertEqual(payload["membership"]["active_count"], 1)
         self.assertEqual(payload["dues_collection"]["total_count"], 1)
 
+    def test_affiliated_members_included_in_dues_collection_and_member_list(self):
+        self.client.force_login(self.user)
+        workbook_import = MembersWorkbookImport.objects.create(
+            filename="affiliated-dues.xlsx",
+            file_sha256="1" * 64,
+        )
+        current_year = timezone.localdate().year
+        # Affiliated member who has paid dues
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=15001,
+            name="Bro. Affiliated Paid",
+            email="aff-paid@dll347.org",
+            section="AFFILIATED",
+            monthly_attendance={f"{current_year} - DLL Test / Oct": {"value": "P"}},
+            annual_dues={f"ANNUAL DUES / {current_year}": {"value": f"OR#123 {current_year}"}},
+        )
+        # Affiliated member who has NOT paid dues
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=15002,
+            name="Bro. Affiliated Unpaid",
+            email="aff-unpaid@dll347.org",
+            section="AFFILIATED",
+            monthly_attendance={f"{current_year} - DLL Test / Oct": {"value": "P"}},
+            annual_dues={},
+        )
+        # Honorary member (exempt from dues)
+        MemberDatabaseRecord.objects.create(
+            workbook_import=workbook_import,
+            source_row=15003,
+            name="Bro. Honorary",
+            email="honorary@dll347.org",
+            section="HONORARY",
+            monthly_attendance={f"{current_year} - DLL Test / Oct": {"value": "P"}},
+            annual_dues={},
+        )
+
+        response = self.client.get(reverse("api:secretary-dashboard-summary"))
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        # Dues collection should count both affiliated members (1 paid, 1 unpaid, total 2), excluding honorary
+        self.assertEqual(payload["dues_collection"]["paid_count"], 1)
+        self.assertEqual(payload["dues_collection"]["unpaid_count"], 1)
+        self.assertEqual(payload["dues_collection"]["total_count"], 2)
+        self.assertEqual(payload["dues_collection"]["percent"], 50)
+
+        # Test member list with dues_status filter
+        list_paid_resp = self.client.get(reverse("api:member-list"), {"dues_status": "paid"})
+        self.assertEqual(list_paid_resp.status_code, 200)
+        paid_members = list_paid_resp.json()["members"]
+        paid_names = [m["name"] for m in paid_members]
+        self.assertIn("Bro. Affiliated Paid", paid_names)
+        self.assertNotIn("Bro. Affiliated Unpaid", paid_names)
+        self.assertNotIn("Bro. Honorary", paid_names)
+
+        paid_aff = next(m for m in paid_members if m["name"] == "Bro. Affiliated Paid")
+        self.assertEqual(paid_aff["group_key"], "affiliated")
+        self.assertEqual(paid_aff["group_label"], "Affiliated")
+        self.assertEqual(paid_aff["dues_status"], f"Paid {current_year}")
+        self.assertEqual(paid_aff["status"], "Good Standing")
+
+        list_unpaid_resp = self.client.get(reverse("api:member-list"), {"dues_status": "unpaid"})
+        self.assertEqual(list_unpaid_resp.status_code, 200)
+        unpaid_members = list_unpaid_resp.json()["members"]
+        unpaid_names = [m["name"] for m in unpaid_members]
+        self.assertIn("Bro. Affiliated Unpaid", unpaid_names)
+        self.assertNotIn("Bro. Affiliated Paid", unpaid_names)
+        self.assertNotIn("Bro. Honorary", unpaid_names)
+
+        unpaid_aff = next(m for m in unpaid_members if m["name"] == "Bro. Affiliated Unpaid")
+        self.assertEqual(unpaid_aff["group_key"], "affiliated")
+        self.assertEqual(unpaid_aff["group_label"], "Affiliated")
+        self.assertEqual(unpaid_aff["dues_status"], f"Unpaid {current_year}")
+        self.assertEqual(unpaid_aff["status"], "Good Standing")
+
     def test_three_lights_can_load_secretary_dashboard_summary(self):
         three_lights_user = get_user_model().objects.create_user(
             email="three-lights-dashboard@dll347.org",

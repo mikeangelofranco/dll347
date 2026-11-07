@@ -562,8 +562,10 @@ def classify_member_group(section: str) -> str:
         return "inactive_snpd_demit"
     if "DUAL" in normalized or "PLURAL" in normalized:
         return "dual_plural"
-    if "HONORARY" in normalized or "AFFILIATED" in normalized:
+    if "HONORARY" in normalized:
         return "honorary"
+    if "AFFILIAT" in normalized:
+        return "affiliated"
     return "active"
 
 

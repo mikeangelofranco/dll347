@@ -31,6 +31,10 @@ FILES_TO_DEPLOY = [
         "/srv/dll347/backend/api/views.py",
     ),
     (
+        ROOT / "backend" / "api" / "member_groups.py",
+        "/srv/dll347/backend/api/member_groups.py",
+    ),
+    (
         ROOT / "backend" / "api" / "migrations" / "0036_alter_auditlog_action.py",
         "/srv/dll347/backend/api/migrations/0036_alter_auditlog_action.py",
     ),

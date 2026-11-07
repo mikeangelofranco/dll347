@@ -1238,7 +1238,7 @@ function memberGroupLabel(status: string): string {
   if (normalized.includes("DUAL") || normalized.includes("PLURAL")) {
     return "Dual/Plural";
   }
-  if (normalized.includes("AFFILIATED")) {
+  if (normalized.includes("AFFILIAT")) {
     return "Affiliated";
   }
   return "Regular";
