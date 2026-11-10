@@ -1,4 +1,5 @@
 from datetime import timedelta
+import re
 from urllib.parse import urlencode
 
 from django.contrib.auth.password_validation import validate_password
@@ -25,10 +26,18 @@ def json_cell_value(item):
 
 
 def has_paid_annual_dues_for_year(obj: MemberDatabaseRecord, year: int) -> bool:
-    value = json_cell_value(obj.annual_dues.get(f"ANNUAL DUES / {year}"))
+    year_str = str(year)
+    raw = obj.annual_dues.get(f"ANNUAL DUES / {year_str}")
+    if raw is None:
+        for key, candidate in obj.annual_dues.items():
+            sub_part = re.sub(r"\s*\[[A-Z]+\]$", "", key.rsplit("/", 1)[-1]).strip()
+            if sub_part == year_str:
+                raw = candidate
+                break
+    value = json_cell_value(raw)
     if value in (None, ""):
         return False
-    if isinstance(value, str) and value.strip().upper() == "N/A":
+    if isinstance(value, str) and value.strip().upper() in {"", "N/A", "NA", "-", "—"}:
         return False
     return True
 
@@ -52,25 +61,47 @@ _MONTH_ABBREVIATIONS = [
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ]
 
+_CANONICAL_MONTH_BY_PREFIX = {
+    abbr.lower(): abbr for abbr in _MONTH_ABBREVIATIONS
+}
+
+
+def parse_monthly_attendance_key(key: str) -> tuple[str | None, str | None]:
+    parts = key.split("/")
+    top_part = parts[0].strip() if parts else key.strip()
+    sub_part = parts[-1].strip() if len(parts) > 1 else ""
+    sub_part = re.sub(r"\s*\[[A-Z]+\]$", "", sub_part).strip()
+
+    year_match = re.search(r"\b(19\d{2}|20\d{2})\b", top_part)
+    year_str = year_match.group(1) if year_match else None
+
+    month_token = re.sub(r"[^a-zA-Z]", "", sub_part)[:3].lower()
+    canonical_month = _CANONICAL_MONTH_BY_PREFIX.get(month_token) or (sub_part if sub_part else None)
+    return year_str, canonical_month
+
+
+def is_attended_cell_value(item) -> bool:
+    value = json_cell_value(item)
+    if value in (None, "", False):
+        return False
+    if isinstance(value, str) and value.strip().upper() in {"", "N/A", "NA", "-", "—", "NONE", "FALSE", "0"}:
+        return False
+    return True
+
 
 def _months_attended(obj: MemberDatabaseRecord, year: str) -> set[str]:
-    return {
-        key.rsplit(" / ", 1)[-1].strip()
-        for key, item in obj.monthly_attendance.items()
-        if key.strip().startswith(f"{year} -")
-        and json_cell_value(item) not in (None, "")
-        and str(json_cell_value(item)).strip() != ""
-    }
+    attended: set[str] = set()
+    for key, item in obj.monthly_attendance.items():
+        if not is_attended_cell_value(item):
+            continue
+        key_year, month_label = parse_monthly_attendance_key(key)
+        if key_year == str(year) and month_label:
+            attended.add(month_label)
+    return attended
 
 
 def _month_has_attendance(obj: MemberDatabaseRecord, year: str, month_abbr: str) -> bool:
-    prefix = f"{year} - "
-    suffix = f" / {month_abbr}"
-    for key, item in obj.monthly_attendance.items():
-        if key.startswith(prefix) and key.endswith(suffix):
-            if json_cell_value(item) not in (None, ""):
-                return True
-    return False
+    return month_abbr in _months_attended(obj, str(year))
 
 
 def _months_attended_past_twelve(obj: MemberDatabaseRecord) -> int:

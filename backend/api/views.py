@@ -65,7 +65,10 @@ from .serializers import (
     PreidentifiedEmailUpsertSerializer,
     ResetTokenValidationSerializer,
     ResetPasswordSerializer,
+    has_paid_annual_dues_for_year,
+    is_attended_cell_value,
     json_cell_value,
+    parse_monthly_attendance_key,
 )
 
 
@@ -1906,9 +1909,14 @@ def secretary_dashboard_summary_view(request):
 
     monthly_meeting_counts: dict[str, int] = {}
     for record in attendance_eligible_records:
+        seen_months: set[str] = set()
         for key, item in record.monthly_attendance.items():
-            if key.startswith(f"{current_year} -") and json_cell_has_value(item):
-                monthly_meeting_counts[key] = monthly_meeting_counts.get(key, 0) + 1
+            if not is_attended_cell_value(item):
+                continue
+            key_year, month_abbr = parse_monthly_attendance_key(key)
+            if key_year == current_year and month_abbr and month_abbr not in seen_months:
+                seen_months.add(month_abbr)
+                monthly_meeting_counts[month_abbr] = monthly_meeting_counts.get(month_abbr, 0) + 1
 
     month_order = {
         "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4,
@@ -1917,8 +1925,7 @@ def secretary_dashboard_summary_view(request):
     }
     latest_attendance = 0
     latest_month_order = -1
-    for key, count in monthly_meeting_counts.items():
-        month_abbr = key.rsplit(" / ", 1)[-1].strip()
+    for month_abbr, count in monthly_meeting_counts.items():
         order = month_order.get(month_abbr, -1)
         if order > latest_month_order:
             latest_month_order = order
@@ -1959,7 +1966,7 @@ def secretary_dashboard_summary_view(request):
     dues_paid_count = sum(
         1
         for record in dues_eligible_members
-        if has_annual_dues_value(record.annual_dues.get(f"ANNUAL DUES / {current_year}"))
+        if has_paid_annual_dues_for_year(record, current_year_number)
     )
     dues_percent = percent_of(dues_paid_count, len(dues_eligible_members))
 

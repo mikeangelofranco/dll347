@@ -226,6 +226,51 @@ class ExcelMemberImportHelpersTests(SimpleTestCase):
         self.assertEqual(len(col_map.monthly_attendance_cols), 93)
         self.assertIn("HB", col_map.annual_dues_cols)
 
+    def test_dynamic_column_map_handles_internal_spacer_columns_via_year_reset(self):
+        columns = [
+            {"column": "B", "header_parts": ["NO."]},
+            {"column": "C", "header_parts": ["NAME"]},
+            {"column": "AD", "header_parts": ["BLOOD TYPE"]},
+            {"column": "AE", "header_parts": ["WIDOW", "SISTER"]},
+            {"column": "AF", "header_parts": ["WIDOW", "DATE OF BIRTH"]},
+            {"column": "AG", "header_parts": []},
+            {"column": "AH", "header_parts": ["2021 - WB Allan Abella", "UD"]},
+            {"column": "AI", "header_parts": []},  # internal spacer inside Block 1
+            {"column": "AJ", "header_parts": ["2026 - WB Joel Alili", "UD"]},
+            {"column": "AK", "header_parts": []},  # separator between Block 1 and Block 2
+            {"column": "AL", "header_parts": ["2019 - WB Allan Abella", "Jan"]},
+            {"column": "AM", "header_parts": []},  # internal spacer inside Block 2
+            {"column": "AN", "header_parts": ["2026 - WB Joel Alili", "Dec"]},
+            {"column": "AO", "header_parts": []},
+            {"column": "AP", "header_parts": ["ANNUAL DUES", "2026"]},
+        ]
+        col_map = build_member_column_map(columns)
+        self.assertEqual(col_map.meeting_attendance_cols, {"AH", "AJ"})
+        self.assertEqual(col_map.monthly_attendance_cols, {"AL", "AN"})
+        self.assertEqual(col_map.annual_dues_cols, {"AP"})
+
+    def test_dynamic_monthly_attendance_and_annual_dues_parsing(self):
+        from .serializers import (
+            has_paid_annual_dues_for_year,
+            is_attended_cell_value,
+            parse_monthly_attendance_key,
+        )
+
+        self.assertEqual(parse_monthly_attendance_key("2026-WB Joel Alili / Sept"), ("2026", "Sep"))
+        self.assertEqual(parse_monthly_attendance_key("WB Joel Alili (2026) / November [FU]"), ("2026", "Nov"))
+        self.assertEqual(parse_monthly_attendance_key("2026 / Oct"), ("2026", "Oct"))
+        self.assertEqual(parse_monthly_attendance_key("WB Joel Alili / UD"), (None, "UD"))
+
+        self.assertTrue(is_attended_cell_value({"value": "1"}))
+        self.assertFalse(is_attended_cell_value({"value": "N/A"}))
+        self.assertFalse(is_attended_cell_value({"value": "-"}))
+
+        record = MemberDatabaseRecord(
+            annual_dues={"DUES / 2026 [GU]": {"value": 3000}},
+        )
+        self.assertTrue(has_paid_annual_dues_for_year(record, 2026))
+        self.assertFalse(has_paid_annual_dues_for_year(record, 2025))
+
     def test_is_imes_header_handles_casing_and_typos(self):
         for variant in ("IMES", "imes", "I.M.E.S.", "IMES Date", "IMSE", "IEMS", "Institute of Masonic Education and Studies"):
             clean = variant.replace(" ", "").upper().replace(".", "")

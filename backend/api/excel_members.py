@@ -630,7 +630,11 @@ def build_member_column_map(member_columns: list[dict[str, Any]]) -> DynamicMemb
     )
 
     attendance_segments: list[list[str]] = []
+    segment_years: list[list[int]] = []
+    segment_has_ud: list[bool] = []
     current_segment: list[str] = []
+    current_years: list[int] = []
+    current_ud = False
     prev_idx: int | None = None
     prev_year: int | None = None
 
@@ -645,31 +649,64 @@ def build_member_column_map(member_columns: list[dict[str, Any]]) -> DynamicMemb
         if not parts:
             if current_segment:
                 attendance_segments.append(current_segment)
+                segment_years.append(current_years)
+                segment_has_ud.append(current_ud)
                 current_segment = []
+                current_years = []
+                current_ud = False
             prev_idx = None
             prev_year = None
             continue
-        year_match = re.match(r"^(\d{4})\b", parts[0].strip())
+        year_match = re.search(r"\b(19\d{2}|20\d{2})\b", parts[0])
         year = int(year_match.group(1)) if year_match else None
         if current_segment and (
             (prev_idx is not None and idx != prev_idx + 1)
             or (year is not None and prev_year is not None and year < prev_year)
         ):
             attendance_segments.append(current_segment)
+            segment_years.append(current_years)
+            segment_has_ud.append(current_ud)
             current_segment = []
+            current_years = []
+            current_ud = False
         current_segment.append(col)
-        prev_idx = idx
         if year is not None:
+            current_years.append(year)
             prev_year = year
+        if parts[-1].strip().upper() == "UD":
+            current_ud = True
+        prev_idx = idx
 
     if current_segment:
         attendance_segments.append(current_segment)
+        segment_years.append(current_years)
+        segment_has_ud.append(current_ud)
 
     col_map.appendant_cols = appendant_candidates or {column_name(i + offset) for i in range(19, 28)}
     if len(attendance_segments) >= 2:
-        col_map.meeting_attendance_cols = set(attendance_segments[0])
+        # Determine the split index between Special Meetings (Block 1) and Monthly Attendance (Block 2).
+        # If there is a year reset across segments (e.g., Block 1 ends at 2026 and Block 2 starts at 2019)
+        # or segments containing "UD" subheaders, all segments up to the last UD / pre-reset segment
+        # belong to meeting_attendance_cols, and subsequent segments belong to monthly_attendance_cols.
+        split_idx = 1
+        max_year_seen: int | None = None
+        for i, seg in enumerate(attendance_segments):
+            years = segment_years[i]
+            min_y = min(years) if years else None
+            max_y = max(years) if years else None
+            if i > 0 and min_y is not None and max_year_seen is not None and min_y < max_year_seen:
+                split_idx = i
+                break
+            if segment_has_ud[i] and i + 1 < len(attendance_segments):
+                split_idx = i + 1
+            if max_y is not None:
+                max_year_seen = max(max_year_seen, max_y) if max_year_seen is not None else max_y
+
+        col_map.meeting_attendance_cols = {
+            col for seg in attendance_segments[:split_idx] for col in seg
+        }
         col_map.monthly_attendance_cols = {
-            col for seg in attendance_segments[1:] for col in seg
+            col for seg in attendance_segments[split_idx:] for col in seg
         }
     else:
         col_map.meeting_attendance_cols = {column_name(i + offset) for i in range(33, 81)}
@@ -1164,15 +1201,16 @@ def import_members_workbook(path: str | Path) -> MembersWorkbookImport:
         visitors = workbook.read_sheet("Lodge Visitor")
         balloting = workbook.read_sheet("Balloting & Coin")
 
+    layout = find_member_sheet_layout(members)
     max_col_num = max(
         [column_number(split_reference(reference)[0]) for reference in members.cells]
         + [column_number("GZ")]
     )
     last_column = column_name(max_col_num)
-    member_columns = sheet_columns(members, "B", last_column, (9, 10))
+    member_columns = sheet_columns(members, "B", last_column, (layout.header_row, layout.subheader_row))
     visitor_columns = sheet_columns(visitors, "B", "E", (3,))
     balloting_columns = sheet_columns(balloting, "B", "Z", (3, 4))
-    member_sections = members_section_rows(members, min_row=11)
+    member_sections = members_section_rows(members, min_row=layout.subheader_row + 1)
     balloting_sections = {
         row: text_value(balloting.value(f"B{row}"))
         for row in (5, 63, 73)
@@ -1180,8 +1218,12 @@ def import_members_workbook(path: str | Path) -> MembersWorkbookImport:
     }
 
     col_map = build_member_column_map(member_columns)
+    max_row = max(
+        [row for _column, row in (split_reference(reference) for reference in members.cells)]
+        + [layout.first_data_row]
+    )
     member_records = []
-    for row in range(12, 179):
+    for row in range(layout.first_data_row, max_row + 1):
         if not is_numbered_record(members, row, col_map.number_col, col_map.name_col):
             continue
         name = text_value(members.value(f"{col_map.name_col}{row}"))
