@@ -55,10 +55,11 @@ _MONTH_ABBREVIATIONS = [
 
 def _months_attended(obj: MemberDatabaseRecord, year: str) -> set[str]:
     return {
-        key.rsplit(" / ", 1)[-1]
+        key.rsplit(" / ", 1)[-1].strip()
         for key, item in obj.monthly_attendance.items()
-        if key.startswith(f"{year} - ")
+        if key.strip().startswith(f"{year} -")
         and json_cell_value(item) not in (None, "")
+        and str(json_cell_value(item)).strip() != ""
     }
 
 

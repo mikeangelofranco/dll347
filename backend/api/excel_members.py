@@ -557,6 +557,8 @@ def build_member_column_map(member_columns: list[dict[str, Any]]) -> DynamicMemb
     col_map = DynamicMemberColumnMap()
     appendant_candidates: set[str] = set()
     annual_dues_candidates: set[str] = set()
+    widow_sister_matched = False
+    widow_dob_matched = False
 
     for col_def in member_columns:
         col = col_def["column"]
@@ -602,8 +604,10 @@ def build_member_column_map(member_columns: list[dict[str, Any]]) -> DynamicMemb
             col_map.blood_type_col = col
         elif "WIDOW" in norm and not ("BIRTH" in norm or "DOB" in norm):
             col_map.widow_sister_col = col
+            widow_sister_matched = True
         elif "WIDOW" in norm and ("BIRTH" in norm or "DOB" in norm):
             col_map.widow_dob_col = col
+            widow_dob_matched = True
 
         if ("APPENDANT" in norm or "CLUB" in norm) and not is_imes_header(norm):
             appendant_candidates.add(col)
@@ -611,10 +615,65 @@ def build_member_column_map(member_columns: list[dict[str, Any]]) -> DynamicMemb
             annual_dues_candidates.add(col)
 
     offset = column_number(col_map.blood_type_col) - 29
+    if not widow_sister_matched:
+        col_map.widow_sister_col = column_name(30 + offset)
+    if not widow_dob_matched:
+        col_map.widow_dob_col = column_name(31 + offset)
+
+    after_personal_idx = max(
+        column_number(col_map.blood_type_col) + 2,
+        column_number(col_map.widow_dob_col),
+    )
+    before_dues_idx = min(
+        (column_number(c) for c in annual_dues_candidates),
+        default=10_000,
+    )
+
+    attendance_segments: list[list[str]] = []
+    current_segment: list[str] = []
+    prev_idx: int | None = None
+    prev_year: int | None = None
+
+    for col_def in member_columns:
+        col = col_def["column"]
+        idx = column_number(col)
+        if idx <= after_personal_idx or idx >= before_dues_idx:
+            continue
+        if col in annual_dues_candidates or col in appendant_candidates:
+            continue
+        parts = col_def.get("header_parts", [])
+        if not parts:
+            if current_segment:
+                attendance_segments.append(current_segment)
+                current_segment = []
+            prev_idx = None
+            prev_year = None
+            continue
+        year_match = re.match(r"^(\d{4})\b", parts[0].strip())
+        year = int(year_match.group(1)) if year_match else None
+        if current_segment and (
+            (prev_idx is not None and idx != prev_idx + 1)
+            or (year is not None and prev_year is not None and year < prev_year)
+        ):
+            attendance_segments.append(current_segment)
+            current_segment = []
+        current_segment.append(col)
+        prev_idx = idx
+        if year is not None:
+            prev_year = year
+
+    if current_segment:
+        attendance_segments.append(current_segment)
 
     col_map.appendant_cols = appendant_candidates or {column_name(i + offset) for i in range(19, 28)}
-    col_map.meeting_attendance_cols = {column_name(i + offset) for i in range(33, 81)}
-    col_map.monthly_attendance_cols = {column_name(i + offset) for i in range(83, 175)}
+    if len(attendance_segments) >= 2:
+        col_map.meeting_attendance_cols = set(attendance_segments[0])
+        col_map.monthly_attendance_cols = {
+            col for seg in attendance_segments[1:] for col in seg
+        }
+    else:
+        col_map.meeting_attendance_cols = {column_name(i + offset) for i in range(33, 81)}
+        col_map.monthly_attendance_cols = {column_name(i + offset) for i in range(83, 176)}
     col_map.annual_dues_cols = annual_dues_candidates or {column_name(i + offset) for i in range(177, 208)}
 
     return col_map
@@ -709,7 +768,12 @@ def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDa
         raise MembersWorkbookFormatError([f"Unable to read members workbook: {exc}"])
 
     layout = find_member_sheet_layout(members)
-    member_columns = sheet_columns(members, "B", "GZ", (layout.header_row, layout.subheader_row))
+    max_col_num = max(
+        [column_number(split_reference(reference)[0]) for reference in members.cells]
+        + [column_number("GZ")]
+    )
+    last_column = column_name(max_col_num)
+    member_columns = sheet_columns(members, "B", last_column, (layout.header_row, layout.subheader_row))
     col_map = build_member_column_map(member_columns)
     member_sections = members_section_rows(members, min_row=layout.subheader_row + 1)
     max_row = max(
@@ -756,7 +820,7 @@ def parsed_member_records_from_workbook(path: str | Path) -> tuple[list[MemberDa
                 meeting_attendance=keyed_values(members, row, member_columns, col_map.meeting_attendance_cols),
                 monthly_attendance=keyed_values(members, row, member_columns, col_map.monthly_attendance_cols),
                 annual_dues=keyed_values(members, row, member_columns, col_map.annual_dues_cols),
-                raw_cells=raw_row(members, row, "B", "GZ"),
+                raw_cells=raw_row(members, row, "B", last_column),
             )
         )
 
@@ -1100,7 +1164,12 @@ def import_members_workbook(path: str | Path) -> MembersWorkbookImport:
         visitors = workbook.read_sheet("Lodge Visitor")
         balloting = workbook.read_sheet("Balloting & Coin")
 
-    member_columns = sheet_columns(members, "B", "GZ", (9, 10))
+    max_col_num = max(
+        [column_number(split_reference(reference)[0]) for reference in members.cells]
+        + [column_number("GZ")]
+    )
+    last_column = column_name(max_col_num)
+    member_columns = sheet_columns(members, "B", last_column, (9, 10))
     visitor_columns = sheet_columns(visitors, "B", "E", (3,))
     balloting_columns = sheet_columns(balloting, "B", "Z", (3, 4))
     member_sections = members_section_rows(members, min_row=11)
@@ -1150,7 +1219,7 @@ def import_members_workbook(path: str | Path) -> MembersWorkbookImport:
                 meeting_attendance=keyed_values(members, row, member_columns, col_map.meeting_attendance_cols),
                 monthly_attendance=keyed_values(members, row, member_columns, col_map.monthly_attendance_cols),
                 annual_dues=keyed_values(members, row, member_columns, col_map.annual_dues_cols),
-                raw_cells=raw_row(members, row, "B", "GZ"),
+                raw_cells=raw_row(members, row, "B", last_column),
             )
         )
 

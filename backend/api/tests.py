@@ -194,6 +194,38 @@ class ExcelMemberImportHelpersTests(SimpleTestCase):
         self.assertEqual(col_map.email_col, "R")
         self.assertEqual(col_map.blood_type_col, "AD")
 
+    def test_dynamic_column_map_detects_expanded_attendance_segments(self):
+        columns = [
+            {"column": "B", "header_parts": ["NO."]},
+            {"column": "C", "header_parts": ["NAME"]},
+            {"column": "AD", "header_parts": ["BLOOD TYPE"]},
+            {"column": "AE", "header_parts": ["WIDOW", "SISTER"]},
+            {"column": "AF", "header_parts": ["WIDOW", "DATE OF BIRTH"]},
+            {"column": "AG", "header_parts": []},
+            *[
+                {"column": column_name(i), "header_parts": ["2021 - WB Allan Abella" if i < 73 else "2026 - WB Joel Alili", "UD"]}
+                for i in range(34, 84)
+            ],
+            {"column": "CF", "header_parts": []},
+            {"column": "CG", "header_parts": []},
+            *[
+                {"column": column_name(i), "header_parts": ["2019 - WB Allan Abella" if i < 167 else "2026 - WB Joel Alili", "Nov"]}
+                for i in range(86, 179)
+            ],
+            {"column": "FW", "header_parts": []},
+            {"column": "FX", "header_parts": ["ANNUAL DUES", "UD"]},
+            {"column": "HB", "header_parts": ["ANNUAL DUES", "2032"]},
+        ]
+        col_map = build_member_column_map(columns)
+        self.assertIn("CE", col_map.meeting_attendance_cols)
+        self.assertEqual(len(col_map.meeting_attendance_cols), 50)
+        self.assertIn("CH", col_map.monthly_attendance_cols)
+        self.assertIn("FT", col_map.monthly_attendance_cols)
+        self.assertIn("FU", col_map.monthly_attendance_cols)
+        self.assertIn("FV", col_map.monthly_attendance_cols)
+        self.assertEqual(len(col_map.monthly_attendance_cols), 93)
+        self.assertIn("HB", col_map.annual_dues_cols)
+
     def test_is_imes_header_handles_casing_and_typos(self):
         for variant in ("IMES", "imes", "I.M.E.S.", "IMES Date", "IMSE", "IEMS", "Institute of Masonic Education and Studies"):
             clean = variant.replace(" ", "").upper().replace(".", "")
